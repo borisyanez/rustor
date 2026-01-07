@@ -1,0 +1,21 @@
+[package]
+name = "rustor-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rustor"
+path = "src/main.rs"
+
+[dependencies]
+rustor-core = { path = "../rustor-core" }
+rustor-rules = { path = "../rustor-rules" }
+mago-syntax = "1.0"
+mago-span = "1.0"
+mago-database = "1.0"
+bumpalo = "3.16"
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+colored = "2.0"
+walkdir = "2.5"
+diff = "0.1"

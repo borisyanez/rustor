@@ -1,0 +1,9 @@
+[package]
+name = "rustor-rules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustor-core = { path = "../rustor-core" }
+mago-syntax = "1.0"
+mago-span = "1.0"
