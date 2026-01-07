@@ -63,7 +63,7 @@ struct Cli {
     #[arg(long, short = 'r', value_name = "RULE")]
     rule: Vec<String>,
 
-    /// Output format: text, json, diff
+    /// Output format: text, json, diff, sarif, html
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     format: String,
 
@@ -127,7 +127,7 @@ fn run() -> Result<ExitCode> {
     } else {
         OutputFormat::from_str(&cli.format).ok_or_else(|| {
             anyhow::anyhow!(
-                "Invalid output format '{}'. Valid options: text, json, diff",
+                "Invalid output format '{}'. Valid options: text, json, diff, sarif, html",
                 cli.format
             )
         })?
@@ -428,6 +428,7 @@ fn run() -> Result<ExitCode> {
 
     // Create reporter and process results sequentially
     let mut reporter = Reporter::new(output_format, cli.verbose);
+    reporter.set_enabled_rules(enabled_rules.iter().cloned().collect());
 
     // Report missing paths
     for path in &missing_paths {

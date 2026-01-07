@@ -120,8 +120,12 @@ fn extract_rule_name(message: &str) -> String {
     let lower = message.to_lowercase();
     if lower.contains("array_push") {
         "array_push".to_string()
+    } else if lower.contains("array_key_first") || lower.contains("array_key_last") || lower.contains("array_keys()[0]") {
+        "array_key_first_last".to_string()
     } else if lower.contains("array()") || lower.contains("short array") {
         "array_syntax".to_string()
+    } else if lower.contains("??=") || lower.contains("assign coalesce") {
+        "assign_coalesce".to_string()
     } else if lower.contains("empty") && lower.contains("?:") {
         "empty_coalesce".to_string()
     } else if lower.contains("is_null") {
@@ -132,10 +136,18 @@ fn extract_rule_name(message: &str) -> String {
         "join_to_implode".to_string()
     } else if lower.contains("list") && lower.contains("[]") {
         "list_short_syntax".to_string()
+    } else if lower.contains("match(") || lower.contains("match expression") {
+        "match_expression".to_string()
+    } else if lower.contains("?->") || lower.contains("nullsafe") {
+        "null_safe_operator".to_string()
     } else if lower.contains("pow") && lower.contains("**") {
         "pow_to_operator".to_string()
-    } else if lower.contains("sizeof") || lower.contains("count") {
+    } else if lower.contains("sizeof") {
         "sizeof".to_string()
+    } else if lower.contains("str_contains") || lower.contains("strpos") && lower.contains("!==") {
+        "string_contains".to_string()
+    } else if lower.contains("str_starts_with") || lower.contains("str_ends_with") {
+        "string_starts_ends".to_string()
     } else if lower.contains("strval")
         || lower.contains("intval")
         || lower.contains("floatval")
@@ -146,6 +158,10 @@ fn extract_rule_name(message: &str) -> String {
         || lower.contains("(bool)")
     {
         "type_cast".to_string()
+    } else if lower.contains("__construct") || lower.contains("class constructor") {
+        "class_constructor".to_string()
+    } else if lower.contains("sprintf") && lower.contains("positional") {
+        "sprintf_positional".to_string()
     } else {
         "unknown".to_string()
     }
