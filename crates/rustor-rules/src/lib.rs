@@ -7,6 +7,7 @@
 //! - is_null: Convert is_null($x) to $x === null
 //! - isset_coalesce: Convert isset($x) ? $x : $default to $x ?? $default
 //! - join_to_implode: Convert join() to implode()
+//! - pow_to_operator: Convert pow($x, $n) to $x ** $n
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval to cast syntax
 
@@ -16,6 +17,7 @@ pub mod empty_coalesce;
 pub mod is_null;
 pub mod isset_coalesce;
 pub mod join_to_implode;
+pub mod pow_to_operator;
 pub mod sizeof;
 pub mod type_cast;
 
@@ -25,5 +27,6 @@ pub use empty_coalesce::check_empty_coalesce;
 pub use is_null::check_is_null;
 pub use isset_coalesce::check_isset_coalesce;
 pub use join_to_implode::check_join_to_implode;
+pub use pow_to_operator::check_pow_to_operator;
 pub use sizeof::check_sizeof;
 pub use type_cast::check_type_cast;

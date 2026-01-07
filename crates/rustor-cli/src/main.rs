@@ -7,6 +7,7 @@
 //! - is_null: Convert is_null($x) to $x === null
 //! - isset_coalesce: Convert isset($x) ? $x : $default to $x ?? $default
 //! - join_to_implode: Convert join() to implode()
+//! - pow_to_operator: Convert pow($x, $n) to $x ** $n
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
@@ -32,6 +33,7 @@ const ALL_RULES: &[&str] = &[
     "is_null",
     "isset_coalesce",
     "join_to_implode",
+    "pow_to_operator",
     "sizeof",
     "type_cast",
 ];
@@ -126,6 +128,10 @@ fn run() -> Result<ExitCode> {
         println!(
             "  {} - Convert join() to implode()",
             "join_to_implode".green()
+        );
+        println!(
+            "  {} - Convert pow($x, $n) to $x ** $n",
+            "pow_to_operator".green()
         );
         println!(
             "  {} - Convert sizeof($x) to count($x)",

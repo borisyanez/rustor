@@ -9,7 +9,8 @@ use std::path::Path;
 use rustor_core::{apply_edits, Edit};
 use rustor_rules::{
     check_array_push, check_array_syntax, check_empty_coalesce, check_is_null,
-    check_isset_coalesce, check_join_to_implode, check_sizeof, check_type_cast,
+    check_isset_coalesce, check_join_to_implode, check_pow_to_operator, check_sizeof,
+    check_type_cast,
 };
 
 use crate::output::EditInfo;
@@ -64,6 +65,9 @@ pub fn process_file(
     }
     if enabled_rules.contains("join_to_implode") {
         edits.extend(check_join_to_implode(program, &source_code));
+    }
+    if enabled_rules.contains("pow_to_operator") {
+        edits.extend(check_pow_to_operator(program, &source_code));
     }
     if enabled_rules.contains("sizeof") {
         edits.extend(check_sizeof(program, &source_code));
@@ -147,6 +151,8 @@ fn extract_rule_name(message: &str) -> String {
         "isset_coalesce".to_string()
     } else if lower.contains("join") && lower.contains("implode") {
         "join_to_implode".to_string()
+    } else if lower.contains("pow") && lower.contains("**") {
+        "pow_to_operator".to_string()
     } else if lower.contains("sizeof") || lower.contains("count") {
         "sizeof".to_string()
     } else if lower.contains("strval")
