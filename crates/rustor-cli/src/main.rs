@@ -10,7 +10,7 @@ use mago_database::file::FileId;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
-use rustor_rules::check_array_push;
+use rustor_rules::{check_array_push, check_is_null};
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -108,7 +108,8 @@ fn process_file(path: &Path, dry_run: bool, verbose: bool) -> Result<(bool, usiz
     }
 
     // Apply refactoring rules
-    let edits = check_array_push(program, &source_code);
+    let mut edits = check_array_push(program, &source_code);
+    edits.extend(check_is_null(program, &source_code));
 
     if edits.is_empty() {
         if verbose {
