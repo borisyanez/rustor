@@ -187,6 +187,7 @@ impl Preset {
             ],
             Preset::Modernize => &[
                 "array_syntax",
+                "assign_coalesce",
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
@@ -264,6 +265,8 @@ impl RuleRegistry {
         // Register all built-in rules
         registry.register(Box::new(super::array_push::ArrayPushRule));
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
+        registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
+        registry.register(Box::new(super::class_constructor::ClassConstructorRule));
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
         registry.register(Box::new(super::is_null::IsNullRule));
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
@@ -271,6 +274,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::list_short_syntax::ListShortSyntaxRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
+        registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
 
         registry
