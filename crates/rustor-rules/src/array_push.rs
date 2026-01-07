@@ -50,8 +50,12 @@ impl<'s> ArrayPushVisitor<'s> {
                     if name.eq_ignore_ascii_case("array_push") {
                         let arg_list: Vec<_> = func_call.argument_list.arguments.iter().collect();
 
-                        // Only handle simple case: exactly 2 arguments
-                        if arg_list.len() == 2 {
+                        // Only handle simple case: exactly 2 arguments, neither unpacked
+                        // array_push($arr, ...$vals) cannot be converted to $arr[] = ...$vals
+                        if arg_list.len() == 2
+                            && !arg_list[0].is_unpacked()
+                            && !arg_list[1].is_unpacked()
+                        {
                             let arr_span = arg_list[0].span();
                             let val_span = arg_list[1].span();
 
@@ -177,6 +181,14 @@ mod tests {
         let source = "<?php array_push($arr, $a, $b, $c, $d, $e);";
         let edits = check_php(source);
         assert_eq!(edits.len(), 0, "Should skip multi-arg array_push");
+    }
+
+    #[test]
+    fn test_skip_variadic_spread() {
+        // array_push($arr, ...$vals) cannot become $arr[] = ...$vals (invalid syntax)
+        let source = "<?php array_push($arr, ...$values);";
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0, "Should skip variadic spread argument");
     }
 
     #[test]
