@@ -26,6 +26,7 @@ pub mod list_short_syntax;
 pub mod pow_to_operator;
 pub mod sizeof;
 pub mod sprintf_positional;
+pub mod string_contains;
 pub mod type_cast;
 
 // Re-export the Rule trait, registry, and metadata types
@@ -44,4 +45,5 @@ pub use list_short_syntax::check_list_short_syntax;
 pub use pow_to_operator::check_pow_to_operator;
 pub use sizeof::check_sizeof;
 pub use sprintf_positional::check_sprintf_positional;
+pub use string_contains::check_string_contains;
 pub use type_cast::check_type_cast;

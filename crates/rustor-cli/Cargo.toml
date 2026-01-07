@@ -25,5 +25,15 @@ toml = "0.8"
 glob = "0.3"
 rayon = "1.10"
 
+# Phase 4: Caching
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Phase 4: Watch mode
+notify = "6.1"
+notify-debouncer-mini = "0.4"
+
+# Phase 4: Better output formats
+similar = "2.6"
+
 [dev-dependencies]
 tempfile = "3.17"

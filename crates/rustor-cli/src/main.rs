@@ -12,9 +12,11 @@
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
+mod cache;
 mod config;
 mod output;
 mod process;
+mod watch;
 
 use anyhow::Result;
 use clap::Parser;
@@ -23,7 +25,9 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Mutex;
 
+use cache::{hash_file, hash_rules, Cache};
 use config::Config;
 use output::{EditInfo, OutputFormat, Reporter};
 use process::{process_file, write_file};
@@ -59,7 +63,7 @@ struct Cli {
     #[arg(long, short = 'r', value_name = "RULE")]
     rule: Vec<String>,
 
-    /// Output format: text, json
+    /// Output format: text, json, diff
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     format: String,
 
@@ -90,6 +94,18 @@ struct Cli {
     /// Use a preset rule configuration (recommended, performance, modernize, all)
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
+
+    /// Disable caching (always re-process all files)
+    #[arg(long)]
+    no_cache: bool,
+
+    /// Clear the cache before running
+    #[arg(long)]
+    clear_cache: bool,
+
+    /// Watch mode: re-run analysis when files change
+    #[arg(long, short = 'w')]
+    watch: bool,
 }
 
 fn main() -> ExitCode {
@@ -133,7 +149,7 @@ fn run() -> Result<ExitCode> {
     } else {
         OutputFormat::from_str(&cli.format).ok_or_else(|| {
             anyhow::anyhow!(
-                "Invalid output format '{}'. Valid options: text, json",
+                "Invalid output format '{}'. Valid options: text, json, diff",
                 cli.format
             )
         })?
@@ -265,9 +281,48 @@ fn run() -> Result<ExitCode> {
         return Ok(ExitCode::from(1));
     }
 
+    // Handle watch mode
+    if cli.watch {
+        let watch_config = watch::WatchConfig {
+            paths: cli.paths.clone(),
+            enabled_rules: enabled_rules.clone(),
+            format: output_format,
+            verbose: cli.verbose,
+            ..Default::default()
+        };
+        watch::run_watch(watch_config)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
     // Determine mode: fix or check (check is default)
     let fix_mode = cli.fix;
     let check_mode = !fix_mode; // --check, --dry-run, or default
+
+    // Determine cache directory (use cwd)
+    let cache_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Handle --clear-cache
+    if cli.clear_cache {
+        if let Err(e) = cache::clear_cache(&cache_dir) {
+            if cli.verbose && output_format == OutputFormat::Text {
+                eprintln!("{}: Failed to clear cache: {}", "Warning".yellow(), e);
+            }
+        } else if cli.verbose && output_format == OutputFormat::Text {
+            println!("{}: Cache cleared", "Info".bold());
+        }
+    }
+
+    // Load cache (unless disabled)
+    let use_cache = !cli.no_cache;
+    let cache = if use_cache {
+        Cache::load(&cache_dir).unwrap_or_default()
+    } else {
+        Cache::default()
+    };
+    let cache = Mutex::new(cache);
+
+    // Compute rules hash for cache invalidation
+    let rules_hash = hash_rules(&enabled_rules);
 
     if cli.verbose && output_format == OutputFormat::Text {
         println!(
@@ -313,11 +368,56 @@ fn run() -> Result<ExitCode> {
         }
     }
 
-    // Process files in parallel
+    // Process files in parallel (with caching)
+    let cache_hits = Mutex::new(0usize);
     let results: Vec<FileResult> = file_paths
         .par_iter()
-        .map(|path| process_file_to_result(path, &enabled_rules))
+        .map(|path| {
+            // Check cache first
+            if use_cache {
+                if let Ok(content_hash) = hash_file(path) {
+                    let cache_guard = cache.lock().unwrap();
+                    if let Some(entry) = cache_guard.get_if_valid(path, content_hash, rules_hash) {
+                        // Cache hit - use cached result
+                        *cache_hits.lock().unwrap() += 1;
+                        return if entry.has_edits {
+                            FileResult::CachedWithEdits { edit_count: entry.edit_count }
+                        } else {
+                            FileResult::NoChanges
+                        };
+                    }
+                }
+            }
+
+            // Cache miss - process the file
+            let result = process_file_to_result(path, &enabled_rules);
+
+            // Update cache with result
+            if use_cache {
+                if let Ok(content_hash) = hash_file(path) {
+                    let (has_edits, edit_count) = match &result {
+                        FileResult::HasChanges { edits, .. } => (true, edits.len()),
+                        FileResult::NoChanges => (false, 0),
+                        _ => (false, 0),
+                    };
+                    let mut cache_guard = cache.lock().unwrap();
+                    cache_guard.update(path.clone(), content_hash, rules_hash, has_edits, edit_count);
+                }
+            }
+
+            result
+        })
         .collect();
+
+    // Report cache stats in verbose mode
+    let hits = *cache_hits.lock().unwrap();
+    if cli.verbose && use_cache && hits > 0 && output_format == OutputFormat::Text {
+        println!(
+            "{}: {} files skipped (unchanged)",
+            "Cache".bold(),
+            hits
+        );
+    }
 
     // Sort results by path for deterministic output
     let mut sorted_results: Vec<_> = results.into_iter().zip(file_paths.iter()).collect();
@@ -340,6 +440,16 @@ fn run() -> Result<ExitCode> {
     // Report file results
     for (result, path) in sorted_results {
         report_result(path, result, fix_mode, &mut reporter)?;
+    }
+
+    // Save cache
+    if use_cache {
+        let cache = cache.into_inner().unwrap();
+        if let Err(e) = cache.save(&cache_dir) {
+            if cli.verbose && output_format == OutputFormat::Text {
+                eprintln!("{}: Failed to save cache: {}", "Warning".yellow(), e);
+            }
+        }
     }
 
     // Determine exit code
@@ -368,6 +478,8 @@ enum FileResult {
         old_source: String,
         new_source: String,
     },
+    /// Cached result with edits (we don't have the details, just the count)
+    CachedWithEdits { edit_count: usize },
     /// Parse error occurred
     ParseError,
     /// Other error occurred
@@ -415,6 +527,10 @@ fn report_result(
             } else {
                 reporter.report_check(path, edits, &old_source, &new_source);
             }
+        }
+        FileResult::CachedWithEdits { edit_count } => {
+            // File was cached with edits - report as having changes but no details
+            reporter.report_cached(path, edit_count);
         }
         FileResult::ParseError => {
             reporter.report_error(path, "Parse error, skipping");

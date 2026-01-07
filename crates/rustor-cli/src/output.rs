@@ -12,6 +12,7 @@ pub enum OutputFormat {
     #[default]
     Text,
     Json,
+    Diff,
 }
 
 impl OutputFormat {
@@ -19,6 +20,7 @@ impl OutputFormat {
         match s.to_lowercase().as_str() {
             "text" => Some(OutputFormat::Text),
             "json" => Some(OutputFormat::Json),
+            "diff" => Some(OutputFormat::Diff),
             _ => None,
         }
     }
@@ -121,14 +123,22 @@ impl Reporter {
         self.summary.files_with_changes += 1;
         self.summary.total_edits += edits.len();
 
-        if self.format == OutputFormat::Text {
-            println!("{}", path.display().to_string().bold());
-            print_diff(old_source, new_source);
-            println!();
-            for edit in &edits {
-                println!("  {} {}", "->".green(), edit.message);
+        match self.format {
+            OutputFormat::Text => {
+                println!("{}", path.display().to_string().bold());
+                print_diff(old_source, new_source);
+                println!();
+                for edit in &edits {
+                    println!("  {} {}", "->".green(), edit.message);
+                }
+                println!();
             }
-            println!();
+            OutputFormat::Diff => {
+                print_unified_diff(path, old_source, new_source);
+            }
+            OutputFormat::Json => {
+                // JSON output is handled in finish()
+            }
         }
 
         self.results.push(FileResult::success(path, edits));
@@ -168,6 +178,26 @@ impl Reporter {
         if self.verbose && self.format == OutputFormat::Text {
             println!("{}: No changes needed", path.display());
         }
+        self.results.push(FileResult::success(path, vec![]));
+    }
+
+    /// Report a file with cached results (has edits but no details available)
+    pub fn report_cached(&mut self, path: &Path, edit_count: usize) {
+        self.summary.files_processed += 1;
+        self.summary.files_with_changes += 1;
+        self.summary.total_edits += edit_count;
+
+        if self.format == OutputFormat::Text {
+            println!("{}", path.display().to_string().bold());
+            println!(
+                "  {} {} change(s) (cached)",
+                "!".yellow(),
+                edit_count
+            );
+            println!();
+        }
+
+        // For JSON output, we don't have detailed edit info
         self.results.push(FileResult::success(path, vec![]));
     }
 
@@ -214,6 +244,10 @@ impl Reporter {
                 };
                 println!("{}", serde_json::to_string_pretty(&output).unwrap());
             }
+            OutputFormat::Diff => {
+                // Diff format outputs each file's diff as it's processed
+                // No summary needed for patch-compatible output
+            }
         }
     }
 
@@ -240,6 +274,34 @@ fn print_diff(old: &str, new: &str) {
     }
 }
 
+/// Print unified diff format (standard diff -u compatible)
+fn print_unified_diff(path: &Path, old: &str, new: &str) {
+    use similar::{ChangeTag, TextDiff};
+
+    let diff = TextDiff::from_lines(old, new);
+    let path_str = path.display().to_string();
+
+    // Print unified diff header
+    println!("--- a/{}", path_str);
+    println!("+++ b/{}", path_str);
+
+    // Print hunks with context
+    for hunk in diff.unified_diff().context_radius(3).iter_hunks() {
+        println!("{}", hunk.header());
+        for change in hunk.iter_changes() {
+            let sign = match change.tag() {
+                ChangeTag::Delete => "-",
+                ChangeTag::Insert => "+",
+                ChangeTag::Equal => " ",
+            };
+            print!("{}{}", sign, change);
+            if change.missing_newline() {
+                println!();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +312,8 @@ mod tests {
         assert_eq!(OutputFormat::from_str("TEXT"), Some(OutputFormat::Text));
         assert_eq!(OutputFormat::from_str("json"), Some(OutputFormat::Json));
         assert_eq!(OutputFormat::from_str("JSON"), Some(OutputFormat::Json));
+        assert_eq!(OutputFormat::from_str("diff"), Some(OutputFormat::Diff));
+        assert_eq!(OutputFormat::from_str("DIFF"), Some(OutputFormat::Diff));
         assert_eq!(OutputFormat::from_str("xml"), None);
     }
 

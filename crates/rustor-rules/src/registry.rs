@@ -191,6 +191,7 @@ impl Preset {
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
+                "string_contains",
             ],
             Preset::All => &[], // Special case: all rules
         }
@@ -275,6 +276,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
+        registry.register(Box::new(super::string_contains::StringContainsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
 
         registry
