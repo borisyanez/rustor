@@ -30,7 +30,11 @@
 //!
 //! Note: This is a complex transformation requiring careful analysis of
 //! constructor parameters, property declarations, and their relationships.
-//! The current implementation is a framework for future expansion.
+//! Full implementation would need to:
+//! 1. Remove property declarations
+//! 2. Add visibility modifier to constructor parameter
+//! 3. Remove assignment statements from constructor body
+//! This is currently a detection-only rule.
 
 use mago_syntax::ast::*;
 use rustor_core::Edit;
@@ -39,17 +43,18 @@ use crate::registry::{Category, PhpVersion, Rule};
 
 /// Check a parsed PHP program for constructor properties that can be promoted
 ///
-/// Note: This rule is currently disabled pending full implementation
-/// of constructor promotion detection and transformation.
+/// Note: This rule is currently a framework for detection.
+/// Full implementation requires complex multi-span transformations.
 pub fn check_constructor_promotion<'a>(_program: &Program<'a>, _source: &str) -> Vec<Edit> {
-    // TODO: Implement constructor promotion detection
-    // This requires:
-    // 1. Finding classes with typed properties
-    // 2. Analyzing __construct to find simple $this->prop = $param assignments
-    // 3. Matching property types with parameter types
-    // 4. Generating the promoted property syntax
+    // Constructor promotion transformation is complex because it requires:
+    // 1. Removing property declarations (multiple spans)
+    // 2. Modifying constructor parameters to add visibility
+    // 3. Removing $this->prop = $param assignments from constructor body
     //
-    // For now, return empty to avoid false positives
+    // This requires a multi-pass approach or a different Edit model
+    // that supports multiple related changes atomically.
+    //
+    // For now, return empty to avoid partial/broken transformations.
     Vec::new()
 }
 
