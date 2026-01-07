@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Configuration file structure
@@ -34,6 +34,50 @@ pub struct RulesConfig {
     pub enabled: Option<Vec<String>>,
     /// Rules to exclude (applied after enabled/preset)
     pub disabled: Vec<String>,
+    /// Rule-specific configuration options
+    /// e.g., [rules.string_contains] strict_comparison = true
+    #[serde(flatten)]
+    pub rule_options: HashMap<String, toml::Value>,
+}
+
+impl RulesConfig {
+    /// Get configuration for a specific rule as a TOML table
+    pub fn get_rule_config(&self, rule_name: &str) -> Option<&toml::value::Table> {
+        self.rule_options.get(rule_name).and_then(|v| v.as_table())
+    }
+
+    /// Convert rule options to RuleConfigs format for use with RuleRegistry
+    pub fn to_rule_configs(&self) -> rustor_rules::RuleConfigs {
+        use rustor_rules::ConfigValue;
+
+        let mut configs = rustor_rules::RuleConfigs::new();
+
+        for (rule_name, value) in &self.rule_options {
+            // Skip non-table entries (like "enabled", "disabled", "preset")
+            if let Some(table) = value.as_table() {
+                let mut rule_config = std::collections::HashMap::new();
+
+                for (key, val) in table {
+                    let config_value = match val {
+                        toml::Value::Boolean(b) => Some(ConfigValue::Bool(*b)),
+                        toml::Value::Integer(i) => Some(ConfigValue::Int(*i)),
+                        toml::Value::String(s) => Some(ConfigValue::String(s.clone())),
+                        _ => None, // Skip arrays, tables, etc.
+                    };
+
+                    if let Some(cv) = config_value {
+                        rule_config.insert(key.clone(), cv);
+                    }
+                }
+
+                if !rule_config.is_empty() {
+                    configs.insert(rule_name.clone(), rule_config);
+                }
+            }
+        }
+
+        configs
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -224,6 +268,7 @@ format = "json"
                 preset: None,
                 enabled: Some(vec!["array_push".to_string(), "sizeof".to_string()]),
                 disabled: vec![],
+                rule_options: HashMap::new(),
             },
             ..Default::default()
         };
@@ -243,6 +288,7 @@ format = "json"
                 preset: None,
                 enabled: None,
                 disabled: vec!["sizeof".to_string()],
+                rule_options: HashMap::new(),
             },
             ..Default::default()
         };
@@ -281,5 +327,71 @@ format = "json"
         assert!(config.should_exclude(Path::new("project/vendor/autoload.php")));
         assert!(config.should_exclude(Path::new("vendor/package/file.php")));
         assert!(!config.should_exclude(Path::new("src/vendor.php")));
+    }
+
+    #[test]
+    fn test_rule_config_parsing() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[rules]
+enabled = ["string_contains"]
+
+[rules.string_contains]
+strict_comparison = false
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        // Check that rule options were parsed
+        let rule_config = config.rules.get_rule_config("string_contains");
+        assert!(rule_config.is_some());
+
+        let table = rule_config.unwrap();
+        assert_eq!(table.get("strict_comparison").unwrap().as_bool(), Some(false));
+    }
+
+    #[test]
+    fn test_to_rule_configs() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[rules]
+enabled = ["string_contains"]
+
+[rules.string_contains]
+strict_comparison = false
+
+[rules.other_rule]
+min_count = 3
+message = "custom message"
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        let rule_configs = config.rules.to_rule_configs();
+
+        // Check string_contains config
+        let sc_config = rule_configs.get("string_contains").unwrap();
+        assert_eq!(
+            sc_config.get("strict_comparison").unwrap().as_bool(),
+            Some(false)
+        );
+
+        // Check other_rule config
+        let other_config = rule_configs.get("other_rule").unwrap();
+        assert_eq!(other_config.get("min_count").unwrap().as_int(), Some(3));
+        assert_eq!(
+            other_config.get("message").unwrap().as_string(),
+            Some("custom message")
+        );
     }
 }

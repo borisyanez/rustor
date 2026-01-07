@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use rustor_core::apply_edits;
-use rustor_rules::RuleRegistry;
+use rustor_rules::{RuleConfigs, RuleRegistry};
 
 use crate::output::EditInfo;
 
@@ -26,6 +26,15 @@ pub fn process_file(
     path: &Path,
     enabled_rules: &HashSet<String>,
 ) -> Result<Option<ProcessResult>> {
+    process_file_with_config(path, enabled_rules, &RuleConfigs::new())
+}
+
+/// Process a single PHP file with rule configuration
+pub fn process_file_with_config(
+    path: &Path,
+    enabled_rules: &HashSet<String>,
+    rule_configs: &RuleConfigs,
+) -> Result<Option<ProcessResult>> {
     let source_code = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
@@ -42,8 +51,8 @@ pub fn process_file(
         return Ok(None); // Signal parse error by returning None
     }
 
-    // Apply enabled refactoring rules using the registry
-    let registry = RuleRegistry::new();
+    // Apply enabled refactoring rules using the registry with config
+    let registry = RuleRegistry::new_with_config(rule_configs);
     let edits = registry.check_all(program, &source_code, enabled_rules);
 
     if edits.is_empty() {

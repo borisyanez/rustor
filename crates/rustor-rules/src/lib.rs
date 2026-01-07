@@ -32,7 +32,10 @@ pub mod string_starts_ends;
 pub mod type_cast;
 
 // Re-export the Rule trait, registry, and metadata types
-pub use registry::{Category, PhpVersion, Preset, Rule, RuleInfo, RuleRegistry};
+pub use registry::{
+    Category, ConfigOption, ConfigOptionType, ConfigValue, ConfigurableRule, PhpVersion, Preset,
+    Rule, RuleConfigs, RuleInfo, RuleRegistry,
+};
 
 // Re-export check functions (for backwards compatibility)
 pub use array_push::check_array_push;

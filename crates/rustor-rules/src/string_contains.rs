@@ -14,29 +14,62 @@
 //! if (str_contains($text, 'needle')) { }
 //! if (!str_contains($text, 'needle')) { }
 //! ```
+//!
+//! ## Configuration
+//!
+//! - `strict_comparison` (bool, default: true): When true, only converts strict
+//!   comparisons (=== and !==). When false, also converts loose comparisons (== and !=).
 
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::{Edit, Visitor};
+use std::collections::HashMap;
 
-use crate::registry::{Category, PhpVersion, Rule};
+use crate::registry::{Category, ConfigOption, ConfigOptionType, ConfigValue, ConfigurableRule, PhpVersion, Rule};
+
+/// Configuration for the string_contains rule
+#[derive(Debug, Clone)]
+pub struct StringContainsConfig {
+    /// Only convert strict comparisons (=== and !==) when true
+    /// Also convert loose comparisons (== and !=) when false
+    pub strict_comparison: bool,
+}
+
+impl Default for StringContainsConfig {
+    fn default() -> Self {
+        Self {
+            strict_comparison: true,
+        }
+    }
+}
 
 /// Check a parsed PHP program for strpos() !== false patterns
 pub fn check_string_contains<'a>(program: &Program<'a>, source: &str) -> Vec<Edit> {
+    check_string_contains_with_config(program, source, &StringContainsConfig::default())
+}
+
+/// Check a parsed PHP program for strpos() patterns with configuration
+pub fn check_string_contains_with_config<'a>(
+    program: &Program<'a>,
+    source: &str,
+    config: &StringContainsConfig,
+) -> Vec<Edit> {
     let mut visitor = StringContainsVisitor {
         source,
+        config,
         edits: Vec::new(),
     };
     visitor.visit_program(program, source);
     visitor.edits
 }
 
-struct StringContainsVisitor<'s> {
+struct StringContainsVisitor<'s, 'c> {
     source: &'s str,
+    config: &'c StringContainsConfig,
     edits: Vec<Edit>,
 }
 
-impl<'a, 's> Visitor<'a> for StringContainsVisitor<'s> {
+impl<'a, 's, 'c> Visitor<'a> for StringContainsVisitor<'s, 'c> {
     fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Binary(binary) = expr {
             self.check_binary_expression(binary);
@@ -45,17 +78,21 @@ impl<'a, 's> Visitor<'a> for StringContainsVisitor<'s> {
     }
 }
 
-impl<'s> StringContainsVisitor<'s> {
+impl<'s, 'c> StringContainsVisitor<'s, 'c> {
     fn check_binary_expression(&mut self, binary: &Binary<'_>) {
         // Match patterns:
-        // - strpos($x, $y) !== false
-        // - strpos($x, $y) === false
-        // - false !== strpos($x, $y)
-        // - false === strpos($x, $y)
+        // - strpos($x, $y) !== false (strict)
+        // - strpos($x, $y) === false (strict)
+        // - strpos($x, $y) != false (loose, when strict_comparison=false)
+        // - strpos($x, $y) == false (loose, when strict_comparison=false)
+        // - false !== strpos($x, $y) (strict)
+        // - false === strpos($x, $y) (strict)
 
         let is_negated = match &binary.operator {
             BinaryOperator::NotIdentical(_) => true,  // !== false means "contains"
             BinaryOperator::Identical(_) => false,    // === false means "not contains"
+            BinaryOperator::NotEqual(_) if !self.config.strict_comparison => true,  // != false
+            BinaryOperator::Equal(_) if !self.config.strict_comparison => false,    // == false
             _ => return,
         };
 
@@ -143,7 +180,25 @@ impl<'s> StringContainsVisitor<'s> {
     }
 }
 
-pub struct StringContainsRule;
+/// Rule to convert strpos() !== false to str_contains()
+pub struct StringContainsRule {
+    config: StringContainsConfig,
+}
+
+impl StringContainsRule {
+    /// Create a new rule with default configuration
+    pub fn new() -> Self {
+        Self {
+            config: StringContainsConfig::default(),
+        }
+    }
+}
+
+impl Default for StringContainsRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Rule for StringContainsRule {
     fn name(&self) -> &'static str {
@@ -155,7 +210,7 @@ impl Rule for StringContainsRule {
     }
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
-        check_string_contains(program, source)
+        check_string_contains_with_config(program, source, &self.config)
     }
 
     fn category(&self) -> Category {
@@ -164,6 +219,29 @@ impl Rule for StringContainsRule {
 
     fn min_php_version(&self) -> Option<PhpVersion> {
         Some(PhpVersion::Php80)
+    }
+
+    fn config_options(&self) -> &'static [ConfigOption] {
+        static OPTIONS: &[ConfigOption] = &[ConfigOption {
+            name: "strict_comparison",
+            description: "Only convert strict comparisons (=== and !==). When false, also converts loose comparisons (== and !=).",
+            default: "true",
+            option_type: ConfigOptionType::Bool,
+        }];
+        OPTIONS
+    }
+}
+
+impl ConfigurableRule for StringContainsRule {
+    fn with_config(config: &HashMap<String, ConfigValue>) -> Self {
+        let strict_comparison = config
+            .get("strict_comparison")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        Self {
+            config: StringContainsConfig { strict_comparison },
+        }
     }
 }
 
@@ -365,5 +443,87 @@ if (strpos($a, 'x') !== false && strpos($b, 'y') !== false) {
         let result = transform(source);
         assert!(result.contains("str_contains($a, 'x')"));
         assert!(result.contains("str_contains($b, 'y')"));
+    }
+
+    // ==================== Configuration Tests ====================
+
+    fn check_php_with_config(source: &str, config: &StringContainsConfig) -> Vec<Edit> {
+        let arena = Bump::new();
+        let file_id = FileId::new("test.php");
+        let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, source);
+        check_string_contains_with_config(program, source, config)
+    }
+
+    fn transform_with_config(source: &str, config: &StringContainsConfig) -> String {
+        let edits = check_php_with_config(source, config);
+        apply_edits(source, &edits).unwrap()
+    }
+
+    #[test]
+    fn test_loose_comparison_with_config() {
+        // By default, loose comparisons are skipped
+        let source = r#"<?php
+if (strpos($text, 'needle') != false) {
+    echo 'found';
+}
+"#;
+
+        // Default config (strict_comparison=true) should skip
+        let edits = check_php_with_config(source, &StringContainsConfig::default());
+        assert_eq!(edits.len(), 0);
+
+        // With strict_comparison=false, should convert
+        let config = StringContainsConfig {
+            strict_comparison: false,
+        };
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("str_contains($text, 'needle')"));
+    }
+
+    #[test]
+    fn test_loose_equal_comparison_with_config() {
+        let source = r#"<?php
+if (strpos($text, 'needle') == false) {
+    echo 'not found';
+}
+"#;
+
+        // Default config should skip
+        let edits = check_php_with_config(source, &StringContainsConfig::default());
+        assert_eq!(edits.len(), 0);
+
+        // With strict_comparison=false, should convert
+        let config = StringContainsConfig {
+            strict_comparison: false,
+        };
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("!str_contains($text, 'needle')"));
+    }
+
+    #[test]
+    fn test_configurable_rule_with_config() {
+        let mut config = HashMap::new();
+        config.insert("strict_comparison".to_string(), ConfigValue::Bool(false));
+
+        let rule = StringContainsRule::with_config(&config);
+        assert!(!rule.config.strict_comparison);
+
+        // Empty config should use defaults
+        let rule_default = StringContainsRule::with_config(&HashMap::new());
+        assert!(rule_default.config.strict_comparison);
+    }
+
+    #[test]
+    fn test_config_options_metadata() {
+        let rule = StringContainsRule::new();
+        let options = rule.config_options();
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].name, "strict_comparison");
+        assert_eq!(options[0].option_type, ConfigOptionType::Bool);
+        assert_eq!(options[0].default, "true");
     }
 }

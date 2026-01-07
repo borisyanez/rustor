@@ -253,6 +253,74 @@ pub trait Rule: Send + Sync {
     fn category(&self) -> Category {
         Category::Simplification
     }
+
+    /// Get the list of configurable options for this rule
+    fn config_options(&self) -> &'static [ConfigOption] {
+        &[]
+    }
+}
+
+/// Description of a configurable option for a rule
+#[derive(Debug, Clone)]
+pub struct ConfigOption {
+    /// Option name (e.g., "strict_comparison")
+    pub name: &'static str,
+    /// Description of what this option does
+    pub description: &'static str,
+    /// Default value as a string representation
+    pub default: &'static str,
+    /// Type of the option (bool, int, string)
+    pub option_type: ConfigOptionType,
+}
+
+/// Type of a configuration option
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigOptionType {
+    Bool,
+    Int,
+    String,
+}
+
+/// Configuration values for rules, keyed by rule name
+pub type RuleConfigs = std::collections::HashMap<String, std::collections::HashMap<String, ConfigValue>>;
+
+/// A configuration value that can be passed to rules
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigValue {
+    Bool(bool),
+    Int(i64),
+    String(String),
+}
+
+impl ConfigValue {
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            ConfigValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            ConfigValue::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            ConfigValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+/// Trait for rules that can be configured with runtime options
+pub trait ConfigurableRule: Rule {
+    /// Create a new instance with the given configuration
+    fn with_config(config: &std::collections::HashMap<String, ConfigValue>) -> Self
+    where
+        Self: Sized;
 }
 
 /// Registry of all available refactoring rules
@@ -261,11 +329,23 @@ pub struct RuleRegistry {
 }
 
 impl RuleRegistry {
-    /// Create a new registry with all built-in rules
+    /// Create a new registry with all built-in rules using default configuration
     pub fn new() -> Self {
+        Self::new_with_config(&RuleConfigs::new())
+    }
+
+    /// Create a new registry with all built-in rules using the given configuration
+    pub fn new_with_config(configs: &RuleConfigs) -> Self {
+        use std::collections::HashMap;
+
         let mut registry = Self { rules: Vec::new() };
 
-        // Register all built-in rules
+        // Helper to get config for a rule or empty map
+        let get_config = |name: &str| -> HashMap<String, ConfigValue> {
+            configs.get(name).cloned().unwrap_or_default()
+        };
+
+        // Register all built-in rules (configurable rules use their config)
         registry.register(Box::new(super::array_push::ArrayPushRule));
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
         registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
@@ -279,7 +359,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
-        registry.register(Box::new(super::string_contains::StringContainsRule));
+        registry.register(Box::new(super::string_contains::StringContainsRule::with_config(&get_config("string_contains"))));
         registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
 

@@ -30,8 +30,8 @@ use std::sync::Mutex;
 use cache::{hash_file, hash_rules, Cache};
 use config::Config;
 use output::{EditInfo, OutputFormat, Reporter};
-use process::{process_file, write_file};
-use rustor_rules::{Category, PhpVersion, Preset, RuleRegistry};
+use process::{process_file_with_config, write_file};
+use rustor_rules::{Category, PhpVersion, Preset, RuleConfigs, RuleRegistry};
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -121,29 +121,7 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
-    // Create rule registry
-    let registry = RuleRegistry::new();
-
-    // Handle --list-rules
-    if cli.list_rules {
-        println!("{}", "Available rules:".bold());
-        for info in registry.list_rules_full() {
-            let version_str = info
-                .min_php_version
-                .map(|v| format!(" [PHP {}+]", v))
-                .unwrap_or_default();
-            println!(
-                "  {} - {} {}{}",
-                info.name.green(),
-                info.description,
-                format!("[{}]", info.category).dimmed(),
-                version_str.yellow()
-            );
-        }
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    // Determine output format
+    // Determine output format early (needed for verbose output)
     let output_format = if cli.json {
         OutputFormat::Json
     } else {
@@ -175,6 +153,31 @@ fn run() -> Result<ExitCode> {
             None => Config::default(),
         }
     };
+
+    // Convert rule-specific config options
+    let rule_configs: RuleConfigs = config.rules.to_rule_configs();
+
+    // Create rule registry with configuration
+    let registry = RuleRegistry::new_with_config(&rule_configs);
+
+    // Handle --list-rules
+    if cli.list_rules {
+        println!("{}", "Available rules:".bold());
+        for info in registry.list_rules_full() {
+            let version_str = info
+                .min_php_version
+                .map(|v| format!(" [PHP {}+]", v))
+                .unwrap_or_default();
+            println!(
+                "  {} - {} {}{}",
+                info.name.green(),
+                info.description,
+                format!("[{}]", info.category).dimmed(),
+                version_str.yellow()
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
 
     // Get all available rule names from registry
     let all_rules = registry.all_names();
@@ -390,7 +393,7 @@ fn run() -> Result<ExitCode> {
             }
 
             // Cache miss - process the file
-            let result = process_file_to_result(path, &enabled_rules);
+            let result = process_file_to_result(path, &enabled_rules, &rule_configs);
 
             // Update cache with result
             if use_cache {
@@ -487,8 +490,12 @@ enum FileResult {
 }
 
 /// Process a file and return a result (no I/O, suitable for parallel execution)
-fn process_file_to_result(path: &PathBuf, enabled_rules: &HashSet<String>) -> FileResult {
-    match process_file(path, enabled_rules) {
+fn process_file_to_result(
+    path: &PathBuf,
+    enabled_rules: &HashSet<String>,
+    rule_configs: &RuleConfigs,
+) -> FileResult {
+    match process_file_with_config(path, enabled_rules, rule_configs) {
         Ok(Some(result)) => {
             if result.edits.is_empty() {
                 FileResult::NoChanges
