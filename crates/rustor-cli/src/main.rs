@@ -2,6 +2,7 @@
 //!
 //! Available rules:
 //! - array_push: Convert array_push($arr, $val) to $arr[] = $val
+//! - array_syntax: Convert array() to [] (short array syntax)
 //! - empty_coalesce: Convert empty($x) ? $default : $x to $x ?: $default
 //! - is_null: Convert is_null($x) to $x === null
 //! - isset_coalesce: Convert isset($x) ? $x : $default to $x ?? $default
@@ -17,10 +18,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
-use rustor_rules::{check_array_push, check_empty_coalesce, check_is_null, check_isset_coalesce, check_sizeof, check_type_cast};
+use rustor_rules::{check_array_push, check_array_syntax, check_empty_coalesce, check_is_null, check_isset_coalesce, check_sizeof, check_type_cast};
 
 /// All available rule names
-const ALL_RULES: &[&str] = &["array_push", "empty_coalesce", "is_null", "isset_coalesce", "sizeof", "type_cast"];
+const ALL_RULES: &[&str] = &["array_push", "array_syntax", "empty_coalesce", "is_null", "isset_coalesce", "sizeof", "type_cast"];
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -56,6 +57,7 @@ fn main() -> Result<()> {
     if cli.list_rules {
         println!("{}", "Available rules:".bold());
         println!("  {} - Convert array_push($arr, $val) to $arr[] = $val", "array_push".green());
+        println!("  {} - Convert array() to [] (short array syntax)", "array_syntax".green());
         println!("  {} - Convert empty($x) ? $default : $x to $x ?: $default", "empty_coalesce".green());
         println!("  {} - Convert is_null($x) to $x === null", "is_null".green());
         println!("  {} - Convert isset($x) ? $x : $default to $x ?? $default", "isset_coalesce".green());
@@ -174,6 +176,9 @@ fn process_file(
     let mut edits = Vec::new();
     if enabled_rules.contains("array_push") {
         edits.extend(check_array_push(program, &source_code));
+    }
+    if enabled_rules.contains("array_syntax") {
+        edits.extend(check_array_syntax(program, &source_code));
     }
     if enabled_rules.contains("empty_coalesce") {
         edits.extend(check_empty_coalesce(program, &source_code));

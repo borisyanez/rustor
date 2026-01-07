@@ -228,15 +228,34 @@ pub trait Visitor<'a> {
 
     /// Traverse a class-like member
     fn traverse_class_like_member(&mut self, member: &ClassLikeMember<'a>, source: &str) {
-        if let ClassLikeMember::Method(method) = member {
-            match &method.body {
-                MethodBody::Concrete(body) => {
-                    for inner in body.statements.iter() {
-                        self.traverse_statement(inner, source);
+        match member {
+            ClassLikeMember::Method(method) => {
+                match &method.body {
+                    MethodBody::Concrete(body) => {
+                        for inner in body.statements.iter() {
+                            self.traverse_statement(inner, source);
+                        }
+                    }
+                    MethodBody::Abstract(_) => {}
+                }
+            }
+            ClassLikeMember::Property(property) => {
+                match property {
+                    Property::Plain(plain) => {
+                        for item in plain.items.iter() {
+                            if let PropertyItem::Concrete(concrete) = item {
+                                self.traverse_expression(&concrete.value, source);
+                            }
+                        }
+                    }
+                    Property::Hooked(hooked) => {
+                        if let PropertyItem::Concrete(concrete) = &hooked.item {
+                            self.traverse_expression(&concrete.value, source);
+                        }
                     }
                 }
-                MethodBody::Abstract(_) => {}
             }
+            _ => {}
         }
     }
 
@@ -286,6 +305,20 @@ pub trait Visitor<'a> {
                         self.traverse_expression(&kv.value, source);
                     } else if let ArrayElement::Value(val) = elem {
                         self.traverse_expression(&val.value, source);
+                    } else if let ArrayElement::Variadic(var) = elem {
+                        self.traverse_expression(&var.value, source);
+                    }
+                }
+            }
+            Expression::LegacyArray(arr) => {
+                for elem in arr.elements.iter() {
+                    if let ArrayElement::KeyValue(kv) = elem {
+                        self.traverse_expression(&kv.key, source);
+                        self.traverse_expression(&kv.value, source);
+                    } else if let ArrayElement::Value(val) = elem {
+                        self.traverse_expression(&val.value, source);
+                    } else if let ArrayElement::Variadic(var) = elem {
+                        self.traverse_expression(&var.value, source);
                     }
                 }
             }
