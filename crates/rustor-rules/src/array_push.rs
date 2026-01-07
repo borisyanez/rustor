@@ -80,7 +80,7 @@ impl<'s> ArrayPushVisitor<'s> {
 }
 
 // Rule trait implementation
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 /// Rule struct for array_push transformation
 pub struct ArrayPushRule;
@@ -96,6 +96,10 @@ impl Rule for ArrayPushRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_array_push(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Performance
     }
 }
 

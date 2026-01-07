@@ -84,7 +84,7 @@ fn try_transform_is_null(expr: &Expression<'_>, source: &str, negated: bool) -> 
     None
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 pub struct IsNullRule;
 
@@ -99,6 +99,10 @@ impl Rule for IsNullRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_is_null(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Simplification
     }
 }
 

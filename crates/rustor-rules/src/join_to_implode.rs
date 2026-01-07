@@ -62,7 +62,7 @@ fn try_transform_join(expr: &Expression<'_>, source: &str) -> Option<Edit> {
     None
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 pub struct JoinToImplodeRule;
 
@@ -77,6 +77,10 @@ impl Rule for JoinToImplodeRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_join_to_implode(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Compatibility
     }
 }
 

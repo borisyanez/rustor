@@ -60,7 +60,7 @@ fn try_transform_array_syntax(expr: &Expression<'_>, source: &str) -> Option<Edi
 }
 
 // Rule trait implementation
-use crate::registry::Rule;
+use crate::registry::{Category, PhpVersion, Rule};
 
 pub struct ArraySyntaxRule;
 
@@ -75,6 +75,14 @@ impl Rule for ArraySyntaxRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_array_syntax(program, source)
+    }
+
+    fn min_php_version(&self) -> Option<PhpVersion> {
+        Some(PhpVersion::Php54)
+    }
+
+    fn category(&self) -> Category {
+        Category::Modernization
     }
 }
 

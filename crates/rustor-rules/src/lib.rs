@@ -25,8 +25,8 @@ pub mod pow_to_operator;
 pub mod sizeof;
 pub mod type_cast;
 
-// Re-export the Rule trait and registry
-pub use registry::{Rule, RuleRegistry};
+// Re-export the Rule trait, registry, and metadata types
+pub use registry::{Category, PhpVersion, Preset, Rule, RuleInfo, RuleRegistry};
 
 // Re-export check functions (for backwards compatibility)
 pub use array_push::check_array_push;

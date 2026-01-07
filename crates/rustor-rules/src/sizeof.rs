@@ -62,7 +62,7 @@ fn try_transform_sizeof(expr: &Expression<'_>, source: &str) -> Option<Edit> {
     None
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 pub struct SizeofRule;
 
@@ -77,6 +77,10 @@ impl Rule for SizeofRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_sizeof(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Compatibility
     }
 }
 

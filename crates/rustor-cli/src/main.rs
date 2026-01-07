@@ -27,7 +27,7 @@ use std::process::ExitCode;
 use config::Config;
 use output::{EditInfo, OutputFormat, Reporter};
 use process::{process_file, write_file};
-use rustor_rules::RuleRegistry;
+use rustor_rules::{Category, PhpVersion, Preset, RuleRegistry};
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -78,6 +78,18 @@ struct Cli {
     /// List available rules and exit
     #[arg(long)]
     list_rules: bool,
+
+    /// Target PHP version (e.g., "7.4", "8.0"). Only rules compatible with this version will run.
+    #[arg(long, value_name = "VERSION")]
+    php_version: Option<String>,
+
+    /// Only run rules in this category (performance, modernization, simplification, compatibility)
+    #[arg(long, value_name = "CATEGORY")]
+    category: Option<String>,
+
+    /// Use a preset rule configuration (recommended, performance, modernize, all)
+    #[arg(long, value_name = "PRESET")]
+    preset: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -99,8 +111,18 @@ fn run() -> Result<ExitCode> {
     // Handle --list-rules
     if cli.list_rules {
         println!("{}", "Available rules:".bold());
-        for (name, description) in registry.list_rules() {
-            println!("  {} - {}", name.green(), description);
+        for info in registry.list_rules_full() {
+            let version_str = info
+                .min_php_version
+                .map(|v| format!(" [PHP {}+]", v))
+                .unwrap_or_default();
+            println!(
+                "  {} - {} {}{}",
+                info.name.green(),
+                info.description,
+                format!("[{}]", info.category).dimmed(),
+                version_str.yellow()
+            );
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -141,8 +163,90 @@ fn run() -> Result<ExitCode> {
     // Get all available rule names from registry
     let all_rules = registry.all_names();
 
+    // Parse preset (CLI overrides config)
+    let preset: Option<Preset> = cli
+        .preset
+        .as_ref()
+        .or(config.rules.preset.as_ref())
+        .map(|p| {
+            p.parse().unwrap_or_else(|e| {
+                eprintln!("{}: {}", "Error".red(), e);
+                std::process::exit(1);
+            })
+        });
+
     // Determine which rules to run
-    let enabled_rules = config.effective_rules(&all_rules, &cli.rule);
+    // Priority: CLI --rule > preset > config enabled > all rules
+    let enabled_rules: HashSet<String> = if !cli.rule.is_empty() {
+        cli.rule.iter().cloned().collect()
+    } else if let Some(preset) = preset {
+        let preset_rules = registry.get_preset_rules(preset);
+        // Apply disabled from config
+        preset_rules
+            .into_iter()
+            .filter(|r| !config.rules.disabled.contains(r))
+            .collect()
+    } else {
+        config.effective_rules(&all_rules, &cli.rule)
+    };
+
+    // Parse PHP version (CLI overrides config)
+    let php_version: Option<PhpVersion> = cli
+        .php_version
+        .as_ref()
+        .or(config.php.version.as_ref())
+        .map(|v| {
+            v.parse().unwrap_or_else(|e| {
+                eprintln!("{}: {}", "Error".red(), e);
+                std::process::exit(1);
+            })
+        });
+
+    // Filter rules by PHP version
+    let enabled_rules: HashSet<String> = if let Some(target_version) = php_version {
+        enabled_rules
+            .into_iter()
+            .filter(|rule_name| {
+                registry
+                    .list_rules_full()
+                    .iter()
+                    .find(|r| r.name == rule_name)
+                    .map(|r| {
+                        r.min_php_version
+                            .map(|v| v <= target_version)
+                            .unwrap_or(true)
+                    })
+                    .unwrap_or(true)
+            })
+            .collect()
+    } else {
+        enabled_rules
+    };
+
+    // Parse category filter
+    let category_filter: Option<Category> = cli.category.as_ref().map(|c| {
+        c.parse().unwrap_or_else(|e| {
+            eprintln!("{}: {}", "Error".red(), e);
+            std::process::exit(1);
+        })
+    });
+
+    // Filter rules by category
+    let enabled_rules: HashSet<String> = if let Some(cat) = category_filter {
+        enabled_rules
+            .into_iter()
+            .filter(|rule_name| {
+                registry
+                    .list_rules_full()
+                    .iter()
+                    .find(|r| r.name == rule_name)
+                    .map(|r| r.category == cat)
+                    .unwrap_or(false)
+            })
+            .collect()
+    } else {
+        enabled_rules
+    };
 
     // Validate rule names from CLI
     for rule in &cli.rule {
@@ -171,6 +275,9 @@ fn run() -> Result<ExitCode> {
             "Mode".bold(),
             if fix_mode { "fix" } else { "check" }
         );
+        if let Some(v) = php_version {
+            println!("{}: {}", "PHP Version".bold(), v);
+        }
         println!(
             "{}: {}",
             "Rules".bold(),

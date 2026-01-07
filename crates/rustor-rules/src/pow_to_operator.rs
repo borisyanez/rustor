@@ -104,7 +104,7 @@ fn needs_parentheses(expr: &Expression<'_>) -> bool {
     )
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, PhpVersion, Rule};
 
 pub struct PowToOperatorRule;
 
@@ -119,6 +119,14 @@ impl Rule for PowToOperatorRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_pow_to_operator(program, source)
+    }
+
+    fn min_php_version(&self) -> Option<PhpVersion> {
+        Some(PhpVersion::Php56)
+    }
+
+    fn category(&self) -> Category {
+        Category::Performance
     }
 }
 

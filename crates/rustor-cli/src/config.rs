@@ -14,14 +14,25 @@ pub struct Config {
     pub rules: RulesConfig,
     pub paths: PathsConfig,
     pub output: OutputConfig,
+    pub php: PhpConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PhpConfig {
+    /// Target PHP version (e.g., "7.4", "8.0")
+    /// Only rules compatible with this version will run
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct RulesConfig {
-    /// If set, only these rules will run
+    /// Preset to use (recommended, performance, modernize, all)
+    pub preset: Option<String>,
+    /// If set, only these rules will run (overrides preset)
     pub enabled: Option<Vec<String>>,
-    /// Rules to exclude (applied after enabled)
+    /// Rules to exclude (applied after enabled/preset)
     pub disabled: Vec<String>,
 }
 
@@ -210,6 +221,7 @@ format = "json"
     fn test_effective_rules_config_enabled() {
         let config = Config {
             rules: RulesConfig {
+                preset: None,
                 enabled: Some(vec!["array_push".to_string(), "sizeof".to_string()]),
                 disabled: vec![],
             },
@@ -228,6 +240,7 @@ format = "json"
     fn test_effective_rules_with_disabled() {
         let config = Config {
             rules: RulesConfig {
+                preset: None,
                 enabled: None,
                 disabled: vec!["sizeof".to_string()],
             },

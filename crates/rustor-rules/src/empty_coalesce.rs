@@ -95,7 +95,7 @@ fn try_transform_empty_coalesce(expr: &Expression<'_>, source: &str) -> Option<E
 }
 
 // Rule trait implementation
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 pub struct EmptyCoalesceRule;
 
@@ -110,6 +110,10 @@ impl Rule for EmptyCoalesceRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_empty_coalesce(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Simplification
     }
 }
 

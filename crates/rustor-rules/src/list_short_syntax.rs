@@ -63,7 +63,7 @@ fn try_transform_list(expr: &Expression<'_>, source: &str) -> Option<Edit> {
     None
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, PhpVersion, Rule};
 
 pub struct ListShortSyntaxRule;
 
@@ -78,6 +78,14 @@ impl Rule for ListShortSyntaxRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_list_short_syntax(program, source)
+    }
+
+    fn min_php_version(&self) -> Option<PhpVersion> {
+        Some(PhpVersion::Php71)
+    }
+
+    fn category(&self) -> Category {
+        Category::Modernization
     }
 }
 

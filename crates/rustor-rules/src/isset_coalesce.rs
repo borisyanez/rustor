@@ -84,7 +84,7 @@ fn try_transform_isset_coalesce(expr: &Expression<'_>, source: &str) -> Option<E
     ))
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, PhpVersion, Rule};
 
 pub struct IssetCoalesceRule;
 
@@ -99,6 +99,14 @@ impl Rule for IssetCoalesceRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_isset_coalesce(program, source)
+    }
+
+    fn min_php_version(&self) -> Option<PhpVersion> {
+        Some(PhpVersion::Php70)
+    }
+
+    fn category(&self) -> Category {
+        Category::Simplification
     }
 }
 

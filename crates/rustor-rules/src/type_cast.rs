@@ -78,7 +78,7 @@ fn try_transform_type_cast(expr: &Expression<'_>, source: &str) -> Option<Edit> 
     None
 }
 
-use crate::registry::Rule;
+use crate::registry::{Category, Rule};
 
 pub struct TypeCastRule;
 
@@ -93,6 +93,10 @@ impl Rule for TypeCastRule {
 
     fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
         check_type_cast(program, source)
+    }
+
+    fn category(&self) -> Category {
+        Category::Performance
     }
 }
 
