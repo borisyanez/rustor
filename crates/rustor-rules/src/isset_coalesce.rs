@@ -84,6 +84,24 @@ fn try_transform_isset_coalesce(expr: &Expression<'_>, source: &str) -> Option<E
     ))
 }
 
+use crate::registry::Rule;
+
+pub struct IssetCoalesceRule;
+
+impl Rule for IssetCoalesceRule {
+    fn name(&self) -> &'static str {
+        "isset_coalesce"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert isset($x) ? $x : $default to $x ?? $default"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_isset_coalesce(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

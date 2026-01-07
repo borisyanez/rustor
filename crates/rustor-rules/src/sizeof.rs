@@ -62,6 +62,24 @@ fn try_transform_sizeof(expr: &Expression<'_>, source: &str) -> Option<Edit> {
     None
 }
 
+use crate::registry::Rule;
+
+pub struct SizeofRule;
+
+impl Rule for SizeofRule {
+    fn name(&self) -> &'static str {
+        "sizeof"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert sizeof($x) to count($x)"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_sizeof(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

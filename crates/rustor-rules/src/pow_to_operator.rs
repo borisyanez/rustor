@@ -104,6 +104,24 @@ fn needs_parentheses(expr: &Expression<'_>) -> bool {
     )
 }
 
+use crate::registry::Rule;
+
+pub struct PowToOperatorRule;
+
+impl Rule for PowToOperatorRule {
+    fn name(&self) -> &'static str {
+        "pow_to_operator"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert pow($x, $n) to $x ** $n"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_pow_to_operator(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -59,6 +59,25 @@ fn try_transform_array_syntax(expr: &Expression<'_>, source: &str) -> Option<Edi
     None
 }
 
+// Rule trait implementation
+use crate::registry::Rule;
+
+pub struct ArraySyntaxRule;
+
+impl Rule for ArraySyntaxRule {
+    fn name(&self) -> &'static str {
+        "array_syntax"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert array() to [] (short array syntax)"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_array_syntax(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

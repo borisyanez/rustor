@@ -62,6 +62,24 @@ fn try_transform_join(expr: &Expression<'_>, source: &str) -> Option<Edit> {
     None
 }
 
+use crate::registry::Rule;
+
+pub struct JoinToImplodeRule;
+
+impl Rule for JoinToImplodeRule {
+    fn name(&self) -> &'static str {
+        "join_to_implode"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert join() to implode()"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_join_to_implode(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

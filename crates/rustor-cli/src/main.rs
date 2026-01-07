@@ -7,6 +7,7 @@
 //! - is_null: Convert is_null($x) to $x === null
 //! - isset_coalesce: Convert isset($x) ? $x : $default to $x ?? $default
 //! - join_to_implode: Convert join() to implode()
+//! - list_short_syntax: Convert list($a, $b) to [$a, $b]
 //! - pow_to_operator: Convert pow($x, $n) to $x ** $n
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
@@ -18,25 +19,15 @@ mod process;
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
+use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use config::Config;
-use output::{OutputFormat, Reporter};
+use output::{EditInfo, OutputFormat, Reporter};
 use process::{process_file, write_file};
-
-/// All available rule names
-const ALL_RULES: &[&str] = &[
-    "array_push",
-    "array_syntax",
-    "empty_coalesce",
-    "is_null",
-    "isset_coalesce",
-    "join_to_implode",
-    "pow_to_operator",
-    "sizeof",
-    "type_cast",
-];
+use rustor_rules::RuleRegistry;
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -102,45 +93,15 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
+    // Create rule registry
+    let registry = RuleRegistry::new();
+
     // Handle --list-rules
     if cli.list_rules {
         println!("{}", "Available rules:".bold());
-        println!(
-            "  {} - Convert array_push($arr, $val) to $arr[] = $val",
-            "array_push".green()
-        );
-        println!(
-            "  {} - Convert array() to [] (short array syntax)",
-            "array_syntax".green()
-        );
-        println!(
-            "  {} - Convert empty($x) ? $default : $x to $x ?: $default",
-            "empty_coalesce".green()
-        );
-        println!(
-            "  {} - Convert is_null($x) to $x === null",
-            "is_null".green()
-        );
-        println!(
-            "  {} - Convert isset($x) ? $x : $default to $x ?? $default",
-            "isset_coalesce".green()
-        );
-        println!(
-            "  {} - Convert join() to implode()",
-            "join_to_implode".green()
-        );
-        println!(
-            "  {} - Convert pow($x, $n) to $x ** $n",
-            "pow_to_operator".green()
-        );
-        println!(
-            "  {} - Convert sizeof($x) to count($x)",
-            "sizeof".green()
-        );
-        println!(
-            "  {} - Convert strval/intval/floatval/boolval to cast syntax",
-            "type_cast".green()
-        );
+        for (name, description) in registry.list_rules() {
+            println!("  {} - {}", name.green(), description);
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -177,12 +138,15 @@ fn run() -> Result<ExitCode> {
         }
     };
 
+    // Get all available rule names from registry
+    let all_rules = registry.all_names();
+
     // Determine which rules to run
-    let enabled_rules = config.effective_rules(ALL_RULES, &cli.rule);
+    let enabled_rules = config.effective_rules(&all_rules, &cli.rule);
 
     // Validate rule names from CLI
     for rule in &cli.rule {
-        if !ALL_RULES.contains(&rule.as_str()) {
+        if !all_rules.contains(&rule.as_str()) {
             eprintln!(
                 "{}: Unknown rule '{}'. Use --list-rules to see available rules.",
                 "Error".red(),
@@ -219,13 +183,13 @@ fn run() -> Result<ExitCode> {
         println!();
     }
 
-    // Create reporter
-    let mut reporter = Reporter::new(output_format, cli.verbose);
+    // Collect all file paths first
+    let mut file_paths: Vec<PathBuf> = Vec::new();
+    let mut missing_paths: Vec<PathBuf> = Vec::new();
 
-    // Process files
     for path in &cli.paths {
         if path.is_file() {
-            process_single_file(path, &enabled_rules, &config, fix_mode, &mut reporter)?;
+            file_paths.push(path.clone());
         } else if path.is_dir() {
             for entry in walkdir::WalkDir::new(path)
                 .into_iter()
@@ -233,21 +197,42 @@ fn run() -> Result<ExitCode> {
                 .filter(|e| e.path().extension().is_some_and(|ext| ext == "php"))
             {
                 let file_path = entry.path();
-
-                // Check exclude patterns
-                if config.should_exclude(file_path) {
-                    continue;
+                if !config.should_exclude(file_path) {
+                    file_paths.push(file_path.to_path_buf());
                 }
-
-                process_single_file(file_path, &enabled_rules, &config, fix_mode, &mut reporter)?;
             }
-        } else if output_format == OutputFormat::Text {
+        } else {
+            missing_paths.push(path.clone());
+        }
+    }
+
+    // Process files in parallel
+    let results: Vec<FileResult> = file_paths
+        .par_iter()
+        .map(|path| process_file_to_result(path, &enabled_rules))
+        .collect();
+
+    // Sort results by path for deterministic output
+    let mut sorted_results: Vec<_> = results.into_iter().zip(file_paths.iter()).collect();
+    sorted_results.sort_by(|a, b| a.1.cmp(b.1));
+
+    // Create reporter and process results sequentially
+    let mut reporter = Reporter::new(output_format, cli.verbose);
+
+    // Report missing paths
+    for path in &missing_paths {
+        if output_format == OutputFormat::Text {
             eprintln!(
                 "{}: Path does not exist: {}",
                 "Warning".yellow(),
                 path.display()
             );
         }
+    }
+
+    // Report file results
+    for (result, path) in sorted_results {
+        report_result(path, result, fix_mode, &mut reporter)?;
     }
 
     // Determine exit code
@@ -266,39 +251,69 @@ fn run() -> Result<ExitCode> {
     Ok(exit_code)
 }
 
-fn process_single_file(
-    path: &std::path::Path,
-    enabled_rules: &std::collections::HashSet<String>,
-    _config: &Config,
-    fix_mode: bool,
-    reporter: &mut Reporter,
-) -> Result<()> {
+/// Result of processing a single file (for parallel processing)
+enum FileResult {
+    /// File had no changes
+    NoChanges,
+    /// File has changes to report/apply
+    HasChanges {
+        edits: Vec<EditInfo>,
+        old_source: String,
+        new_source: String,
+    },
+    /// Parse error occurred
+    ParseError,
+    /// Other error occurred
+    Error(String),
+}
+
+/// Process a file and return a result (no I/O, suitable for parallel execution)
+fn process_file_to_result(path: &PathBuf, enabled_rules: &HashSet<String>) -> FileResult {
     match process_file(path, enabled_rules) {
         Ok(Some(result)) => {
             if result.edits.is_empty() {
-                reporter.report_skipped(path);
-            } else if fix_mode {
-                // Apply fixes
-                if let Some(new_source) = &result.new_source {
-                    write_file(path, new_source)?;
-                }
-                reporter.report_fix(path, result.edits);
+                FileResult::NoChanges
             } else {
-                // Check mode - show what would change
-                reporter.report_check(
-                    path,
-                    result.edits,
-                    &result.old_source,
-                    result.new_source.as_deref().unwrap_or(&result.old_source),
-                );
+                FileResult::HasChanges {
+                    edits: result.edits,
+                    old_source: result.old_source,
+                    new_source: result.new_source.unwrap_or_default(),
+                }
             }
         }
-        Ok(None) => {
-            // Parse error
+        Ok(None) => FileResult::ParseError,
+        Err(e) => FileResult::Error(format!("{:#}", e)),
+    }
+}
+
+/// Report a file result and optionally apply fixes
+fn report_result(
+    path: &PathBuf,
+    result: FileResult,
+    fix_mode: bool,
+    reporter: &mut Reporter,
+) -> Result<()> {
+    match result {
+        FileResult::NoChanges => {
+            reporter.report_skipped(path);
+        }
+        FileResult::HasChanges {
+            edits,
+            old_source,
+            new_source,
+        } => {
+            if fix_mode {
+                write_file(path, &new_source)?;
+                reporter.report_fix(path, edits);
+            } else {
+                reporter.report_check(path, edits, &old_source, &new_source);
+            }
+        }
+        FileResult::ParseError => {
             reporter.report_error(path, "Parse error, skipping");
         }
-        Err(e) => {
-            reporter.report_error(path, &format!("{:#}", e));
+        FileResult::Error(msg) => {
+            reporter.report_error(path, &msg);
         }
     }
     Ok(())

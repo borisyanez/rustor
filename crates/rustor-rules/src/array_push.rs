@@ -75,6 +75,26 @@ impl<'s> ArrayPushVisitor<'s> {
     }
 }
 
+// Rule trait implementation
+use crate::registry::Rule;
+
+/// Rule struct for array_push transformation
+pub struct ArrayPushRule;
+
+impl Rule for ArrayPushRule {
+    fn name(&self) -> &'static str {
+        "array_push"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert array_push($arr, $val) to $arr[] = $val"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_array_push(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

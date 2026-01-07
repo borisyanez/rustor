@@ -78,6 +78,24 @@ fn try_transform_is_null(expr: &Expression<'_>, source: &str, negated: bool) -> 
     None
 }
 
+use crate::registry::Rule;
+
+pub struct IsNullRule;
+
+impl Rule for IsNullRule {
+    fn name(&self) -> &'static str {
+        "is_null"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert is_null($x) to $x === null"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_is_null(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

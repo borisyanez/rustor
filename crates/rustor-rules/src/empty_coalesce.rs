@@ -94,6 +94,25 @@ fn try_transform_empty_coalesce(expr: &Expression<'_>, source: &str) -> Option<E
     None
 }
 
+// Rule trait implementation
+use crate::registry::Rule;
+
+pub struct EmptyCoalesceRule;
+
+impl Rule for EmptyCoalesceRule {
+    fn name(&self) -> &'static str {
+        "empty_coalesce"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert empty($x) ? $default : $x to $x ?: $default"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_empty_coalesce(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

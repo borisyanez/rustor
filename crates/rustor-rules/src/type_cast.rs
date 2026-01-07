@@ -78,6 +78,24 @@ fn try_transform_type_cast(expr: &Expression<'_>, source: &str) -> Option<Edit> 
     None
 }
 
+use crate::registry::Rule;
+
+pub struct TypeCastRule;
+
+impl Rule for TypeCastRule {
+    fn name(&self) -> &'static str {
+        "type_cast"
+    }
+
+    fn description(&self) -> &'static str {
+        "Convert strval/intval/floatval/boolval to cast syntax"
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, source: &str) -> Vec<Edit> {
+        check_type_cast(program, source)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

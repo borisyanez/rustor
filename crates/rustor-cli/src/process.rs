@@ -6,12 +6,8 @@ use mago_database::file::FileId;
 use std::collections::HashSet;
 use std::path::Path;
 
-use rustor_core::{apply_edits, Edit};
-use rustor_rules::{
-    check_array_push, check_array_syntax, check_empty_coalesce, check_is_null,
-    check_isset_coalesce, check_join_to_implode, check_pow_to_operator, check_sizeof,
-    check_type_cast,
-};
+use rustor_core::apply_edits;
+use rustor_rules::RuleRegistry;
 
 use crate::output::EditInfo;
 
@@ -46,35 +42,9 @@ pub fn process_file(
         return Ok(None); // Signal parse error by returning None
     }
 
-    // Apply enabled refactoring rules
-    let mut edits: Vec<Edit> = Vec::new();
-    if enabled_rules.contains("array_push") {
-        edits.extend(check_array_push(program, &source_code));
-    }
-    if enabled_rules.contains("array_syntax") {
-        edits.extend(check_array_syntax(program, &source_code));
-    }
-    if enabled_rules.contains("empty_coalesce") {
-        edits.extend(check_empty_coalesce(program, &source_code));
-    }
-    if enabled_rules.contains("is_null") {
-        edits.extend(check_is_null(program, &source_code));
-    }
-    if enabled_rules.contains("isset_coalesce") {
-        edits.extend(check_isset_coalesce(program, &source_code));
-    }
-    if enabled_rules.contains("join_to_implode") {
-        edits.extend(check_join_to_implode(program, &source_code));
-    }
-    if enabled_rules.contains("pow_to_operator") {
-        edits.extend(check_pow_to_operator(program, &source_code));
-    }
-    if enabled_rules.contains("sizeof") {
-        edits.extend(check_sizeof(program, &source_code));
-    }
-    if enabled_rules.contains("type_cast") {
-        edits.extend(check_type_cast(program, &source_code));
-    }
+    // Apply enabled refactoring rules using the registry
+    let registry = RuleRegistry::new();
+    let edits = registry.check_all(program, &source_code, enabled_rules);
 
     if edits.is_empty() {
         return Ok(Some(ProcessResult {
@@ -151,6 +121,8 @@ fn extract_rule_name(message: &str) -> String {
         "isset_coalesce".to_string()
     } else if lower.contains("join") && lower.contains("implode") {
         "join_to_implode".to_string()
+    } else if lower.contains("list") && lower.contains("[]") {
+        "list_short_syntax".to_string()
     } else if lower.contains("pow") && lower.contains("**") {
         "pow_to_operator".to_string()
     } else if lower.contains("sizeof") || lower.contains("count") {
