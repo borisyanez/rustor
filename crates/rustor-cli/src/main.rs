@@ -18,6 +18,7 @@ mod backup;
 mod config;
 mod git;
 mod ignore;
+mod lsp;
 mod output;
 mod process;
 mod watch;
@@ -147,9 +148,21 @@ struct Cli {
     /// Verify fixed files parse correctly (restore on failure)
     #[arg(long)]
     verify: bool,
+
+    /// Run as Language Server Protocol (LSP) server for IDE integration
+    #[arg(long)]
+    lsp: bool,
 }
 
 fn main() -> ExitCode {
+    // Check for LSP mode early (before parsing other args)
+    if std::env::args().any(|arg| arg == "--lsp") {
+        tokio::runtime::Runtime::new()
+            .expect("Failed to create tokio runtime")
+            .block_on(lsp::run_lsp_server());
+        return ExitCode::SUCCESS;
+    }
+
     match run() {
         Ok(code) => code,
         Err(e) => {

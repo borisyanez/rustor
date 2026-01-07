@@ -42,5 +42,9 @@ atty = "0.2"
 # Phase 6: Backup timestamps
 chrono = "0.4"
 
+# Phase 6: LSP server
+tower-lsp = "0.20"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "io-std"] }
+
 [dev-dependencies]
 tempfile = "3.17"
