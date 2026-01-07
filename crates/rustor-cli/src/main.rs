@@ -4,6 +4,7 @@
 //! - array_push: Convert array_push($arr, $val) to $arr[] = $val
 //! - is_null: Convert is_null($x) to $x === null
 //! - sizeof: Convert sizeof($x) to count($x)
+//! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
 use anyhow::{Context, Result};
 use bumpalo::Bump;
@@ -14,10 +15,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
-use rustor_rules::{check_array_push, check_is_null, check_sizeof};
+use rustor_rules::{check_array_push, check_is_null, check_sizeof, check_type_cast};
 
 /// All available rule names
-const ALL_RULES: &[&str] = &["array_push", "is_null", "sizeof"];
+const ALL_RULES: &[&str] = &["array_push", "is_null", "sizeof", "type_cast"];
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -55,6 +56,7 @@ fn main() -> Result<()> {
         println!("  {} - Convert array_push($arr, $val) to $arr[] = $val", "array_push".green());
         println!("  {} - Convert is_null($x) to $x === null", "is_null".green());
         println!("  {} - Convert sizeof($x) to count($x)", "sizeof".green());
+        println!("  {} - Convert strval/intval/floatval/boolval to cast syntax", "type_cast".green());
         return Ok(());
     }
 
@@ -174,6 +176,9 @@ fn process_file(
     }
     if enabled_rules.contains("sizeof") {
         edits.extend(check_sizeof(program, &source_code));
+    }
+    if enabled_rules.contains("type_cast") {
+        edits.extend(check_type_cast(program, &source_code));
     }
 
     if edits.is_empty() {
