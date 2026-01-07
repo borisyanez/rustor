@@ -14,6 +14,7 @@
 
 pub mod registry;
 
+pub mod array_key_first_last;
 pub mod array_push;
 pub mod assign_coalesce;
 pub mod array_syntax;
@@ -23,6 +24,7 @@ pub mod is_null;
 pub mod isset_coalesce;
 pub mod join_to_implode;
 pub mod list_short_syntax;
+pub mod match_expression;
 pub mod null_safe_operator;
 pub mod pow_to_operator;
 pub mod sizeof;
@@ -38,6 +40,7 @@ pub use registry::{
 };
 
 // Re-export check functions (for backwards compatibility)
+pub use array_key_first_last::check_array_key_first_last;
 pub use array_push::check_array_push;
 pub use assign_coalesce::check_assign_coalesce;
 pub use array_syntax::check_array_syntax;
@@ -47,6 +50,7 @@ pub use is_null::check_is_null;
 pub use isset_coalesce::check_isset_coalesce;
 pub use join_to_implode::check_join_to_implode;
 pub use list_short_syntax::check_list_short_syntax;
+pub use match_expression::check_match_expression;
 pub use null_safe_operator::check_null_safe_operator;
 pub use pow_to_operator::check_pow_to_operator;
 pub use sizeof::check_sizeof;

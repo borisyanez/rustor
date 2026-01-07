@@ -180,6 +180,7 @@ impl Preset {
                 "sizeof",
             ],
             Preset::Performance => &[
+                "array_key_first_last",
                 "array_push",
                 "pow_to_operator",
                 "sizeof",
@@ -191,6 +192,7 @@ impl Preset {
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
+                "match_expression",
                 "null_safe_operator",
                 "string_contains",
                 "string_starts_ends",
@@ -346,6 +348,7 @@ impl RuleRegistry {
         };
 
         // Register all built-in rules (configurable rules use their config)
+        registry.register(Box::new(super::array_key_first_last::ArrayKeyFirstLastRule));
         registry.register(Box::new(super::array_push::ArrayPushRule));
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
         registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
@@ -355,6 +358,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
         registry.register(Box::new(super::join_to_implode::JoinToImplodeRule));
         registry.register(Box::new(super::list_short_syntax::ListShortSyntaxRule));
+        registry.register(Box::new(super::match_expression::MatchExpressionRule));
         registry.register(Box::new(super::null_safe_operator::NullSafeOperatorRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
