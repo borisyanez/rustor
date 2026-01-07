@@ -65,6 +65,12 @@ fn try_transform_is_null(expr: &Expression<'_>, source: &str, negated: bool) -> 
 
                 // is_null takes exactly 1 argument
                 if args.len() == 1 {
+                    // Skip if argument contains an assignment (would cause precedence issues)
+                    // e.g., is_null($x = foo()) → $x = foo() === null has wrong precedence
+                    if matches!(args[0].value(), Expression::Assignment(_)) {
+                        return None;
+                    }
+
                     let arg_span = args[0].span();
                     let arg_code =
                         &source[arg_span.start.offset as usize..arg_span.end.offset as usize];
@@ -222,9 +228,10 @@ mod tests {
 
     #[test]
     fn test_is_null_in_while_condition() {
+        // Contains assignment, so we skip it (would cause precedence issues)
         let source = "<?php while (!is_null($item = next($arr))) {}";
         let edits = check_php(source);
-        assert_eq!(edits.len(), 1);
+        assert_eq!(edits.len(), 0);
     }
 
     #[test]
@@ -288,6 +295,23 @@ class Foo {
     #[test]
     fn test_skip_similar_function() {
         let source = "<?php my_is_null($x);";
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_assignment_inside_is_null() {
+        // Skip: is_null($x = foo()) would become $x = foo() === null
+        // which has wrong precedence (assigns boolean to $x)
+        let source = "<?php if (is_null($result = getValue())) {}";
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_negated_assignment_inside_is_null() {
+        // Same issue with negation
+        let source = "<?php if (!is_null($result = getValue())) {}";
         let edits = check_php(source);
         assert_eq!(edits.len(), 0);
     }
