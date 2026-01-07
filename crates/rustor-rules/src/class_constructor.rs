@@ -18,6 +18,7 @@
 
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
+use mago_syntax::ast::Sequence;
 use rustor_core::Edit;
 
 /// Check a parsed PHP program for legacy constructor patterns
@@ -109,6 +110,18 @@ fn check_class<'a>(class: &Class<'a>, edits: &mut Vec<Edit>) {
         if let ClassLikeMember::Method(method) = member {
             // PHP is case-insensitive for class/method names
             if method.name.value.eq_ignore_ascii_case(class_name) {
+                // Skip if method has a return type hint (constructors can't have return types)
+                if method.return_type_hint.is_some() {
+                    continue;
+                }
+
+                // Skip if method body returns a value (constructors don't return values)
+                if let MethodBody::Concrete(body) = &method.body {
+                    if has_return_with_value(&body.statements) {
+                        continue;
+                    }
+                }
+
                 // Replace just the method name with __construct
                 let name_span = method.name.span();
                 edits.push(Edit::new(
@@ -117,6 +130,99 @@ fn check_class<'a>(class: &Class<'a>, edits: &mut Vec<Edit>) {
                     "Replace legacy constructor with __construct",
                 ));
             }
+        }
+    }
+}
+
+/// Check if any statement in the list contains a return with a value
+fn has_return_with_value(statements: &Sequence<'_, Statement<'_>>) -> bool {
+    for stmt in statements.iter() {
+        if check_statement_for_return_value(stmt) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Recursively check a statement for return statements with values
+fn check_statement_for_return_value(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        Statement::Return(ret) => ret.value.is_some(),
+        Statement::Block(block) => {
+            for inner in block.statements.iter() {
+                if check_statement_for_return_value(inner) {
+                    return true;
+                }
+            }
+            false
+        }
+        Statement::If(if_stmt) => check_if_for_return_value(&if_stmt.body),
+        Statement::Try(try_stmt) => {
+            for inner in try_stmt.block.statements.iter() {
+                if check_statement_for_return_value(inner) {
+                    return true;
+                }
+            }
+            for catch in try_stmt.catch_clauses.iter() {
+                for inner in catch.block.statements.iter() {
+                    if check_statement_for_return_value(inner) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(finally) = &try_stmt.finally_clause {
+                for inner in finally.block.statements.iter() {
+                    if check_statement_for_return_value(inner) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Check if body for return statements with values
+fn check_if_for_return_value(body: &IfBody<'_>) -> bool {
+    match body {
+        IfBody::Statement(stmt_body) => {
+            if check_statement_for_return_value(stmt_body.statement) {
+                return true;
+            }
+            for else_if in stmt_body.else_if_clauses.iter() {
+                if check_statement_for_return_value(else_if.statement) {
+                    return true;
+                }
+            }
+            if let Some(else_clause) = &stmt_body.else_clause {
+                if check_statement_for_return_value(else_clause.statement) {
+                    return true;
+                }
+            }
+            false
+        }
+        IfBody::ColonDelimited(block) => {
+            for inner in block.statements.iter() {
+                if check_statement_for_return_value(inner) {
+                    return true;
+                }
+            }
+            for else_if in block.else_if_clauses.iter() {
+                for inner in else_if.statements.iter() {
+                    if check_statement_for_return_value(inner) {
+                        return true;
+                    }
+                }
+            }
+            if let Some(else_clause) = &block.else_clause {
+                for inner in else_clause.statements.iter() {
+                    if check_statement_for_return_value(inner) {
+                        return true;
+                    }
+                }
+            }
+            false
         }
     }
 }
@@ -268,6 +374,65 @@ class Foo {
 "#;
         let edits = check_php(source);
         assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_method_with_return_type() {
+        // Methods with return type hints can't be constructors
+        let source = r#"<?php
+class Foo {
+    function Foo(): void {}
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_method_returns_value() {
+        // Methods that return values can't be constructors
+        let source = r#"<?php
+class EloquentBuilderTestWhereBelongsToStub {
+    public function eloquentBuilderTestWhereBelongsToStub() {
+        return $this->belongsTo(self::class);
+    }
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_method_returns_value_in_if() {
+        // Methods that return values in conditionals can't be constructors
+        let source = r#"<?php
+class Foo {
+    function Foo($x) {
+        if ($x) {
+            return $x;
+        }
+    }
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_allow_method_with_empty_return() {
+        // Methods with empty return statements can still be constructors
+        let source = r#"<?php
+class Foo {
+    function Foo($x) {
+        if (!$x) {
+            return;
+        }
+        $this->x = $x;
+    }
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
     }
 
     // ==================== Multiple Classes ====================
