@@ -3,6 +3,7 @@
 //! Available rules:
 //! - array_push: Convert array_push($arr, $val) to $arr[] = $val
 //! - is_null: Convert is_null($x) to $x === null
+//! - isset_coalesce: Convert isset($x) ? $x : $default to $x ?? $default
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
@@ -15,10 +16,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
-use rustor_rules::{check_array_push, check_is_null, check_sizeof, check_type_cast};
+use rustor_rules::{check_array_push, check_is_null, check_isset_coalesce, check_sizeof, check_type_cast};
 
 /// All available rule names
-const ALL_RULES: &[&str] = &["array_push", "is_null", "sizeof", "type_cast"];
+const ALL_RULES: &[&str] = &["array_push", "is_null", "isset_coalesce", "sizeof", "type_cast"];
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -55,6 +56,7 @@ fn main() -> Result<()> {
         println!("{}", "Available rules:".bold());
         println!("  {} - Convert array_push($arr, $val) to $arr[] = $val", "array_push".green());
         println!("  {} - Convert is_null($x) to $x === null", "is_null".green());
+        println!("  {} - Convert isset($x) ? $x : $default to $x ?? $default", "isset_coalesce".green());
         println!("  {} - Convert sizeof($x) to count($x)", "sizeof".green());
         println!("  {} - Convert strval/intval/floatval/boolval to cast syntax", "type_cast".green());
         return Ok(());
@@ -173,6 +175,9 @@ fn process_file(
     }
     if enabled_rules.contains("is_null") {
         edits.extend(check_is_null(program, &source_code));
+    }
+    if enabled_rules.contains("isset_coalesce") {
+        edits.extend(check_isset_coalesce(program, &source_code));
     }
     if enabled_rules.contains("sizeof") {
         edits.extend(check_sizeof(program, &source_code));
