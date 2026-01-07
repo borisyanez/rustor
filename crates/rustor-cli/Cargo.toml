@@ -35,5 +35,9 @@ notify-debouncer-mini = "0.4"
 # Phase 4: Better output formats
 similar = "2.6"
 
+# Phase 5: Progress bar and TTY detection
+indicatif = "0.17"
+atty = "0.2"
+
 [dev-dependencies]
 tempfile = "3.17"

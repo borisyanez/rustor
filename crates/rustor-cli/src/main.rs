@@ -12,8 +12,11 @@
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
+mod baseline;
 mod cache;
 mod config;
+mod git;
+mod ignore;
 mod output;
 mod process;
 mod watch;
@@ -21,6 +24,7 @@ mod watch;
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -40,7 +44,7 @@ use rustor_rules::{Category, PhpVersion, Preset, RuleConfigs, RuleRegistry};
 #[command(author = "rustor contributors")]
 struct Cli {
     /// Files or directories to process
-    #[arg(required_unless_present = "list_rules")]
+    #[arg(required_unless_present_any = ["list_rules", "staged", "since"])]
     paths: Vec<PathBuf>,
 
     /// Check for issues without applying fixes (default mode)
@@ -63,7 +67,7 @@ struct Cli {
     #[arg(long, short = 'r', value_name = "RULE")]
     rule: Vec<String>,
 
-    /// Output format: text, json, diff, sarif, html
+    /// Output format: text, json, diff, sarif, html, checkstyle, github
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     format: String,
 
@@ -106,6 +110,26 @@ struct Cli {
     /// Watch mode: re-run analysis when files change
     #[arg(long, short = 'w')]
     watch: bool,
+
+    /// Only check git-staged files (for pre-commit hooks)
+    #[arg(long)]
+    staged: bool,
+
+    /// Only check files changed since this git ref (branch, tag, or commit)
+    #[arg(long, value_name = "REF")]
+    since: Option<String>,
+
+    /// Disable progress bar output
+    #[arg(long)]
+    no_progress: bool,
+
+    /// Generate baseline file to stdout (captures current issues)
+    #[arg(long)]
+    generate_baseline: bool,
+
+    /// Use baseline file to filter results (only show new issues)
+    #[arg(long, value_name = "FILE")]
+    baseline: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -127,7 +151,7 @@ fn run() -> Result<ExitCode> {
     } else {
         OutputFormat::from_str(&cli.format).ok_or_else(|| {
             anyhow::anyhow!(
-                "Invalid output format '{}'. Valid options: text, json, diff, sarif, html",
+                "Invalid output format '{}'. Valid options: text, json, diff, sarif, html, checkstyle, github",
                 cli.format
             )
         })?
@@ -352,24 +376,90 @@ fn run() -> Result<ExitCode> {
     let mut file_paths: Vec<PathBuf> = Vec::new();
     let mut missing_paths: Vec<PathBuf> = Vec::new();
 
-    for path in &cli.paths {
-        if path.is_file() {
-            file_paths.push(path.clone());
-        } else if path.is_dir() {
-            for entry in walkdir::WalkDir::new(path)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().is_some_and(|ext| ext == "php"))
-            {
-                let file_path = entry.path();
-                if !config.should_exclude(file_path) {
-                    file_paths.push(file_path.to_path_buf());
+    // Git mode: --staged or --since
+    if cli.staged || cli.since.is_some() {
+        let repo_root = match git::find_repo_root() {
+            Ok(root) => root,
+            Err(e) => {
+                eprintln!("{}: {}", "Error".red(), e);
+                return Ok(ExitCode::from(1));
+            }
+        };
+
+        let git_files = if cli.staged {
+            if cli.verbose && output_format == OutputFormat::Text {
+                println!("{}: Checking staged files", "Git".bold());
+            }
+            git::get_staged_files(&repo_root)
+        } else {
+            let ref_name = cli.since.as_ref().unwrap();
+            if cli.verbose && output_format == OutputFormat::Text {
+                println!("{}: Checking files changed since {}", "Git".bold(), ref_name);
+            }
+            git::get_changed_files_since(&repo_root, ref_name)
+        };
+
+        match git_files {
+            Ok(files) => {
+                for path in files {
+                    if !config.should_exclude(&path) {
+                        file_paths.push(path);
+                    }
                 }
             }
-        } else {
-            missing_paths.push(path.clone());
+            Err(e) => {
+                eprintln!("{}: {}", "Error".red(), e);
+                return Ok(ExitCode::from(1));
+            }
+        }
+
+        if file_paths.is_empty() {
+            if output_format == OutputFormat::Text {
+                println!("{}", "No PHP files found to check".dimmed());
+            }
+            return Ok(ExitCode::SUCCESS);
+        }
+    } else {
+        // Normal mode: process paths from command line
+        for path in &cli.paths {
+            if path.is_file() {
+                file_paths.push(path.clone());
+            } else if path.is_dir() {
+                for entry in walkdir::WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "php"))
+                {
+                    let file_path = entry.path();
+                    if !config.should_exclude(file_path) {
+                        file_paths.push(file_path.to_path_buf());
+                    }
+                }
+            } else {
+                missing_paths.push(path.clone());
+            }
         }
     }
+
+    // Create progress bar (only for text format with TTY and not disabled)
+    let show_progress = !cli.no_progress
+        && output_format == OutputFormat::Text
+        && atty::is(atty::Stream::Stdout)
+        && file_paths.len() > 10;  // Only show for larger scans
+
+    let progress = if show_progress {
+        let pb = ProgressBar::new(file_paths.len() as u64);
+        pb.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} Scanning... [{bar:40.cyan/blue}] {pos}/{len} files ({percent}%)"
+            )
+            .unwrap()
+            .progress_chars("█▓░")
+        );
+        Some(pb)
+    } else {
+        None
+    };
 
     // Process files in parallel (with caching)
     let cache_hits = Mutex::new(0usize);
@@ -383,6 +473,9 @@ fn run() -> Result<ExitCode> {
                     if let Some(entry) = cache_guard.get_if_valid(path, content_hash, rules_hash) {
                         // Cache hit - use cached result
                         *cache_hits.lock().unwrap() += 1;
+                        if let Some(ref pb) = progress {
+                            pb.inc(1);
+                        }
                         return if entry.has_edits {
                             FileResult::CachedWithEdits { edit_count: entry.edit_count }
                         } else {
@@ -408,9 +501,18 @@ fn run() -> Result<ExitCode> {
                 }
             }
 
+            if let Some(ref pb) = progress {
+                pb.inc(1);
+            }
+
             result
         })
         .collect();
+
+    // Clear progress bar before output
+    if let Some(pb) = progress {
+        pb.finish_and_clear();
+    }
 
     // Report cache stats in verbose mode
     let hits = *cache_hits.lock().unwrap();
@@ -426,9 +528,25 @@ fn run() -> Result<ExitCode> {
     let mut sorted_results: Vec<_> = results.into_iter().zip(file_paths.iter()).collect();
     sorted_results.sort_by(|a, b| a.1.cmp(b.1));
 
+    // Load baseline if specified
+    let loaded_baseline = if let Some(baseline_path) = &cli.baseline {
+        Some(baseline::Baseline::load(baseline_path)?)
+    } else {
+        None
+    };
+
     // Create reporter and process results sequentially
-    let mut reporter = Reporter::new(output_format, cli.verbose);
+    // Use a silent reporter for baseline generation
+    let reporter_format = if cli.generate_baseline {
+        OutputFormat::Json  // Suppress text output during baseline generation
+    } else {
+        output_format
+    };
+    let mut reporter = Reporter::new(reporter_format, cli.verbose && !cli.generate_baseline);
     reporter.set_enabled_rules(enabled_rules.iter().cloned().collect());
+
+    // Collect data for baseline generation if requested
+    let mut baseline_data: Vec<(String, Vec<EditInfo>, Option<String>)> = Vec::new();
 
     // Report missing paths
     for path in &missing_paths {
@@ -443,6 +561,24 @@ fn run() -> Result<ExitCode> {
 
     // Report file results
     for (result, path) in sorted_results {
+        // Apply baseline filtering if baseline is loaded
+        let result = if let Some(ref baseline) = loaded_baseline {
+            apply_baseline_filter(result, path, baseline)
+        } else {
+            result
+        };
+
+        // Collect for baseline generation
+        if cli.generate_baseline {
+            if let FileResult::HasChanges { ref edits, ref old_source, .. } = result {
+                baseline_data.push((
+                    path.display().to_string(),
+                    edits.clone(),
+                    Some(old_source.clone()),
+                ));
+            }
+        }
+
         report_result(path, result, fix_mode, &mut reporter)?;
     }
 
@@ -467,9 +603,39 @@ fn run() -> Result<ExitCode> {
     };
 
     // Print final output
-    reporter.finish(check_mode);
+    if cli.generate_baseline {
+        // Generate baseline instead of normal output
+        let baseline = baseline::Baseline::generate(&baseline_data);
+        println!("{}", baseline.to_json()?);
+    } else {
+        reporter.finish(check_mode);
+    }
 
     Ok(exit_code)
+}
+
+/// Apply baseline filtering to a file result
+fn apply_baseline_filter(result: FileResult, path: &PathBuf, baseline: &baseline::Baseline) -> FileResult {
+    match result {
+        FileResult::HasChanges { edits, old_source, new_source } => {
+            let path_str = path.display().to_string();
+            let filtered_edits = baseline.filter_edits(&path_str, edits, &old_source);
+
+            if filtered_edits.is_empty() {
+                FileResult::NoChanges
+            } else {
+                // Re-apply only filtered edits to get correct new_source
+                // For simplicity, we still report all edits' new_source
+                // since partial application is complex
+                FileResult::HasChanges {
+                    edits: filtered_edits,
+                    old_source,
+                    new_source,
+                }
+            }
+        }
+        other => other,
+    }
 }
 
 /// Result of processing a single file (for parallel processing)

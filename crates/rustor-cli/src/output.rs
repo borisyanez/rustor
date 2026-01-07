@@ -15,6 +15,8 @@ pub enum OutputFormat {
     Diff,
     Sarif,
     Html,
+    Checkstyle,
+    Github,
 }
 
 impl OutputFormat {
@@ -25,6 +27,8 @@ impl OutputFormat {
             "diff" => Some(OutputFormat::Diff),
             "sarif" => Some(OutputFormat::Sarif),
             "html" => Some(OutputFormat::Html),
+            "checkstyle" => Some(OutputFormat::Checkstyle),
+            "github" => Some(OutputFormat::Github),
             _ => None,
         }
     }
@@ -159,8 +163,21 @@ impl Reporter {
             OutputFormat::Diff => {
                 print_unified_diff(path, old_source, new_source);
             }
-            OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Html => {
+            OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Checkstyle => {
                 // Output is handled in finish()
+            }
+            OutputFormat::Github => {
+                // Output GitHub workflow commands immediately
+                for edit in &edits {
+                    println!(
+                        "::warning file={},line={},col={}::{} ({})",
+                        path.display(),
+                        edit.line,
+                        edit.column,
+                        edit.message,
+                        edit.rule
+                    );
+                }
             }
         }
 
@@ -287,6 +304,21 @@ impl Reporter {
             OutputFormat::Html => {
                 let html = generate_html(&self.extended_results, &self.summary);
                 println!("{}", html);
+            }
+            OutputFormat::Checkstyle => {
+                let xml = generate_checkstyle(&self.extended_results);
+                println!("{}", xml);
+            }
+            OutputFormat::Github => {
+                // GitHub annotations are printed as they're processed
+                // Just print a summary as a notice
+                if self.summary.files_with_changes > 0 {
+                    println!(
+                        "::notice::Rustor found {} edit(s) in {} file(s)",
+                        self.summary.total_edits,
+                        self.summary.files_with_changes
+                    );
+                }
             }
         }
     }
@@ -781,6 +813,53 @@ fn generate_html(results: &[ExtendedFileResult], summary: &Summary) -> String {
     html
 }
 
+// ==================== Checkstyle XML Output ====================
+
+/// Generate Checkstyle XML output (for CI tools like Jenkins)
+fn generate_checkstyle(results: &[ExtendedFileResult]) -> String {
+    let mut xml = String::new();
+
+    // XML header
+    xml.push_str(r#"<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="4.3">
+"#);
+
+    // Group edits by file
+    for file in results {
+        if file.edits.is_empty() {
+            continue;
+        }
+
+        xml.push_str(&format!(r#"  <file name="{}">
+"#, xml_escape(&file.path)));
+
+        for edit in &file.edits {
+            xml.push_str(&format!(
+                r#"    <error line="{}" column="{}" severity="warning" message="{}" source="rustor.{}"/>
+"#,
+                edit.line,
+                edit.column,
+                xml_escape(&edit.message),
+                edit.rule
+            ));
+        }
+
+        xml.push_str("  </file>\n");
+    }
+
+    xml.push_str("</checkstyle>\n");
+    xml
+}
+
+/// Escape XML special characters
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -806,6 +885,10 @@ mod tests {
         assert_eq!(OutputFormat::from_str("SARIF"), Some(OutputFormat::Sarif));
         assert_eq!(OutputFormat::from_str("html"), Some(OutputFormat::Html));
         assert_eq!(OutputFormat::from_str("HTML"), Some(OutputFormat::Html));
+        assert_eq!(OutputFormat::from_str("checkstyle"), Some(OutputFormat::Checkstyle));
+        assert_eq!(OutputFormat::from_str("CHECKSTYLE"), Some(OutputFormat::Checkstyle));
+        assert_eq!(OutputFormat::from_str("github"), Some(OutputFormat::Github));
+        assert_eq!(OutputFormat::from_str("GITHUB"), Some(OutputFormat::Github));
         assert_eq!(OutputFormat::from_str("xml"), None);
     }
 

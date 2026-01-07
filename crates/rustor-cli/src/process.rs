@@ -9,6 +9,7 @@ use std::path::Path;
 use rustor_core::apply_edits;
 use rustor_rules::{RuleConfigs, RuleRegistry};
 
+use crate::ignore::IgnoreDirectives;
 use crate::output::EditInfo;
 
 /// Result of processing a single file
@@ -63,22 +64,51 @@ pub fn process_file_with_config(
         }));
     }
 
-    // Convert Edit to EditInfo with line/column info
+    // Parse ignore directives from source
+    let ignores = IgnoreDirectives::parse(&source_code);
+
+    // Convert Edit to EditInfo with line/column info, filtering out ignored edits
     let edit_infos: Vec<EditInfo> = edits
         .iter()
-        .map(|edit| {
+        .filter_map(|edit| {
             let (line, column) = offset_to_line_column(&source_code, edit.span.start.offset as usize);
-            EditInfo {
-                rule: extract_rule_name(&edit.message),
+            let rule = extract_rule_name(&edit.message);
+
+            // Check if this edit should be ignored
+            if ignores.should_ignore(line, &rule) {
+                return None;
+            }
+
+            Some(EditInfo {
+                rule,
                 line,
                 column,
                 message: edit.message.clone(),
-            }
+            })
+        })
+        .collect();
+
+    // If all edits were filtered out, return no changes
+    if edit_infos.is_empty() {
+        return Ok(Some(ProcessResult {
+            edits: vec![],
+            old_source: source_code,
+            new_source: None,
+        }));
+    }
+
+    // Filter the actual edits to only include non-ignored ones
+    let filtered_edits: Vec<_> = edits
+        .into_iter()
+        .filter(|edit| {
+            let (line, _) = offset_to_line_column(&source_code, edit.span.start.offset as usize);
+            let rule = extract_rule_name(&edit.message);
+            !ignores.should_ignore(line, &rule)
         })
         .collect();
 
     // Apply edits to get new source
-    let new_source = apply_edits(&source_code, &edits)
+    let new_source = apply_edits(&source_code, &filtered_edits)
         .with_context(|| format!("Failed to apply edits to {}", path.display()))?;
 
     Ok(Some(ProcessResult {
