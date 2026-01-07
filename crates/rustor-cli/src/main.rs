@@ -1,16 +1,22 @@
 //! rustor CLI - PHP refactoring tool
 //!
-//! Phase 0: Proof of concept with array_push rule
+//! Available rules:
+//! - array_push: Convert array_push($arr, $val) to $arr[] = $val
+//! - is_null: Convert is_null($x) to $x === null
 
 use anyhow::{Context, Result};
 use bumpalo::Bump;
 use clap::Parser;
 use colored::*;
 use mago_database::file::FileId;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
 use rustor_rules::{check_array_push, check_is_null};
+
+/// All available rule names
+const ALL_RULES: &[&str] = &["array_push", "is_null"];
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -19,7 +25,7 @@ use rustor_rules::{check_array_push, check_is_null};
 #[command(author = "rustor contributors")]
 struct Cli {
     /// Files or directories to process
-    #[arg(required = true)]
+    #[arg(required_unless_present = "list_rules")]
     paths: Vec<PathBuf>,
 
     /// Show changes without applying them
@@ -29,10 +35,54 @@ struct Cli {
     /// Show verbose output
     #[arg(long, short = 'v')]
     verbose: bool,
+
+    /// Rules to run (can be specified multiple times). If not specified, all rules run.
+    #[arg(long, short = 'r', value_name = "RULE")]
+    rule: Vec<String>,
+
+    /// List available rules and exit
+    #[arg(long)]
+    list_rules: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Handle --list-rules
+    if cli.list_rules {
+        println!("{}", "Available rules:".bold());
+        println!("  {} - Convert array_push($arr, $val) to $arr[] = $val", "array_push".green());
+        println!("  {} - Convert is_null($x) to $x === null", "is_null".green());
+        return Ok(());
+    }
+
+    // Determine which rules to run
+    let enabled_rules: HashSet<String> = if cli.rule.is_empty() {
+        // Default: run all rules
+        ALL_RULES.iter().map(|s| s.to_string()).collect()
+    } else {
+        // Validate rule names
+        for rule in &cli.rule {
+            if !ALL_RULES.contains(&rule.as_str()) {
+                eprintln!(
+                    "{}: Unknown rule '{}'. Use --list-rules to see available rules.",
+                    "Error".red(),
+                    rule
+                );
+                std::process::exit(1);
+            }
+        }
+        cli.rule.into_iter().collect()
+    };
+
+    if cli.verbose {
+        println!(
+            "{}: {}",
+            "Running rules".bold(),
+            enabled_rules.iter().cloned().collect::<Vec<_>>().join(", ")
+        );
+        println!();
+    }
 
     let mut total_files = 0;
     let mut files_with_changes = 0;
@@ -40,7 +90,7 @@ fn main() -> Result<()> {
 
     for path in &cli.paths {
         if path.is_file() {
-            let (changes, edits) = process_file(path, cli.dry_run, cli.verbose)?;
+            let (changes, edits) = process_file(path, cli.dry_run, cli.verbose, &enabled_rules)?;
             total_files += 1;
             if changes {
                 files_with_changes += 1;
@@ -52,7 +102,7 @@ fn main() -> Result<()> {
                 .filter_map(|e| e.ok())
                 .filter(|e| e.path().extension().is_some_and(|ext| ext == "php"))
             {
-                let (changes, edits) = process_file(entry.path(), cli.dry_run, cli.verbose)?;
+                let (changes, edits) = process_file(entry.path(), cli.dry_run, cli.verbose, &enabled_rules)?;
                 total_files += 1;
                 if changes {
                     files_with_changes += 1;
@@ -83,7 +133,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn process_file(path: &Path, dry_run: bool, verbose: bool) -> Result<(bool, usize)> {
+fn process_file(
+    path: &Path,
+    dry_run: bool,
+    verbose: bool,
+    enabled_rules: &HashSet<String>,
+) -> Result<(bool, usize)> {
     let source_code = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
@@ -107,9 +162,14 @@ fn process_file(path: &Path, dry_run: bool, verbose: bool) -> Result<(bool, usiz
         return Ok((false, 0));
     }
 
-    // Apply refactoring rules
-    let mut edits = check_array_push(program, &source_code);
-    edits.extend(check_is_null(program, &source_code));
+    // Apply enabled refactoring rules
+    let mut edits = Vec::new();
+    if enabled_rules.contains("array_push") {
+        edits.extend(check_array_push(program, &source_code));
+    }
+    if enabled_rules.contains("is_null") {
+        edits.extend(check_is_null(program, &source_code));
+    }
 
     if edits.is_empty() {
         if verbose {
