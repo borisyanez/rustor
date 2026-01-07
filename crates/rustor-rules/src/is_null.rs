@@ -267,6 +267,42 @@ class Foo {
         assert_eq!(edits.len(), 1);
     }
 
+    #[test]
+    fn test_is_null_in_closure() {
+        let source = r#"<?php
+$fn = function($x) {
+    return is_null($x);
+};
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
+    }
+
+    #[test]
+    fn test_is_null_in_arrow_function() {
+        let source = r#"<?php
+$fn = fn($x) => is_null($x);
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
+    }
+
+    #[test]
+    fn test_is_null_in_nested_closure() {
+        let source = r#"<?php
+$fn = function() {
+    return function($x) {
+        if (is_null($x)) {
+            return true;
+        }
+        return false;
+    };
+};
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
+    }
+
     // ==================== Case Insensitivity ====================
 
     #[test]

@@ -322,6 +322,16 @@ pub trait Visitor<'a> {
                     }
                 }
             }
+            Expression::Closure(closure) => {
+                // Traverse closure body statements
+                for stmt in closure.body.statements.iter() {
+                    self.traverse_statement(stmt, source);
+                }
+            }
+            Expression::ArrowFunction(arrow) => {
+                // Traverse arrow function expression
+                self.traverse_expression(arrow.expression, source);
+            }
             _ => {}
         }
     }
