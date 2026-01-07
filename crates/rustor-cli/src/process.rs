@@ -192,7 +192,7 @@ fn extract_rule_name(message: &str) -> String {
         "type_cast".to_string()
     } else if lower.contains("__construct") || lower.contains("class constructor") {
         "class_constructor".to_string()
-    } else if lower.contains("sprintf") && lower.contains("positional") {
+    } else if lower.contains("sprintf") && (lower.contains("positional") || lower.contains("interpolation")) {
         "sprintf_positional".to_string()
     } else {
         "unknown".to_string()

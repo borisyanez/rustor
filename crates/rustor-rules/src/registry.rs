@@ -175,6 +175,7 @@ impl Preset {
             Preset::Recommended => &[
                 "array_push",
                 "array_syntax",
+                "implode_order",
                 "is_null",
                 "isset_coalesce",
                 "sizeof",
@@ -359,6 +360,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::constructor_promotion::ConstructorPromotionRule));
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
         registry.register(Box::new(super::first_class_callables::FirstClassCallablesRule));
+        registry.register(Box::new(super::implode_order::ImplodeOrderRule));
         registry.register(Box::new(super::is_null::IsNullRule));
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
         registry.register(Box::new(super::join_to_implode::JoinToImplodeRule));

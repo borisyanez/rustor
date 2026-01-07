@@ -15,6 +15,7 @@ pub struct Config {
     pub paths: PathsConfig,
     pub output: OutputConfig,
     pub php: PhpConfig,
+    pub fix: FixConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -83,15 +84,28 @@ impl RulesConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct PathsConfig {
+    /// Paths to include (if set, only these paths are scanned)
+    pub include: Vec<String>,
     /// Glob patterns to exclude from processing
     pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
+pub struct FixConfig {
+    /// Create backup before modifying files
+    pub backup: Option<bool>,
+    /// Directory to store backups
+    pub backup_dir: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct OutputConfig {
-    /// Output format: "text" or "json"
+    /// Output format: "text", "json", "sarif", "html", "checkstyle", "github"
     pub format: Option<String>,
+    /// Enable colored output (default: auto-detect)
+    pub color: Option<bool>,
 }
 
 impl Config {
@@ -306,6 +320,7 @@ format = "json"
     fn test_should_exclude_glob() {
         let config = Config {
             paths: PathsConfig {
+                include: vec![],
                 exclude: vec!["*.generated.php".to_string()],
             },
             ..Default::default()
@@ -319,6 +334,7 @@ format = "json"
     fn test_should_exclude_directory() {
         let config = Config {
             paths: PathsConfig {
+                include: vec![],
                 exclude: vec!["vendor/".to_string()],
             },
             ..Default::default()
@@ -393,5 +409,47 @@ message = "custom message"
             other_config.get("message").unwrap().as_string(),
             Some("custom message")
         );
+    }
+
+    #[test]
+    fn test_full_config() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[php]
+version = "8.2"
+
+[rules]
+preset = "recommended"
+disabled = ["sizeof"]
+
+[paths]
+include = ["src/", "app/"]
+exclude = ["vendor/", "tests/fixtures/"]
+
+[output]
+format = "json"
+color = false
+
+[fix]
+backup = true
+backup_dir = ".rustor-backups"
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(config.php.version, Some("8.2".to_string()));
+        assert_eq!(config.rules.preset, Some("recommended".to_string()));
+        assert_eq!(config.rules.disabled, vec!["sizeof".to_string()]);
+        assert_eq!(config.paths.include, vec!["src/".to_string(), "app/".to_string()]);
+        assert_eq!(config.paths.exclude, vec!["vendor/".to_string(), "tests/fixtures/".to_string()]);
+        assert_eq!(config.output.format, Some("json".to_string()));
+        assert_eq!(config.output.color, Some(false));
+        assert_eq!(config.fix.backup, Some(true));
+        assert_eq!(config.fix.backup_dir, Some(".rustor-backups".to_string()));
     }
 }

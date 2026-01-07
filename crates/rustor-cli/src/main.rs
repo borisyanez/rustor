@@ -14,6 +14,7 @@
 
 mod baseline;
 mod cache;
+mod backup;
 mod config;
 mod git;
 mod ignore;
@@ -130,6 +131,22 @@ struct Cli {
     /// Use baseline file to filter results (only show new issues)
     #[arg(long, value_name = "FILE")]
     baseline: Option<PathBuf>,
+
+    /// Create backup files before applying fixes (default: true)
+    #[arg(long, default_value = "true")]
+    backup: bool,
+
+    /// Disable backup creation when fixing files
+    #[arg(long, conflicts_with = "backup")]
+    no_backup: bool,
+
+    /// Directory to store backup files (default: .rustor-backups)
+    #[arg(long, value_name = "DIR")]
+    backup_dir: Option<PathBuf>,
+
+    /// Verify fixed files parse correctly (restore on failure)
+    #[arg(long)]
+    verify: bool,
 }
 
 fn main() -> ExitCode {
@@ -324,6 +341,24 @@ fn run() -> Result<ExitCode> {
     // Determine mode: fix or check (check is default)
     let fix_mode = cli.fix;
     let check_mode = !fix_mode; // --check, --dry-run, or default
+
+    // Set up backup manager for fix mode
+    let backup_enabled = fix_mode && cli.backup && !cli.no_backup;
+    let backup_dir = cli.backup_dir
+        .clone()
+        .or_else(|| config.fix.backup_dir.clone().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(".rustor-backups"));
+    let mut backup_manager = backup::BackupManager::new(backup_dir.clone(), backup_enabled);
+
+    // Initialize backup session if we're in fix mode with backups
+    if backup_enabled {
+        backup_manager.init_session()?;
+        if cli.verbose && output_format == OutputFormat::Text {
+            if let Some(session_path) = backup_manager.session_path() {
+                println!("{}: {}", "Backup dir".bold(), session_path.display());
+            }
+        }
+    }
 
     // Determine cache directory (use cwd)
     let cache_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -579,7 +614,7 @@ fn run() -> Result<ExitCode> {
             }
         }
 
-        report_result(path, result, fix_mode, &mut reporter)?;
+        report_result(path, result, fix_mode, &mut reporter, &backup_manager, cli.verify)?;
     }
 
     // Save cache
@@ -685,6 +720,8 @@ fn report_result(
     result: FileResult,
     fix_mode: bool,
     reporter: &mut Reporter,
+    backup_manager: &backup::BackupManager,
+    verify: bool,
 ) -> Result<()> {
     match result {
         FileResult::NoChanges => {
@@ -696,7 +733,27 @@ fn report_result(
             new_source,
         } => {
             if fix_mode {
+                // Create backup before modifying
+                let backup_path = backup_manager.backup_file(path)?;
+
+                // Write the fixed file
                 write_file(path, &new_source)?;
+
+                // Verify if requested
+                if verify {
+                    if !backup::verify_php_file(path)? {
+                        // Restore from backup on parse failure
+                        if let Some(bp) = backup_path {
+                            backup_manager.restore_file(path, &bp)?;
+                            reporter.report_error(path, "Fix produced invalid PHP, restored from backup");
+                            return Ok(());
+                        } else {
+                            reporter.report_error(path, "Fix produced invalid PHP (no backup to restore)");
+                            return Ok(());
+                        }
+                    }
+                }
+
                 reporter.report_fix(path, edits);
             } else {
                 reporter.report_check(path, edits, &old_source, &new_source);

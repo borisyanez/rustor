@@ -39,5 +39,8 @@ similar = "2.6"
 indicatif = "0.17"
 atty = "0.2"
 
+# Phase 6: Backup timestamps
+chrono = "0.4"
+
 [dev-dependencies]
 tempfile = "3.17"
