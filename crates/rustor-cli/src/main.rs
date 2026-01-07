@@ -3,6 +3,7 @@
 //! Available rules:
 //! - array_push: Convert array_push($arr, $val) to $arr[] = $val
 //! - is_null: Convert is_null($x) to $x === null
+//! - sizeof: Convert sizeof($x) to count($x)
 
 use anyhow::{Context, Result};
 use bumpalo::Bump;
@@ -13,10 +14,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rustor_core::apply_edits;
-use rustor_rules::{check_array_push, check_is_null};
+use rustor_rules::{check_array_push, check_is_null, check_sizeof};
 
 /// All available rule names
-const ALL_RULES: &[&str] = &["array_push", "is_null"];
+const ALL_RULES: &[&str] = &["array_push", "is_null", "sizeof"];
 
 #[derive(Parser)]
 #[command(name = "rustor")]
@@ -53,6 +54,7 @@ fn main() -> Result<()> {
         println!("{}", "Available rules:".bold());
         println!("  {} - Convert array_push($arr, $val) to $arr[] = $val", "array_push".green());
         println!("  {} - Convert is_null($x) to $x === null", "is_null".green());
+        println!("  {} - Convert sizeof($x) to count($x)", "sizeof".green());
         return Ok(());
     }
 
@@ -169,6 +171,9 @@ fn process_file(
     }
     if enabled_rules.contains("is_null") {
         edits.extend(check_is_null(program, &source_code));
+    }
+    if enabled_rules.contains("sizeof") {
+        edits.extend(check_sizeof(program, &source_code));
     }
 
     if edits.is_empty() {
