@@ -191,7 +191,9 @@ impl Preset {
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
+                "null_safe_operator",
                 "string_contains",
+                "string_starts_ends",
             ],
             Preset::All => &[], // Special case: all rules
         }
@@ -273,10 +275,12 @@ impl RuleRegistry {
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
         registry.register(Box::new(super::join_to_implode::JoinToImplodeRule));
         registry.register(Box::new(super::list_short_syntax::ListShortSyntaxRule));
+        registry.register(Box::new(super::null_safe_operator::NullSafeOperatorRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
         registry.register(Box::new(super::string_contains::StringContainsRule));
+        registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
 
         registry

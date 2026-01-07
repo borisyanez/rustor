@@ -23,10 +23,12 @@ pub mod is_null;
 pub mod isset_coalesce;
 pub mod join_to_implode;
 pub mod list_short_syntax;
+pub mod null_safe_operator;
 pub mod pow_to_operator;
 pub mod sizeof;
 pub mod sprintf_positional;
 pub mod string_contains;
+pub mod string_starts_ends;
 pub mod type_cast;
 
 // Re-export the Rule trait, registry, and metadata types
@@ -42,8 +44,10 @@ pub use is_null::check_is_null;
 pub use isset_coalesce::check_isset_coalesce;
 pub use join_to_implode::check_join_to_implode;
 pub use list_short_syntax::check_list_short_syntax;
+pub use null_safe_operator::check_null_safe_operator;
 pub use pow_to_operator::check_pow_to_operator;
 pub use sizeof::check_sizeof;
 pub use sprintf_positional::check_sprintf_positional;
 pub use string_contains::check_string_contains;
+pub use string_starts_ends::check_string_starts_ends;
 pub use type_cast::check_type_cast;
