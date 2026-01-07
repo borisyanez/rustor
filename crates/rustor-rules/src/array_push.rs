@@ -2,232 +2,72 @@
 //!
 //! This transformation improves performance by avoiding function call overhead.
 //!
-//! Phase 0: Minimal implementation to validate mago integration
+//! Only transforms standalone array_push calls (not ones where return value is used).
 
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
-use rustor_core::Edit;
+use rustor_core::{Edit, Visitor};
 
 /// Check a parsed PHP program for array_push calls that can be simplified
 pub fn check_array_push<'a>(program: &Program<'a>, source: &str) -> Vec<Edit> {
-    let mut edits = Vec::new();
-
-    // Iterate through all statements in the program
-    for stmt in program.statements.iter() {
-        check_statement(stmt, source, &mut edits);
-    }
-
-    edits
+    let mut visitor = ArrayPushVisitor {
+        source,
+        edits: Vec::new(),
+    };
+    visitor.visit_program(program, source);
+    visitor.edits
 }
 
-fn check_statement<'a>(stmt: &Statement<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match stmt {
-        Statement::Expression(expr_stmt) => {
-            check_expression(&expr_stmt.expression, source, edits);
+struct ArrayPushVisitor<'s> {
+    source: &'s str,
+    edits: Vec<Edit>,
+}
+
+impl<'a, 's> Visitor<'a> for ArrayPushVisitor<'s> {
+    fn visit_statement(&mut self, stmt: &Statement<'a>, _source: &str) -> bool {
+        // Only check expression statements for standalone array_push calls
+        if let Statement::Expression(expr_stmt) = stmt {
+            self.check_expression(&expr_stmt.expression);
         }
-        Statement::Block(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-        Statement::If(if_stmt) => {
-            check_if_body(&if_stmt.body, source, edits);
-        }
-        Statement::Foreach(foreach) => {
-            check_foreach_body(&foreach.body, source, edits);
-        }
-        Statement::For(for_stmt) => {
-            check_for_body(&for_stmt.body, source, edits);
-        }
-        Statement::While(while_stmt) => {
-            check_while_body(&while_stmt.body, source, edits);
-        }
-        Statement::DoWhile(do_while) => {
-            check_statement(&do_while.statement, source, edits);
-        }
-        Statement::Class(class) => {
-            for member in class.members.iter() {
-                check_class_like_member(member, source, edits);
-            }
-        }
-        Statement::Function(func) => {
-            for inner in func.body.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-        Statement::Trait(tr) => {
-            for member in tr.members.iter() {
-                check_class_like_member(member, source, edits);
-            }
-        }
-        Statement::Namespace(ns) => {
-            // Visit namespace body statements
-            match &ns.body {
-                mago_syntax::ast::NamespaceBody::Implicit(body) => {
-                    for inner in body.statements.iter() {
-                        check_statement(inner, source, edits);
-                    }
-                }
-                mago_syntax::ast::NamespaceBody::BraceDelimited(body) => {
-                    for inner in body.statements.iter() {
-                        check_statement(inner, source, edits);
-                    }
-                }
-            }
-        }
-        Statement::Try(try_stmt) => {
-            for inner in try_stmt.block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-            for catch in try_stmt.catch_clauses.iter() {
-                for inner in catch.block.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-            if let Some(finally) = &try_stmt.finally_clause {
-                for inner in finally.block.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-        }
-        Statement::Switch(switch) => {
-            check_switch_body(&switch.body, source, edits);
-        }
-        // Skip other statement types for now
-        _ => {}
+        true // Continue traversal
+    }
+
+    // Don't traverse into expressions - we only want standalone calls
+    fn visit_expression(&mut self, _expr: &Expression<'a>, _source: &str) -> bool {
+        false
     }
 }
 
-fn check_if_body<'a>(body: &IfBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        IfBody::Statement(stmt_body) => {
-            // IfStatementBody has a statement field and else_if_clauses
-            check_statement(stmt_body.statement, source, edits);
-            // Also check else-if clauses
-            for else_if in stmt_body.else_if_clauses.iter() {
-                check_statement(else_if.statement, source, edits);
-            }
-            // Check else clause
-            if let Some(else_clause) = &stmt_body.else_clause {
-                check_statement(else_clause.statement, source, edits);
-            }
-        }
-        IfBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
+impl<'s> ArrayPushVisitor<'s> {
+    fn check_expression(&mut self, expr: &Expression<'_>) {
+        if let Expression::Call(call) = expr {
+            if let Call::Function(func_call) = call {
+                if let Expression::Identifier(ident) = func_call.function {
+                    let name_span = ident.span();
+                    let name =
+                        &self.source[name_span.start.offset as usize..name_span.end.offset as usize];
 
-fn check_foreach_body<'a>(body: &ForeachBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        ForeachBody::Statement(stmt) => {
-            // ForeachBody::Statement directly contains &Statement
-            check_statement(stmt, source, edits);
-        }
-        ForeachBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
+                    if name.eq_ignore_ascii_case("array_push") {
+                        let arg_list: Vec<_> = func_call.argument_list.arguments.iter().collect();
 
-fn check_for_body<'a>(body: &ForBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        ForBody::Statement(stmt) => {
-            // ForBody::Statement directly contains &Statement
-            check_statement(stmt, source, edits);
-        }
-        ForBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
+                        // Only handle simple case: exactly 2 arguments
+                        if arg_list.len() == 2 {
+                            let arr_span = arg_list[0].span();
+                            let val_span = arg_list[1].span();
 
-fn check_while_body<'a>(body: &WhileBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        WhileBody::Statement(stmt) => {
-            // WhileBody::Statement directly contains &Statement
-            check_statement(stmt, source, edits);
-        }
-        WhileBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
+                            let arr_code = &self.source
+                                [arr_span.start.offset as usize..arr_span.end.offset as usize];
+                            let val_code = &self.source
+                                [val_span.start.offset as usize..val_span.end.offset as usize];
 
-fn check_switch_body<'a>(body: &SwitchBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        SwitchBody::BraceDelimited(block) => {
-            for case in block.cases.iter() {
-                for stmt in case.statements().iter() {
-                    check_statement(stmt, source, edits);
-                }
-            }
-        }
-        SwitchBody::ColonDelimited(block) => {
-            for case in block.cases.iter() {
-                for stmt in case.statements().iter() {
-                    check_statement(stmt, source, edits);
-                }
-            }
-        }
-    }
-}
+                            let replacement = format!("{}[] = {}", arr_code, val_code);
 
-fn check_class_like_member<'a>(member: &ClassLikeMember<'a>, source: &str, edits: &mut Vec<Edit>) {
-    if let ClassLikeMember::Method(method) = member {
-        // Method body can be Concrete (has statements) or Abstract
-        match &method.body {
-            MethodBody::Concrete(body) => {
-                for inner in body.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-            MethodBody::Abstract(_) => {}
-        }
-    }
-}
-
-fn check_expression<'a>(expr: &Expression<'a>, source: &str, edits: &mut Vec<Edit>) {
-    // Check if this is a function call
-    if let Expression::Call(call) = expr {
-        // We only care about function calls, not method calls
-        if let Call::Function(func_call) = call {
-            // Get the function being called
-            if let Expression::Identifier(ident) = func_call.function {
-                // Extract function name from source
-                let name_span = ident.span();
-                let name = &source[name_span.start.offset as usize..name_span.end.offset as usize];
-
-                // Check for array_push
-                if name.eq_ignore_ascii_case("array_push") {
-                    let arg_list: Vec<_> = func_call.argument_list.arguments.iter().collect();
-
-                    // Only handle simple case: exactly 2 arguments
-                    if arg_list.len() == 2 {
-                        let arr_span = arg_list[0].span();
-                        let val_span = arg_list[1].span();
-
-                        let arr_code =
-                            &source[arr_span.start.offset as usize..arr_span.end.offset as usize];
-                        let val_code =
-                            &source[val_span.start.offset as usize..val_span.end.offset as usize];
-
-                        // Generate replacement: $arr[] = $val
-                        let replacement = format!("{}[] = {}", arr_code, val_code);
-
-                        edits.push(Edit::new(
-                            call.span(),
-                            replacement,
-                            "Replace array_push() with short syntax for better performance",
-                        ));
+                            self.edits.push(Edit::new(
+                                call.span(),
+                                replacement,
+                                "Replace array_push() with short syntax for better performance",
+                            ));
+                        }
                     }
                 }
             }
@@ -242,7 +82,6 @@ mod tests {
     use mago_database::file::FileId;
     use rustor_core::apply_edits;
 
-    /// Helper to parse PHP and run the array_push rule
     fn check_php(source: &str) -> Vec<Edit> {
         let arena = Bump::new();
         let file_id = FileId::new("test.php");
@@ -250,7 +89,6 @@ mod tests {
         check_array_push(program, source)
     }
 
-    /// Helper to apply edits and return the result
     fn transform(source: &str) -> String {
         let edits = check_php(source);
         apply_edits(source, &edits).unwrap()

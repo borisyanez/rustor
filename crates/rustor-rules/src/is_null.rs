@@ -5,294 +5,51 @@
 
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
-use rustor_core::Edit;
+use rustor_core::{Edit, Visitor};
 
 /// Check a parsed PHP program for is_null calls that can be simplified
 pub fn check_is_null<'a>(program: &Program<'a>, source: &str) -> Vec<Edit> {
-    let mut edits = Vec::new();
-
-    for stmt in program.statements.iter() {
-        check_statement(stmt, source, &mut edits);
-    }
-
-    edits
+    let mut visitor = IsNullVisitor {
+        source,
+        edits: Vec::new(),
+    };
+    visitor.visit_program(program, source);
+    visitor.edits
 }
 
-fn check_statement<'a>(stmt: &Statement<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match stmt {
-        Statement::Expression(expr_stmt) => {
-            check_expression(&expr_stmt.expression, source, edits);
-        }
-        Statement::Block(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-        Statement::If(if_stmt) => {
-            // Check condition
-            check_expression(&if_stmt.condition, source, edits);
-            check_if_body(&if_stmt.body, source, edits);
-        }
-        Statement::Foreach(foreach) => {
-            check_expression(&foreach.expression, source, edits);
-            check_foreach_body(&foreach.body, source, edits);
-        }
-        Statement::For(for_stmt) => {
-            // Check initializations, conditions, and increments
-            for expr in for_stmt.initializations.iter() {
-                check_expression(expr, source, edits);
-            }
-            for expr in for_stmt.conditions.iter() {
-                check_expression(expr, source, edits);
-            }
-            for expr in for_stmt.increments.iter() {
-                check_expression(expr, source, edits);
-            }
-            check_for_body(&for_stmt.body, source, edits);
-        }
-        Statement::While(while_stmt) => {
-            check_expression(&while_stmt.condition, source, edits);
-            check_while_body(&while_stmt.body, source, edits);
-        }
-        Statement::DoWhile(do_while) => {
-            check_statement(&do_while.statement, source, edits);
-            check_expression(&do_while.condition, source, edits);
-        }
-        Statement::Class(class) => {
-            for member in class.members.iter() {
-                check_class_like_member(member, source, edits);
-            }
-        }
-        Statement::Function(func) => {
-            for inner in func.body.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-        Statement::Trait(tr) => {
-            for member in tr.members.iter() {
-                check_class_like_member(member, source, edits);
-            }
-        }
-        Statement::Namespace(ns) => {
-            match &ns.body {
-                NamespaceBody::Implicit(body) => {
-                    for inner in body.statements.iter() {
-                        check_statement(inner, source, edits);
-                    }
-                }
-                NamespaceBody::BraceDelimited(body) => {
-                    for inner in body.statements.iter() {
-                        check_statement(inner, source, edits);
-                    }
-                }
-            }
-        }
-        Statement::Try(try_stmt) => {
-            for inner in try_stmt.block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-            for catch in try_stmt.catch_clauses.iter() {
-                for inner in catch.block.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-            if let Some(finally) = &try_stmt.finally_clause {
-                for inner in finally.block.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-        }
-        Statement::Switch(switch) => {
-            check_expression(&switch.expression, source, edits);
-            check_switch_body(&switch.body, source, edits);
-        }
-        Statement::Return(ret) => {
-            if let Some(expr) = &ret.value {
-                check_expression(expr, source, edits);
-            }
-        }
-        Statement::Echo(echo) => {
-            for expr in echo.values.iter() {
-                check_expression(expr, source, edits);
-            }
-        }
-        _ => {}
-    }
+struct IsNullVisitor<'s> {
+    source: &'s str,
+    edits: Vec<Edit>,
 }
 
-fn check_if_body<'a>(body: &IfBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        IfBody::Statement(stmt_body) => {
-            check_statement(stmt_body.statement, source, edits);
-            for else_if in stmt_body.else_if_clauses.iter() {
-                check_expression(&else_if.condition, source, edits);
-                check_statement(else_if.statement, source, edits);
-            }
-            if let Some(else_clause) = &stmt_body.else_clause {
-                check_statement(else_clause.statement, source, edits);
-            }
-        }
-        IfBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-            for else_if in block.else_if_clauses.iter() {
-                check_expression(&else_if.condition, source, edits);
-                for inner in else_if.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-            if let Some(else_clause) = &block.else_clause {
-                for inner in else_clause.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-        }
-    }
-}
-
-fn check_foreach_body<'a>(body: &ForeachBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        ForeachBody::Statement(stmt) => {
-            check_statement(stmt, source, edits);
-        }
-        ForeachBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
-
-fn check_for_body<'a>(body: &ForBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        ForBody::Statement(stmt) => {
-            check_statement(stmt, source, edits);
-        }
-        ForBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
-
-fn check_while_body<'a>(body: &WhileBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        WhileBody::Statement(stmt) => {
-            check_statement(stmt, source, edits);
-        }
-        WhileBody::ColonDelimited(block) => {
-            for inner in block.statements.iter() {
-                check_statement(inner, source, edits);
-            }
-        }
-    }
-}
-
-fn check_switch_body<'a>(body: &SwitchBody<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match body {
-        SwitchBody::BraceDelimited(block) => {
-            for case in block.cases.iter() {
-                for stmt in case.statements().iter() {
-                    check_statement(stmt, source, edits);
-                }
-            }
-        }
-        SwitchBody::ColonDelimited(block) => {
-            for case in block.cases.iter() {
-                for stmt in case.statements().iter() {
-                    check_statement(stmt, source, edits);
-                }
-            }
-        }
-    }
-}
-
-fn check_class_like_member<'a>(member: &ClassLikeMember<'a>, source: &str, edits: &mut Vec<Edit>) {
-    if let ClassLikeMember::Method(method) = member {
-        match &method.body {
-            MethodBody::Concrete(body) => {
-                for inner in body.statements.iter() {
-                    check_statement(inner, source, edits);
-                }
-            }
-            MethodBody::Abstract(_) => {}
-        }
-    }
-}
-
-fn check_expression<'a>(expr: &Expression<'a>, source: &str, edits: &mut Vec<Edit>) {
-    match expr {
+impl<'a, 's> Visitor<'a> for IsNullVisitor<'s> {
+    fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         // Handle !is_null($x) → $x !== null
-        Expression::UnaryPrefix(unary) => {
+        if let Expression::UnaryPrefix(unary) = expr {
             if let UnaryPrefixOperator::Not(_) = &unary.operator {
-                if let Some(edit) = try_transform_is_null(&unary.operand, source, true) {
-                    // Replace the entire !is_null(...) expression
-                    edits.push(Edit::new(
+                if let Some(replacement) = try_transform_is_null(&unary.operand, self.source, true)
+                {
+                    self.edits.push(Edit::new(
                         expr.span(),
-                        edit,
+                        replacement,
                         "Replace !is_null() with !== null for better performance",
                     ));
-                    return;
+                    return false; // Don't traverse children, we handled this
                 }
             }
-            // Recurse into operand
-            check_expression(&unary.operand, source, edits);
         }
 
         // Handle is_null($x) → $x === null
-        Expression::Call(call) => {
-            if let Some(edit) = try_transform_is_null(expr, source, false) {
-                edits.push(Edit::new(
-                    expr.span(),
-                    edit,
-                    "Replace is_null() with === null for better performance",
-                ));
-                return;
-            }
-            // Recurse into arguments
-            if let Call::Function(func_call) = call {
-                for arg in func_call.argument_list.arguments.iter() {
-                    check_expression(arg.value(), source, edits);
-                }
-            }
+        if let Some(replacement) = try_transform_is_null(expr, self.source, false) {
+            self.edits.push(Edit::new(
+                expr.span(),
+                replacement,
+                "Replace is_null() with === null for better performance",
+            ));
+            return false; // Don't traverse children
         }
 
-        // Recurse into other expression types
-        Expression::Parenthesized(paren) => {
-            check_expression(&paren.expression, source, edits);
-        }
-        Expression::Binary(binary) => {
-            check_expression(&binary.lhs, source, edits);
-            check_expression(&binary.rhs, source, edits);
-        }
-        Expression::Conditional(ternary) => {
-            check_expression(&ternary.condition, source, edits);
-            if let Some(if_expr) = &ternary.then {
-                check_expression(if_expr, source, edits);
-            }
-            check_expression(&ternary.r#else, source, edits);
-        }
-        Expression::Assignment(assign) => {
-            check_expression(&assign.lhs, source, edits);
-            check_expression(&assign.rhs, source, edits);
-        }
-        Expression::ArrayAccess(access) => {
-            check_expression(&access.array, source, edits);
-            check_expression(&access.index, source, edits);
-        }
-        Expression::Array(arr) => {
-            for elem in arr.elements.iter() {
-                if let ArrayElement::KeyValue(kv) = elem {
-                    check_expression(&kv.key, source, edits);
-                    check_expression(&kv.value, source, edits);
-                } else if let ArrayElement::Value(val) = elem {
-                    check_expression(&val.value, source, edits);
-                }
-            }
-        }
-        _ => {}
+        true // Continue traversal
     }
 }
 
@@ -505,7 +262,6 @@ class Foo {
 
     #[test]
     fn test_skip_wrong_arg_count() {
-        // is_null with wrong number of args should be skipped
         let source = "<?php is_null();";
         let edits = check_php(source);
         assert_eq!(edits.len(), 0);
@@ -529,7 +285,6 @@ class Foo {
 
     #[test]
     fn test_is_null_in_short_ternary() {
-        // Short ternary (Elvis operator): is_null($x) ?: 'default'
         let source = "<?php $result = is_null($x) ?: 'default';";
         let edits = check_php(source);
         assert_eq!(edits.len(), 1);
