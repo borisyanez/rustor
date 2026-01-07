@@ -7,3 +7,7 @@ edition = "2021"
 rustor-core = { path = "../rustor-core" }
 mago-syntax = "1.0"
 mago-span = "1.0"
+
+[dev-dependencies]
+bumpalo = "3.16"
+mago-database = "1.0"
