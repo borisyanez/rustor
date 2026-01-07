@@ -58,6 +58,8 @@ impl<'a, 's> Visitor<'a> for MatchExpressionVisitor<'s> {
 struct CaseInfo {
     /// The case condition(s) - None for default
     conditions: Vec<String>,
+    /// The target variable being assigned to
+    target_var: String,
     /// The value being assigned
     value: String,
     /// Whether this is the default case
@@ -171,22 +173,19 @@ impl<'s> MatchExpressionVisitor<'s> {
                         }
                     }
 
-                    let (_var, value) = self.extract_assignment_and_break(&case_stmt.statements)?;
+                    let (var, value) = self.extract_assignment_and_break(&case_stmt.statements)?;
                     result.push(CaseInfo {
                         conditions,
+                        target_var: var,
                         value,
                         is_default: false,
                     });
-
-                    // Store the variable for consistency check
-                    if result.len() == 1 {
-                        // First case sets the target
-                    }
                 }
                 SwitchCase::Default(default_stmt) => {
-                    let (_var, value) = self.extract_assignment_from_default(&default_stmt.statements)?;
+                    let (var, value) = self.extract_assignment_from_default(&default_stmt.statements)?;
                     result.push(CaseInfo {
                         conditions: vec![],
+                        target_var: var,
                         value,
                         is_default: true,
                     });
@@ -280,18 +279,21 @@ impl<'s> MatchExpressionVisitor<'s> {
     }
 
     /// Find the common target variable across all cases
-    fn find_common_target(&self, _cases: &[CaseInfo]) -> Option<String> {
-        // We need to re-analyze to get the variable names
-        // For now, we'll trust that the analysis was correct
-        // In a full implementation, we'd track variables in CaseInfo
+    fn find_common_target(&self, cases: &[CaseInfo]) -> Option<String> {
+        if cases.is_empty() {
+            return None;
+        }
 
-        // Since we've already validated during analyze_cases,
-        // we just need to return any non-empty case's implied variable
-        // This is a simplification - a full implementation would track this
+        let first_target = &cases[0].target_var;
 
-        // For now, return None to disable this rule until properly implemented
-        // TODO: Properly track target variable in CaseInfo
-        None
+        // All cases must assign to the same variable
+        for case in cases.iter().skip(1) {
+            if &case.target_var != first_target {
+                return None;
+            }
+        }
+
+        Some(first_target.clone())
     }
 }
 
@@ -332,24 +334,15 @@ mod tests {
         check_match_expression(program, source)
     }
 
-    // Note: The match_expression rule is complex and requires careful implementation
-    // The current implementation has find_common_target returning None to disable it
-    // until the variable tracking is properly implemented.
-
-    // These tests document the expected behavior once fully implemented:
-
     #[test]
     fn test_match_rule_exists() {
-        // Just verify the rule exists and can be instantiated
         let rule = MatchExpressionRule;
         assert_eq!(rule.name(), "match_expression");
         assert_eq!(rule.min_php_version(), Some(PhpVersion::Php80));
     }
 
     #[test]
-    fn test_simple_switch_not_yet_converted() {
-        // This test documents expected behavior
-        // Currently returns 0 edits because find_common_target returns None
+    fn test_simple_switch_converted() {
         let source = r#"<?php
 switch ($status) {
     case 'active': $label = 'Active'; break;
@@ -358,8 +351,25 @@ switch ($status) {
 }
 "#;
         let edits = check_php(source);
-        // TODO: When fully implemented, this should be 1
-        assert_eq!(edits.len(), 0);
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("match($status)"));
+        assert!(edits[0].replacement.contains("'active' => 'Active'"));
+        assert!(edits[0].replacement.contains("'pending' => 'Pending'"));
+        assert!(edits[0].replacement.contains("default => 'Unknown'"));
+    }
+
+    #[test]
+    fn test_switch_with_variables() {
+        let source = r#"<?php
+switch ($type) {
+    case 1: $result = $a; break;
+    case 2: $result = $b; break;
+    default: $result = $c;
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("$result = match($type)"));
     }
 
     #[test]
@@ -389,5 +399,69 @@ switch ($status) {
 "#;
         let edits = check_php(source);
         assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_different_target_variables() {
+        // Different target variables should not be converted
+        let source = r#"<?php
+switch ($status) {
+    case 'active': $label = 'Active'; break;
+    case 'pending': $other = 'Pending'; break;
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_switch_without_default() {
+        // Switch without default can still be converted
+        let source = r#"<?php
+switch ($status) {
+    case 'active': $label = 'Active'; break;
+    case 'pending': $label = 'Pending'; break;
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
+    }
+
+    #[test]
+    fn test_skip_single_case() {
+        // Single case is not meaningful for match
+        let source = r#"<?php
+switch ($status) {
+    case 'active': $label = 'Active'; break;
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_skip_compound_assignment() {
+        // Compound assignment (+=, .=, etc.) shouldn't be converted
+        let source = r#"<?php
+switch ($status) {
+    case 'active': $count += 1; break;
+    case 'pending': $count += 2; break;
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 0);
+    }
+
+    #[test]
+    fn test_switch_with_expressions() {
+        let source = r#"<?php
+switch ($value) {
+    case 1 + 1: $x = 'two'; break;
+    case 2 + 2: $x = 'four'; break;
+    default: $x = 'other';
+}
+"#;
+        let edits = check_php(source);
+        assert_eq!(edits.len(), 1);
     }
 }
