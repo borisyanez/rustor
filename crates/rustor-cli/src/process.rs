@@ -158,6 +158,8 @@ fn extract_rule_name(message: &str) -> String {
         "assign_coalesce".to_string()
     } else if lower.contains("empty") && lower.contains("?:") {
         "empty_coalesce".to_string()
+    } else if lower.contains("closure::fromcallable") || lower.contains("first-class callable") {
+        "first_class_callables".to_string()
     } else if lower.contains("is_null") {
         "is_null".to_string()
     } else if lower.contains("isset") || lower.contains("??") {

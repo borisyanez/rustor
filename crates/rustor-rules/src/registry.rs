@@ -189,11 +189,14 @@ impl Preset {
             Preset::Modernize => &[
                 "array_syntax",
                 "assign_coalesce",
+                "constructor_promotion",
+                "first_class_callables",
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
                 "match_expression",
                 "null_safe_operator",
+                "readonly_properties",
                 "string_contains",
                 "string_starts_ends",
             ],
@@ -353,7 +356,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
         registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
         registry.register(Box::new(super::class_constructor::ClassConstructorRule));
+        registry.register(Box::new(super::constructor_promotion::ConstructorPromotionRule));
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
+        registry.register(Box::new(super::first_class_callables::FirstClassCallablesRule));
         registry.register(Box::new(super::is_null::IsNullRule));
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
         registry.register(Box::new(super::join_to_implode::JoinToImplodeRule));
@@ -361,6 +366,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::match_expression::MatchExpressionRule));
         registry.register(Box::new(super::null_safe_operator::NullSafeOperatorRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
+        registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
         registry.register(Box::new(super::string_contains::StringContainsRule::with_config(&get_config("string_contains"))));
