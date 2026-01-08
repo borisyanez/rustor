@@ -279,6 +279,11 @@ fn run() -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
+    // Handle --fixer mode (run formatting fixers only)
+    if cli.fixer {
+        return run_fixer_mode(&cli, output_format);
+    }
+
     // Get all available rule names from registry
     let all_rules = registry.all_names();
 
@@ -839,4 +844,155 @@ fn report_result(
         }
     }
     Ok(())
+}
+
+/// Run fixer-only mode (formatting fixers, no refactoring rules)
+fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
+    use rustor_fixer::{FixerRegistry, FixerConfig};
+    use rustor_fixer::config::LineEnding;
+    use rayon::prelude::*;
+
+    let fixer_registry = FixerRegistry::new();
+
+    // Get fixer preset or use all fixers
+    let fixer_preset = cli.fixer_preset.as_deref().unwrap_or("psr12");
+
+    // Create fixer config
+    let fixer_config = FixerConfig {
+        line_ending: LineEnding::Lf,
+        ..Default::default()
+    };
+
+    // Collect PHP files
+    let mut files: Vec<PathBuf> = Vec::new();
+    for path in &cli.paths {
+        if path.is_file() {
+            files.push(path.clone());
+        } else if path.is_dir() {
+            for entry in walkdir::WalkDir::new(path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "php"))
+            {
+                files.push(entry.path().to_path_buf());
+            }
+        }
+    }
+
+    if files.is_empty() {
+        if output_format == OutputFormat::Text {
+            println!("{}", "No PHP files found".yellow());
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let file_count = files.len();
+
+    // Process files in parallel
+    let results: Vec<(PathBuf, Vec<rustor_core::Edit>)> = files
+        .par_iter()
+        .filter_map(|path| {
+            let source = match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(_) => return None,
+            };
+
+            let edits = fixer_registry.check_preset(&source, fixer_preset, &fixer_config);
+
+            if edits.is_empty() {
+                None
+            } else {
+                Some((path.clone(), edits))
+            }
+        })
+        .collect();
+
+    // Output results
+    let mut total_edits = 0;
+    let mut files_with_changes = 0;
+
+    match output_format {
+        OutputFormat::Json => {
+            use serde_json::json;
+
+            let file_results: Vec<_> = results
+                .iter()
+                .map(|(path, edits)| {
+                    total_edits += edits.len();
+                    files_with_changes += 1;
+                    json!({
+                        "path": path.display().to_string(),
+                        "edits": edits.iter().map(|e| {
+                            json!({
+                                "rule": e.rule.as_deref().unwrap_or("unknown"),
+                                "message": e.message,
+                            })
+                        }).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+
+            let output = json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "summary": {
+                    "files_processed": file_count,
+                    "files_with_changes": files_with_changes,
+                    "total_edits": total_edits,
+                },
+                "files": file_results
+            });
+
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
+        OutputFormat::Text => {
+            for (path, edits) in &results {
+                files_with_changes += 1;
+                total_edits += edits.len();
+                println!(
+                    "{}",
+                    format!("{}", path.display()).cyan()
+                );
+                for edit in edits {
+                    println!(
+                        "  {} {}",
+                        format!("[{}]", edit.rule.as_deref().unwrap_or("fixer")).yellow(),
+                        edit.message
+                    );
+                }
+            }
+
+            println!();
+            println!(
+                "{}: {} file(s), {} edit(s)",
+                "Summary".bold(),
+                files_with_changes,
+                total_edits
+            );
+        }
+        OutputFormat::Diff => {
+            for (path, edits) in &results {
+                let source = std::fs::read_to_string(path).unwrap_or_default();
+                if let Ok(fixed) = rustor_core::apply_edits(&source, edits) {
+                    println!("--- a/{}", path.display());
+                    println!("+++ b/{}", path.display());
+                    // Simple diff output
+                    for (i, (old, new)) in source.lines().zip(fixed.lines()).enumerate() {
+                        if old != new {
+                            println!("@@ -{},{} +{},{} @@", i + 1, 1, i + 1, 1);
+                            println!("-{}", old);
+                            println!("+{}", new);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // For other formats, just output basic info
+            for (path, edits) in &results {
+                println!("{}: {} edit(s)", path.display(), edits.len());
+            }
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
 }

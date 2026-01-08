@@ -11,6 +11,7 @@ pub mod imports;
 pub mod operators;
 pub mod comments;
 pub mod class;
+pub mod functions;
 
 pub use registry::{FixerRegistry, FixerInfo};
 

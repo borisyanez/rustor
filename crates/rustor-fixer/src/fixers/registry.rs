@@ -27,6 +27,12 @@ use super::braces::{
     ElseifFixer,
     NoClosingTagFixer,
     SwitchCaseSpaceFixer,
+    BracesPositionFixer,
+};
+use super::functions::{
+    FunctionDeclarationFixer,
+    MethodArgumentSpaceFixer,
+    ReturnTypeDeclarationFixer,
 };
 use super::operators::{
     ConcatSpaceFixer,
@@ -37,6 +43,9 @@ use super::imports::{
     BlankLineAfterNamespaceFixer,
     NoLeadingImportSlashFixer,
     SingleLineAfterImportsFixer,
+    OrderedImportsFixer,
+    SingleImportPerStatementFixer,
+    NoUnusedImportsFixer,
 };
 use super::comments::{
     NoTrailingWhitespaceInCommentFixer,
@@ -94,6 +103,12 @@ impl FixerRegistry {
         registry.register(Arc::new(NoClosingTagFixer));
         registry.register(Arc::new(ElseifFixer));
         registry.register(Arc::new(SwitchCaseSpaceFixer));
+        registry.register(Arc::new(BracesPositionFixer));
+
+        // Register function fixers
+        registry.register(Arc::new(FunctionDeclarationFixer));
+        registry.register(Arc::new(MethodArgumentSpaceFixer));
+        registry.register(Arc::new(ReturnTypeDeclarationFixer));
 
         // Register operator fixers
         registry.register(Arc::new(ConcatSpaceFixer));
@@ -104,6 +119,9 @@ impl FixerRegistry {
         registry.register(Arc::new(BlankLineAfterNamespaceFixer));
         registry.register(Arc::new(NoLeadingImportSlashFixer));
         registry.register(Arc::new(SingleLineAfterImportsFixer));
+        registry.register(Arc::new(OrderedImportsFixer));
+        registry.register(Arc::new(SingleImportPerStatementFixer));
+        registry.register(Arc::new(NoUnusedImportsFixer));
 
         // Register comment fixers
         registry.register(Arc::new(NoTrailingWhitespaceInCommentFixer));
