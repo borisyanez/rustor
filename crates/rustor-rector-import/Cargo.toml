@@ -1,0 +1,38 @@
+[package]
+name = "rustor-rector-import"
+version = "0.1.0"
+edition = "2021"
+description = "Import Rector PHP rules into rustor"
+
+[[bin]]
+name = "rustor-import-rector"
+path = "src/main.rs"
+
+[dependencies]
+# Parsing and pattern matching
+regex = "1.10"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# File system
+walkdir = "2.5"
+
+# Template engine for code generation
+handlebars = "5.0"
+
+# Case conversion (snake_case, PascalCase)
+convert_case = "0.6"
+
+# Error handling
+anyhow = "1.0"
+
+# Colored output
+colored = "2.0"
+
+[dev-dependencies]
+tempfile = "3.10"
