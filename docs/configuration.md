@@ -338,6 +338,62 @@ dir = ".rustor-cache"
 loose_comparison = false
 ```
 
+### `rename_function`
+
+Rename function calls based on configurable mappings. Equivalent to Rector's `RenameFunctionRector`.
+
+```toml
+[rules.rename_function]
+mappings = { "utf8_encode" = "mb_convert_encoding", "old_func" = "new_func" }
+```
+
+Example transformation:
+```php
+// Before
+$encoded = utf8_encode($str);
+
+// After
+$encoded = mb_convert_encoding($str);
+```
+
+### `rename_class`
+
+Rename class references based on configurable mappings. Equivalent to Rector's `RenameClassRector`.
+
+```toml
+[rules.rename_class]
+mappings = { "OldClass" = "NewClass", "Legacy\\Service" = "Modern\\Service" }
+```
+
+Handles class references in:
+- `new ClassName()`
+- Parameter type hints
+- Return type hints
+- Property types
+- `extends` and `implements` clauses
+- `instanceof` checks
+- Static method calls (`ClassName::method()`)
+- Static property access (`ClassName::$prop`)
+- Class constants (`ClassName::CONST`)
+- Catch exception types
+
+Example transformation:
+```php
+// Before
+class MyService extends OldClass implements OldInterface {
+    public function process(OldClass $input): OldClass {
+        return new OldClass();
+    }
+}
+
+// After
+class MyService extends NewClass implements NewInterface {
+    public function process(NewClass $input): NewClass {
+        return new NewClass();
+    }
+}
+```
+
 ---
 
 ## Configuration Precedence
@@ -468,6 +524,83 @@ rustor src/ --list-rules
 # Dry-run to see configuration in action
 rustor src/ --verbose
 ```
+
+---
+
+## Migrating from Rector
+
+Rustor's configuration is inspired by Rector but uses TOML instead of PHP. Here's how to translate common Rector configurations:
+
+### Rector PHP → Rustor TOML
+
+| Rector (PHP) | Rustor (TOML) |
+|--------------|---------------|
+| `->withPaths(['src/', 'app/'])` | `[paths]`<br>`include = ["src/", "app/"]` |
+| `->withSkip(['vendor/', '*.generated.php'])` | `[paths]`<br>`exclude = ["vendor/", "*.generated.php"]` |
+| `->withSkip([RenameClassRector::class => ['src/Legacy/*']])` | `[skip]`<br>`rename_class = ["src/Legacy/*"]` |
+| `->withRules([ArraySyntaxRector::class])` | `[rules]`<br>`enabled = ["array_syntax"]` |
+| `->withSets([SetList::PHP_82])` | `[rules]`<br>`preset = "modernize"` |
+| `->withConfiguredRule(RenameClassRector::class, ['Old' => 'New'])` | `[rules.rename_class]`<br>`mappings = { "Old" = "New" }` |
+| `->withPhpVersion(PhpVersion::PHP_82)` | `[php]`<br>`version = "8.2"` |
+
+### Example Migration
+
+**Rector (rector.php):**
+```php
+return RectorConfig::configure()
+    ->withPaths(['src/', 'app/'])
+    ->withSkip([
+        'vendor/',
+        RenameClassRector::class => ['src/Legacy/*'],
+    ])
+    ->withSets([SetList::PHP_82])
+    ->withConfiguredRule(RenameClassRector::class, [
+        'OldService' => 'NewService',
+    ])
+    ->withPhpVersion(PhpVersion::PHP_82);
+```
+
+**Rustor (.rustor.toml):**
+```toml
+[php]
+version = "8.2"
+
+[rules]
+preset = "modernize"
+
+[paths]
+include = ["src/", "app/"]
+exclude = ["vendor/"]
+
+[skip]
+rename_class = ["src/Legacy/*"]
+
+[rules.rename_class]
+mappings = { "OldService" = "NewService" }
+```
+
+### Rule Name Mapping
+
+| Rector Rule | Rustor Rule |
+|-------------|-------------|
+| `ArrayPushToShortSyntaxRector` | `array_push` |
+| `LongToShortArraySyntaxRector` | `array_syntax` |
+| `CountOnNullRector` / `CountOnNullableRector` | `sizeof` |
+| `IsNullToNullComparisonRector` | `is_null` |
+| `NullCoalescingOperatorRector` | `isset_coalesce` |
+| `PowToExpRector` | `pow_to_operator` |
+| `JoinToImplodeRector` | `join_to_implode` |
+| `TypeCastingRector` | `type_cast` |
+| `ArrowFunctionRector` | `arrow_functions` |
+| `NullsafeOperatorRector` | `null_safe_operator` |
+| `MatchExpressionRector` | `match_expression` |
+| `RenameFunctionRector` | `rename_function` |
+| `RenameClassRector` | `rename_class` |
+| `ConstructorPromotionRector` | `constructor_promotion` |
+| `ReadonlyPropertyPromotion` | `readonly_properties` |
+| `FirstClassCallableRector` | `first_class_callables` |
+| `StrStartsWithRector` | `string_starts_ends` |
+| `StrContainsRector` | `string_contains` |
 
 ---
 
