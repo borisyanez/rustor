@@ -17,6 +17,7 @@ mod baseline;
 mod cache;
 mod backup;
 mod config;
+mod fixer;
 mod git;
 mod ignore;
 mod lsp;
@@ -48,7 +49,7 @@ use rustor_rules::{Category, PhpVersion, Preset, RuleConfigs, RuleRegistry};
 #[command(author = "rustor contributors")]
 struct Cli {
     /// Files or directories to process
-    #[arg(required_unless_present_any = ["list_rules", "staged", "since"])]
+    #[arg(required_unless_present_any = ["list_rules", "list_fixers", "staged", "since"])]
     paths: Vec<PathBuf>,
 
     /// Check for issues without applying fixes (default mode)
@@ -154,6 +155,23 @@ struct Cli {
     /// Run as Language Server Protocol (LSP) server for IDE integration
     #[arg(long)]
     lsp: bool,
+
+    // Fixer options
+    /// Path to .php-cs-fixer.php config file for formatting rules
+    #[arg(long, value_name = "PATH")]
+    fixer_config: Option<PathBuf>,
+
+    /// Run formatting fixers (PSR-12 compatible)
+    #[arg(long)]
+    fixer: bool,
+
+    /// Fixer preset to use (psr12, symfony, phpcsfixer)
+    #[arg(long, value_name = "PRESET")]
+    fixer_preset: Option<String>,
+
+    /// List available formatters/fixers
+    #[arg(long)]
+    list_fixers: bool,
 }
 
 fn main() -> ExitCode {
@@ -251,6 +269,13 @@ fn run() -> Result<ExitCode> {
                 version_str.yellow()
             );
         }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // Handle --list-fixers
+    if cli.list_fixers {
+        let fixer_registry = rustor_fixer::FixerRegistry::new();
+        fixer::list_fixers(&fixer_registry);
         return Ok(ExitCode::SUCCESS);
     }
 

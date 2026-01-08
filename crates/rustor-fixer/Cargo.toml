@@ -1,0 +1,17 @@
+[package]
+name = "rustor-fixer"
+version = "0.1.0"
+edition = "2021"
+description = "PHP-CS-Fixer compatible formatting rules for rustor"
+license = "MIT"
+
+[dependencies]
+rustor-core = { path = "../rustor-core" }
+mago-span = "1.0"
+mago-database = "1.0"
+regex = "1.10"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.10"

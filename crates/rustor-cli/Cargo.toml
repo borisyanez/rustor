@@ -11,6 +11,7 @@ path = "src/main.rs"
 rustor-core = { path = "../rustor-core" }
 rustor-rules = { path = "../rustor-rules" }
 rustor-analyze = { path = "../rustor-analyze" }
+rustor-fixer = { path = "../rustor-fixer" }
 mago-syntax = "1.0"
 mago-span = "1.0"
 mago-database = "1.0"
