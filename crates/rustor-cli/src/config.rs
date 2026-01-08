@@ -63,7 +63,21 @@ impl RulesConfig {
                         toml::Value::Boolean(b) => Some(ConfigValue::Bool(*b)),
                         toml::Value::Integer(i) => Some(ConfigValue::Int(*i)),
                         toml::Value::String(s) => Some(ConfigValue::String(s.clone())),
-                        _ => None, // Skip arrays, tables, etc.
+                        toml::Value::Table(t) => {
+                            // Convert table to StringMap (for configs like mappings)
+                            let string_map: HashMap<String, String> = t
+                                .iter()
+                                .filter_map(|(k, v)| {
+                                    v.as_str().map(|s| (k.clone(), s.to_string()))
+                                })
+                                .collect();
+                            if !string_map.is_empty() {
+                                Some(ConfigValue::StringMap(string_map))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None, // Skip arrays, etc.
                     };
 
                     if let Some(cv) = config_value {

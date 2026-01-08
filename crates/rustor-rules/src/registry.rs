@@ -288,6 +288,8 @@ pub enum ConfigOptionType {
     Bool,
     Int,
     String,
+    /// A map of string keys to string values (e.g., for rename mappings)
+    StringMap,
 }
 
 /// Configuration values for rules, keyed by rule name
@@ -299,6 +301,8 @@ pub enum ConfigValue {
     Bool(bool),
     Int(i64),
     String(String),
+    /// A map of string keys to string values (e.g., for rename mappings)
+    StringMap(std::collections::HashMap<String, String>),
 }
 
 impl ConfigValue {
@@ -319,6 +323,13 @@ impl ConfigValue {
     pub fn as_string(&self) -> Option<&str> {
         match self {
             ConfigValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_string_map(&self) -> Option<&std::collections::HashMap<String, String>> {
+        match self {
+            ConfigValue::StringMap(m) => Some(m),
             _ => None,
         }
     }
@@ -376,6 +387,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::redundant_type_check::RedundantTypeCheckRule));
+        registry.register(Box::new(super::rename_function::RenameFunctionRule::with_config(&get_config("rename_function"))));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::switch_negated_ternary::SwitchNegatedTernaryRule));
