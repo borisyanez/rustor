@@ -377,6 +377,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
+        registry.register(Box::new(super::switch_negated_ternary::SwitchNegatedTernaryRule));
         registry.register(Box::new(super::sprintf_positional::SprintfPositionalRule));
         registry.register(Box::new(super::string_contains::StringContainsRule::with_config(&get_config("string_contains"))));
         registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));

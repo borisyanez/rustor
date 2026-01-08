@@ -38,6 +38,7 @@ pub mod pow_to_operator;
 pub mod readonly_properties;
 pub mod single_in_array_to_compare;
 pub mod sizeof;
+pub mod switch_negated_ternary;
 pub mod sprintf_positional;
 pub mod string_contains;
 pub mod string_starts_ends;
