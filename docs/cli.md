@@ -60,6 +60,29 @@ Alias for `--check`. Show changes without applying them.
 rustor src/ --dry-run
 ```
 
+#### `--fixer`
+
+Run formatting fixers only (no refactoring rules). See [Fixers Reference](fixers.md).
+
+```bash
+# Check formatting issues
+rustor src/ --fixer
+
+# Fix formatting issues
+rustor src/ --fixer --fix
+
+# Run specific fixer
+rustor src/ --fixer --rule no_trailing_whitespace
+```
+
+#### `--fixer-config <PATH>`
+
+Load a PHP-CS-Fixer configuration file (`.php-cs-fixer.php`).
+
+```bash
+rustor src/ --fixer --fixer-config .php-cs-fixer.php
+```
+
 ### Rule Selection
 
 #### `-r, --rule <RULE>`

@@ -327,6 +327,101 @@ dir = ".rustor-cache"
 
 ---
 
+### `[fixer]`
+
+Configuration for formatting fixers. See [Fixers Reference](fixers.md) for all available fixers.
+
+#### `preset`
+
+Fixer preset to use. Default: none.
+
+```toml
+[fixer]
+preset = "psr12"
+```
+
+| Preset | Description |
+|--------|-------------|
+| `psr12` | PSR-12 coding standard |
+| `symfony` | Symfony coding standard |
+| `per-cs` | PER Coding Style |
+
+#### `config`
+
+Path to PHP-CS-Fixer configuration file. Rustor will parse this file and extract fixer settings.
+
+```toml
+[fixer]
+config = ".php-cs-fixer.php"
+```
+
+---
+
+### `[fixer.whitespace]`
+
+Whitespace formatting options.
+
+#### `indent`
+
+Indentation style. Default: `spaces`.
+
+```toml
+[fixer.whitespace]
+indent = "spaces"   # "spaces" or "tabs"
+```
+
+#### `indent_size`
+
+Number of spaces per indent level (when using spaces). Default: `4`.
+
+```toml
+[fixer.whitespace]
+indent_size = 4
+```
+
+#### `line_ending`
+
+Line ending style. Default: `lf`.
+
+```toml
+[fixer.whitespace]
+line_ending = "lf"   # "lf" or "crlf"
+```
+
+---
+
+### `[fixer.rules]`
+
+Enable or configure individual fixers.
+
+```toml
+[fixer.rules]
+# Enable/disable fixers
+no_unused_imports = true      # Enable risky fixer
+ordered_imports = true
+
+# Configure fixer options
+[fixer.rules.concat_space]
+spacing = "one"               # "none" or "one"
+
+[fixer.rules.ordered_imports]
+sort_algorithm = "alpha"      # "alpha", "length", "none"
+imports_order = ["class", "function", "const"]
+```
+
+---
+
+### `[fixer.skip]`
+
+Skip fixers for specific paths.
+
+```toml
+[fixer.skip]
+no_unused_imports = ["vendor/*", "tests/fixtures/*"]
+```
+
+---
+
 ## Per-Rule Configuration
 
 ### `string_contains`
@@ -607,4 +702,5 @@ mappings = { "OldService" = "NewService" }
 ## See Also
 
 - [CLI Reference](cli.md) - Command-line options
-- [Rules Reference](rules.md) - All available rules
+- [Rules Reference](rules.md) - All available refactoring rules
+- [Fixers Reference](fixers.md) - All available formatting fixers

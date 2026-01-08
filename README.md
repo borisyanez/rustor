@@ -7,12 +7,14 @@ Rustor automatically modernizes your PHP codebase by applying safe, semantic tra
 ## Features
 
 - **44 refactoring rules** covering modernization, performance, and compatibility
+- **33 formatting fixers** for PSR-12 code style enforcement
 - **Blazing fast** - processes thousands of files in seconds using parallel execution
 - **Format-preserving** - maintains your code style while making targeted changes
 - **Safe by default** - dry-run mode, backup support, and parse verification
 - **IDE integration** - built-in LSP server for real-time diagnostics
 - **CI/CD ready** - SARIF, Checkstyle, and GitHub Actions output formats
 - **Configurable** - `.rustor.toml` configuration with presets and per-rule options
+- **PHP-CS-Fixer compatible** - supports `.php-cs-fixer.php` configuration
 
 ## Quick Start
 
@@ -65,9 +67,33 @@ $len = count($array);
 $power = $base ** $exp;
 ```
 
+### Code Formatting (Fixers)
+
+```bash
+# Run formatting fixers (PSR-12 compliance)
+rustor src/ --fixer
+
+# Apply formatting fixes
+rustor src/ --fixer --fix
+
+# Use PHP-CS-Fixer config
+rustor src/ --fixer --fixer-config .php-cs-fixer.php
+```
+
+```php
+// Before
+IF($a) {RETURN TRUE ;}
+function foo( $a,$b ) : int{}
+
+// After
+if ($a) {return true;}
+function foo($a, $b): int {}
+```
+
 ## Documentation
 
 - **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
+- **[Fixers Reference](docs/fixers.md)** - All 33 formatting fixers for PSR-12
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
 - **[Configuration](docs/configuration.md)** - `.rustor.toml` file format
 - **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
