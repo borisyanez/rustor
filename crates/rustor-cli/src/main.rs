@@ -848,7 +848,7 @@ fn report_result(
 
 /// Run fixer-only mode (formatting fixers, no refactoring rules)
 fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
-    use rustor_fixer::{FixerRegistry, FixerConfig};
+    use rustor_fixer::{FixerRegistry, FixerConfig, PhpCsFixerConfig};
     use rustor_fixer::config::LineEnding;
     use rayon::prelude::*;
 
@@ -857,10 +857,16 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
     // Get fixer preset or use all fixers
     let fixer_preset = cli.fixer_preset.as_deref().unwrap_or("psr12");
 
-    // Create fixer config
-    let fixer_config = FixerConfig {
-        line_ending: LineEnding::Lf,
-        ..Default::default()
+    // Create fixer config - load from PHP config file if provided
+    let fixer_config = if let Some(config_path) = &cli.fixer_config {
+        let php_config = PhpCsFixerConfig::from_file(config_path)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", config_path.display(), e))?;
+        fixer::config_from_php_cs_fixer(&php_config)
+    } else {
+        FixerConfig {
+            line_ending: LineEnding::Lf,
+            ..Default::default()
+        }
     };
 
     // Collect PHP files

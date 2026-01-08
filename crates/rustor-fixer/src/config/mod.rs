@@ -7,6 +7,6 @@ mod php_parser;
 mod whitespace;
 mod presets;
 
-pub use php_parser::{PhpCsFixerConfig, FinderConfig, RuleConfig, parse_php_cs_fixer_config};
+pub use php_parser::{PhpCsFixerConfig, FinderConfig, RuleConfig, parse_php_cs_fixer_config, ConfigValue as PhpConfigValue};
 pub use whitespace::{WhitespaceConfig, IndentStyle, LineEnding};
 pub use presets::{Preset, get_preset_rules};

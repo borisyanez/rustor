@@ -86,10 +86,33 @@ pub fn list_fixers(registry: &FixerRegistry) {
 
 /// Create FixerConfig from PhpCsFixerConfig
 pub fn config_from_php_cs_fixer(php_config: &PhpCsFixerConfig) -> FixerConfig {
+    use rustor_fixer::{ConfigValue, PhpConfigValue};
+    use std::collections::HashMap;
+
+    // Merge all rule options into a single HashMap
+    let mut options: HashMap<String, ConfigValue> = HashMap::new();
+
+    for (_rule_name, rule_config) in &php_config.rules {
+        for (opt_name, opt_value) in &rule_config.options {
+            // Convert from php_parser::ConfigValue to fixer::ConfigValue
+            let converted = match opt_value {
+                PhpConfigValue::Bool(b) => ConfigValue::Bool(*b),
+                PhpConfigValue::String(s) => ConfigValue::String(s.clone()),
+                PhpConfigValue::Number(n) => ConfigValue::Number(*n),
+                PhpConfigValue::Array(arr) => ConfigValue::Array(arr.clone()),
+                PhpConfigValue::Map(map) => {
+                    // Convert Map to StringMap
+                    ConfigValue::StringMap(map.clone())
+                }
+            };
+            options.insert(opt_name.clone(), converted);
+        }
+    }
+
     FixerConfig {
         indent: php_config.whitespace.indent,
         line_ending: php_config.whitespace.line_ending,
-        options: Default::default(),
+        options,
     }
 }
 

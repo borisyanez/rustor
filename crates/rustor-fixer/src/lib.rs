@@ -25,5 +25,5 @@
 pub mod config;
 pub mod fixers;
 
-pub use config::{PhpCsFixerConfig, WhitespaceConfig, IndentStyle, LineEnding};
-pub use fixers::{Fixer, FixerRegistry, FixerConfig};
+pub use config::{PhpCsFixerConfig, WhitespaceConfig, IndentStyle, LineEnding, PhpConfigValue};
+pub use fixers::{Fixer, FixerRegistry, FixerConfig, ConfigValue};

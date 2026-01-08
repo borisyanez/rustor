@@ -105,7 +105,7 @@ impl Fixer for BracesPositionFixer {
             }
         }
 
-        // Functions/methods - next line (PSR-12)
+        // Functions/methods
         if function_style == "next_line_unless_newline_at_signature_end" {
             // Fix brace on same line -> next line
             let func_same_line = Regex::new(
@@ -141,9 +141,31 @@ impl Fixer for BracesPositionFixer {
                     "braces_position",
                 ));
             }
+        } else if function_style == "same_line" {
+            // Fix brace on next line -> same line
+            let func_next_line = Regex::new(
+                r"(?m)(function\s+\w+\s*\([^)]*\)(?:\s*:\s*\??\w+)?)\s*\n\s*\{"
+            ).unwrap();
+
+            for cap in func_next_line.captures_iter(source) {
+                let full_match = cap.get(0).unwrap();
+                let signature = cap.get(1).unwrap().as_str();
+
+                if is_in_string(&source[..full_match.start()]) {
+                    continue;
+                }
+
+                edits.push(edit_with_rule(
+                    full_match.start(),
+                    full_match.end(),
+                    format!("{} {{", signature),
+                    "Opening brace for function on same line".to_string(),
+                    "braces_position",
+                ));
+            }
         }
 
-        // Classes/interfaces/traits - next line (PSR-12)
+        // Classes/interfaces/traits
         if class_style == "next_line_unless_newline_at_signature_end" {
             // Fix brace on same line -> next line
             let class_same_line = Regex::new(
@@ -176,6 +198,28 @@ impl Fixer for BracesPositionFixer {
                     full_match.end(),
                     format!("{}{}{}{{", signature, line_ending, indent),
                     "Opening brace for class on next line".to_string(),
+                    "braces_position",
+                ));
+            }
+        } else if class_style == "same_line" {
+            // Fix brace on next line -> same line
+            let class_next_line = Regex::new(
+                r"(?m)((?:abstract\s+|final\s+)?(?:class|interface|trait)\s+\w+(?:\s+extends\s+\w+)?(?:\s+implements\s+[\w,\s\\]+)?)\s*\n\s*\{"
+            ).unwrap();
+
+            for cap in class_next_line.captures_iter(source) {
+                let full_match = cap.get(0).unwrap();
+                let signature = cap.get(1).unwrap().as_str();
+
+                if is_in_string(&source[..full_match.start()]) {
+                    continue;
+                }
+
+                edits.push(edit_with_rule(
+                    full_match.start(),
+                    full_match.end(),
+                    format!("{} {{", signature),
+                    "Opening brace for class on same line".to_string(),
                     "braces_position",
                 ));
             }
@@ -297,5 +341,68 @@ mod tests {
         assert_eq!(edits.len(), 1);
         // Fixer adds a space after keyword: for ($i=0;...) {
         assert!(edits[0].replacement.contains(") {"));
+    }
+
+    // Tests for same_line configuration
+    fn check_same_line(source: &str) -> Vec<Edit> {
+        use std::collections::HashMap;
+        let mut options = HashMap::new();
+        options.insert("functions_opening_brace".to_string(), ConfigValue::String("same_line".to_string()));
+        options.insert("classes_opening_brace".to_string(), ConfigValue::String("same_line".to_string()));
+        BracesPositionFixer.check(source, &FixerConfig {
+            line_ending: LineEnding::Lf,
+            options,
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn test_function_next_line_to_same_line() {
+        let source = "<?php\nfunction foo()\n{\n}\n";
+        let edits = check_same_line(source);
+
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("function foo() {"));
+    }
+
+    #[test]
+    fn test_class_next_line_to_same_line() {
+        let source = "<?php\nclass Foo\n{\n}\n";
+        let edits = check_same_line(source);
+
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("class Foo {"));
+    }
+
+    #[test]
+    fn test_function_already_same_line() {
+        let source = "<?php\nfunction foo() {\n}\n";
+        let edits = check_same_line(source);
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_class_already_same_line() {
+        let source = "<?php\nclass Foo {\n}\n";
+        let edits = check_same_line(source);
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_class_with_extends_same_line() {
+        let source = "<?php\nclass Foo extends Bar\n{\n}\n";
+        let edits = check_same_line(source);
+
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("class Foo extends Bar {"));
+    }
+
+    #[test]
+    fn test_function_with_return_type_same_line() {
+        let source = "<?php\nfunction foo(): string\n{\n}\n";
+        let edits = check_same_line(source);
+
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("function foo(): string {"));
     }
 }

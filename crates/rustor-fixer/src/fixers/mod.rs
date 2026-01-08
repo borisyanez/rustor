@@ -63,6 +63,7 @@ pub enum ConfigValue {
     String(String),
     Number(i64),
     Array(Vec<String>),
+    StringMap(std::collections::HashMap<String, String>),
 }
 
 /// A formatting fixer that can be applied to PHP source code
