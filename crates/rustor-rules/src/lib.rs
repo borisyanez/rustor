@@ -14,6 +14,8 @@
 
 pub mod registry;
 
+pub mod imported;
+
 pub mod array_key_first_last;
 pub mod array_push;
 pub mod arrow_functions;

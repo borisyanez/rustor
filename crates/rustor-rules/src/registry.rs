@@ -381,6 +381,11 @@ impl RuleRegistry {
         registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
 
+        // Register imported rules from Rector
+        for rule in super::imported::imported_rules() {
+            registry.register(rule);
+        }
+
         registry
     }
 

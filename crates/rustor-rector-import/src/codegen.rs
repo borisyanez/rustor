@@ -333,19 +333,19 @@ fn rule_to_pascal_name(name: &str) -> String {
 /// Map Rector category to rustor Category enum
 fn map_category(category: &str) -> String {
     match category {
-        "CodeQuality" => "CodeQuality",
-        "DeadCode" => "DeadCode",
-        "Php74" => "Modernize",
-        "Php80" => "Modernize",
-        "Php81" => "Modernize",
-        "Php82" => "Modernize",
-        "Php83" => "Modernize",
-        "TypeDeclaration" => "CodeQuality",
-        "Strict" => "CodeQuality",
-        "Naming" => "CodeQuality",
-        "CodingStyle" => "CodeQuality",
+        "CodeQuality" => "Simplification",
+        "DeadCode" => "Simplification",
+        "Php74" => "Modernization",
+        "Php80" => "Modernization",
+        "Php81" => "Modernization",
+        "Php82" => "Modernization",
+        "Php83" => "Modernization",
+        "TypeDeclaration" => "Simplification",
+        "Strict" => "Compatibility",
+        "Naming" => "Simplification",
+        "CodingStyle" => "Simplification",
         "Performance" => "Performance",
-        _ => "CodeQuality", // Default
+        _ => "Simplification", // Default
     }.to_string()
 }
 
@@ -356,13 +356,12 @@ fn escape_string(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-/// Escape code sample for doc comments
+/// Escape code sample for doc comments - adds //! prefix to each line
 fn escape_code_sample(s: &str) -> String {
     s.lines()
         .map(|line| format!("//! {}", line))
         .collect::<Vec<_>>()
         .join("\n")
-        .replace("//! ", "")
 }
 
 /// Truncate refactor body for comments
@@ -394,8 +393,8 @@ mod tests {
 
     #[test]
     fn test_map_category() {
-        assert_eq!(map_category("CodeQuality"), "CodeQuality");
-        assert_eq!(map_category("Php80"), "Modernize");
+        assert_eq!(map_category("CodeQuality"), "Simplification");
+        assert_eq!(map_category("Php80"), "Modernization");
         assert_eq!(map_category("Performance"), "Performance");
     }
 

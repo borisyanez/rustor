@@ -9,10 +9,10 @@ pub const RULE_TEMPLATE: &str = r##"//! Rule: {{description}}
 //! Example:
 //! ```php
 //! // Before
-//! {{before_code}}
+{{before_code}}
 //!
 //! // After
-//! {{after_code}}
+{{after_code}}
 //! ```
 //!
 //! Imported from Rector: {{source_file}}
@@ -89,16 +89,14 @@ mod tests {
 pub const VISITOR_FUNCTION_RENAME: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{from_func}}") {
-                let span = call.function.span();
-                self.edits.push(Edit {
-                    start: span.start.offset,
-                    end: span.end.offset,
-                    replacement: "{{to_func}}".to_string(),
-                    message: "{{description}}".to_string(),
-                });
+                self.edits.push(Edit::new(
+                    call.function.span(),
+                    "{{to_func}}",
+                    "{{description}}",
+                ));
             }
         }
         true
@@ -108,16 +106,14 @@ pub const VISITOR_FUNCTION_RENAME: &str = r#"fn visit_expression(&mut self, expr
 pub const VISITOR_FUNCTION_ALIAS: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{from_func}}") {
-                let span = call.function.span();
-                self.edits.push(Edit {
-                    start: span.start.offset,
-                    end: span.end.offset,
-                    replacement: "{{to_func}}".to_string(),
-                    message: "Replace {{from_func}}() with {{to_func}}()".to_string(),
-                });
+                self.edits.push(Edit::new(
+                    call.function.span(),
+                    "{{to_func}}",
+                    "Replace {{from_func}}() with {{to_func}}()",
+                ));
             }
         }
         true
@@ -127,20 +123,19 @@ pub const VISITOR_FUNCTION_ALIAS: &str = r#"fn visit_expression(&mut self, expr:
 pub const VISITOR_FUNCTION_TO_COMPARISON: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Get the argument
-                if let Some(arg) = call.arguments.arguments.first() {
-                    let arg_str = &self.source[arg.span().start.offset..arg.span().end.offset];
+                if let Some(arg) = call.argument_list.arguments.first() {
+                    let arg_str = &self.source[arg.span().start.offset as usize..arg.span().end.offset as usize];
                     let replacement = format!("{} {{operator}} {{compare_value}}", arg_str);
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
+                    self.edits.push(Edit::new(
+                        expr.span(),
                         replacement,
-                        message: "Replace {{func}}() with {{operator}} {{compare_value}} comparison".to_string(),
-                    });
+                        "Replace {{func}}() with {{operator}} {{compare_value}} comparison",
+                    ));
                 }
             }
         }
@@ -151,20 +146,19 @@ pub const VISITOR_FUNCTION_TO_COMPARISON: &str = r#"fn visit_expression(&mut sel
 pub const VISITOR_FUNCTION_TO_CAST: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Get the argument
-                if let Some(arg) = call.arguments.arguments.first() {
-                    let arg_str = &self.source[arg.span().start.offset..arg.span().end.offset];
+                if let Some(arg) = call.argument_list.arguments.first() {
+                    let arg_str = &self.source[arg.span().start.offset as usize..arg.span().end.offset as usize];
                     let replacement = format!("({{cast_type}}) {}", arg_str);
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
+                    self.edits.push(Edit::new(
+                        expr.span(),
                         replacement,
-                        message: "Replace {{func}}() with ({{cast_type}}) cast".to_string(),
-                    });
+                        "Replace {{func}}() with ({{cast_type}}) cast",
+                    ));
                 }
             }
         }
@@ -175,22 +169,21 @@ pub const VISITOR_FUNCTION_TO_CAST: &str = r#"fn visit_expression(&mut self, exp
 pub const VISITOR_FUNCTION_TO_OPERATOR: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Need exactly 2 arguments
-                let args: Vec<_> = call.arguments.arguments.iter().collect();
+                let args: Vec<_> = call.argument_list.arguments.iter().collect();
                 if args.len() == 2 {
-                    let left = &self.source[args[0].span().start.offset..args[0].span().end.offset];
-                    let right = &self.source[args[1].span().start.offset..args[1].span().end.offset];
+                    let left = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                    let right = &self.source[args[1].span().start.offset as usize..args[1].span().end.offset as usize];
                     let replacement = format!("{} {{operator}} {}", left, right);
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
+                    self.edits.push(Edit::new(
+                        expr.span(),
                         replacement,
-                        message: "Replace {{func}}() with {{operator}} operator".to_string(),
-                    });
+                        "Replace {{func}}() with {{operator}} operator",
+                    ));
                 }
             }
         }
@@ -202,24 +195,23 @@ pub const VISITOR_TERNARY_TO_COALESCE: &str = r#"fn visit_expression(&mut self, 
         if let Expression::Conditional(cond) = expr {
             // Check if condition is isset() or similar
             if let Expression::Call(Call::Function(call)) = &*cond.condition {
-                let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+                let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
                 if name_str.eq_ignore_ascii_case("{{condition_func}}") {
                     // Get the variable being checked
-                    if let Some(arg) = call.arguments.arguments.first() {
-                        let var_str = &self.source[arg.span().start.offset..arg.span().end.offset];
+                    if let Some(arg) = call.argument_list.arguments.first() {
+                        let var_str = &self.source[arg.span().start.offset as usize..arg.span().end.offset as usize];
 
                         // Get the else value
                         if let Some(else_expr) = &cond.r#else {
-                            let else_str = &self.source[else_expr.span().start.offset..else_expr.span().end.offset];
+                            let else_str = &self.source[else_expr.span().start.offset as usize..else_expr.span().end.offset as usize];
                             let replacement = format!("{} ?? {}", var_str, else_str);
 
-                            self.edits.push(Edit {
-                                start: expr.span().start.offset,
-                                end: expr.span().end.offset,
+                            self.edits.push(Edit::new(
+                                expr.span(),
                                 replacement,
-                                message: "Replace {{condition_func}}() ternary with ?? operator".to_string(),
-                            });
+                                "Replace {{condition_func}}() ternary with ?? operator",
+                            ));
                         }
                     }
                 }
@@ -232,20 +224,19 @@ pub const VISITOR_TERNARY_TO_COALESCE: &str = r#"fn visit_expression(&mut self, 
 pub const VISITOR_FUNCTION_TO_CLASS_CONSTANT: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Get the argument
-                if let Some(arg) = call.arguments.arguments.first() {
-                    let arg_str = &self.source[arg.span().start.offset..arg.span().end.offset];
+                if let Some(arg) = call.argument_list.arguments.first() {
+                    let arg_str = &self.source[arg.span().start.offset as usize..arg.span().end.offset as usize];
                     let replacement = format!("{}::class", arg_str);
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
+                    self.edits.push(Edit::new(
+                        expr.span(),
                         replacement,
-                        message: "Replace {{func}}() with ::class constant".to_string(),
-                    });
+                        "Replace {{func}}() with ::class constant",
+                    ));
                 }
             }
         }
@@ -256,24 +247,23 @@ pub const VISITOR_FUNCTION_TO_CLASS_CONSTANT: &str = r#"fn visit_expression(&mut
 pub const VISITOR_FUNCTION_TO_INSTANCEOF: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Need exactly 2 arguments: object and class name
-                let args: Vec<_> = call.arguments.arguments.iter().collect();
+                let args: Vec<_> = call.argument_list.arguments.iter().collect();
                 if args.len() >= 2 {
-                    let obj_str = &self.source[args[0].span().start.offset..args[0].span().end.offset];
-                    let class_str = &self.source[args[1].span().start.offset..args[1].span().end.offset];
+                    let obj_str = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                    let class_str = &self.source[args[1].span().start.offset as usize..args[1].span().end.offset as usize];
                     // Remove ::class suffix if present
                     let class_name = class_str.trim_end_matches("::class");
                     let replacement = format!("{} instanceof {}", obj_str, class_name);
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
+                    self.edits.push(Edit::new(
+                        expr.span(),
                         replacement,
-                        message: "Replace {{func}}() with instanceof".to_string(),
-                    });
+                        "Replace {{func}}() with instanceof",
+                    ));
                 }
             }
         }
@@ -284,20 +274,19 @@ pub const VISITOR_FUNCTION_TO_INSTANCEOF: &str = r#"fn visit_expression(&mut sel
 pub const VISITOR_UNWRAP_SINGLE_ARG: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{func}}") {
                 // Must have exactly 1 argument to unwrap
-                let args: Vec<_> = call.arguments.arguments.iter().collect();
+                let args: Vec<_> = call.argument_list.arguments.iter().collect();
                 if args.len() == 1 {
-                    let arg_str = &self.source[args[0].span().start.offset..args[0].span().end.offset];
+                    let arg_str = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
 
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
-                        replacement: arg_str.to_string(),
-                        message: "Remove unnecessary {{func}}() wrapper".to_string(),
-                    });
+                    self.edits.push(Edit::new(
+                        expr.span(),
+                        arg_str,
+                        "Remove unnecessary {{func}}() wrapper",
+                    ));
                 }
             }
         }
@@ -308,17 +297,16 @@ pub const VISITOR_UNWRAP_SINGLE_ARG: &str = r#"fn visit_expression(&mut self, ex
 pub const VISITOR_FUNCTION_NO_ARGS: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         if let Expression::Call(Call::Function(call)) = expr {
             // Get the function name
-            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
 
             if name_str.eq_ignore_ascii_case("{{from_func}}") {
                 // Only match if no arguments
-                if call.arguments.arguments.is_empty() {
-                    self.edits.push(Edit {
-                        start: expr.span().start.offset,
-                        end: expr.span().end.offset,
-                        replacement: "{{to_func}}()".to_string(),
-                        message: "Replace {{from_func}}() with {{to_func}}()".to_string(),
-                    });
+                if call.argument_list.arguments.is_empty() {
+                    self.edits.push(Edit::new(
+                        expr.span(),
+                        "{{to_func}}()",
+                        "Replace {{from_func}}() with {{to_func}}()",
+                    ));
                 }
             }
         }
@@ -346,7 +334,7 @@ pub const VISITOR_FIRST_CLASS_CALLABLE: &str = r#"fn visit_expression(&mut self,
 
             if class_str == "Closure" && method_str == "fromCallable" {
                 // Extract the callable and convert to first-class syntax
-                if let Some(arg) = call.arguments.arguments.first() {
+                if let Some(arg) = call.argument_list.arguments.first() {
                     let arg_str = &self.source[arg.span().start.offset..arg.span().end.offset];
                     // Parse array callable like [$this, 'method'] or [self::class, 'method']
                     // This requires more complex parsing - mark for review
