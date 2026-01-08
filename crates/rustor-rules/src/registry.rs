@@ -188,6 +188,7 @@ impl Preset {
                 "type_cast",
             ],
             Preset::Modernize => &[
+                "arrow_functions",
                 "array_syntax",
                 "assign_coalesce",
                 "constructor_promotion",
@@ -198,6 +199,7 @@ impl Preset {
                 "empty_coalesce",
                 "match_expression",
                 "null_safe_operator",
+                "override_attribute",
                 "readonly_properties",
                 "string_contains",
                 "string_starts_ends",
@@ -356,6 +358,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::array_key_first_last::ArrayKeyFirstLastRule));
         registry.register(Box::new(super::array_push::ArrayPushRule));
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
+        registry.register(Box::new(super::arrow_functions::ArrowFunctionsRule));
         registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
         registry.register(Box::new(super::class_constructor::ClassConstructorRule));
         registry.register(Box::new(super::constructor_promotion::ConstructorPromotionRule));
@@ -369,6 +372,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::list_short_syntax::ListShortSyntaxRule));
         registry.register(Box::new(super::match_expression::MatchExpressionRule));
         registry.register(Box::new(super::null_safe_operator::NullSafeOperatorRule));
+        registry.register(Box::new(super::override_attribute::OverrideAttributeRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::sizeof::SizeofRule));

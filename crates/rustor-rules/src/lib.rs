@@ -16,6 +16,7 @@ pub mod registry;
 
 pub mod array_key_first_last;
 pub mod array_push;
+pub mod arrow_functions;
 pub mod assign_coalesce;
 pub mod array_syntax;
 pub mod class_constructor;
@@ -30,6 +31,7 @@ pub mod join_to_implode;
 pub mod list_short_syntax;
 pub mod match_expression;
 pub mod null_safe_operator;
+pub mod override_attribute;
 pub mod pow_to_operator;
 pub mod readonly_properties;
 pub mod sizeof;
@@ -47,6 +49,7 @@ pub use registry::{
 // Re-export check functions (for backwards compatibility)
 pub use array_key_first_last::check_array_key_first_last;
 pub use array_push::check_array_push;
+pub use arrow_functions::check_arrow_functions;
 pub use assign_coalesce::check_assign_coalesce;
 pub use array_syntax::check_array_syntax;
 pub use class_constructor::check_class_constructor;
@@ -61,6 +64,7 @@ pub use join_to_implode::check_join_to_implode;
 pub use list_short_syntax::check_list_short_syntax;
 pub use match_expression::check_match_expression;
 pub use null_safe_operator::check_null_safe_operator;
+pub use override_attribute::check_override_attribute;
 pub use pow_to_operator::check_pow_to_operator;
 pub use readonly_properties::check_readonly_properties;
 pub use sizeof::check_sizeof;
