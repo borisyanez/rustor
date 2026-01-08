@@ -22,6 +22,76 @@ pub struct Edit {
     pub replacement: String,
     /// Human-readable description of the edit
     pub message: String,
+    /// Optional rule name for identification
+    pub rule: Option<String>,
+}
+
+/// Represents a group of related edits that should be applied atomically
+///
+/// Used for complex refactorings that require multiple coordinated changes,
+/// such as constructor promotion which needs to:
+/// 1. Remove property declarations
+/// 2. Modify constructor parameters
+/// 3. Remove assignment statements
+#[derive(Debug, Clone)]
+pub struct EditGroup {
+    /// All edits in this group
+    pub edits: Vec<Edit>,
+    /// Human-readable description of the group
+    pub message: String,
+    /// Rule name that generated this group
+    pub rule: String,
+}
+
+impl EditGroup {
+    /// Create a new edit group
+    pub fn new(rule: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            edits: Vec::new(),
+            message: message.into(),
+            rule: rule.into(),
+        }
+    }
+
+    /// Add an edit to the group
+    pub fn add_edit(&mut self, span: Span, replacement: impl Into<String>) {
+        self.edits.push(Edit {
+            span,
+            replacement: replacement.into(),
+            message: String::new(),
+            rule: Some(self.rule.clone()),
+        });
+    }
+
+    /// Add an edit with a message
+    pub fn add_edit_with_message(
+        &mut self,
+        span: Span,
+        replacement: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.edits.push(Edit {
+            span,
+            replacement: replacement.into(),
+            message: message.into(),
+            rule: Some(self.rule.clone()),
+        });
+    }
+
+    /// Check if this group is empty
+    pub fn is_empty(&self) -> bool {
+        self.edits.is_empty()
+    }
+
+    /// Get the number of edits in this group
+    pub fn len(&self) -> usize {
+        self.edits.len()
+    }
+
+    /// Get the primary span (first edit's span) for reporting
+    pub fn primary_span(&self) -> Option<Span> {
+        self.edits.first().map(|e| e.span)
+    }
 }
 
 impl Edit {
@@ -31,6 +101,22 @@ impl Edit {
             span,
             replacement: replacement.into(),
             message: message.into(),
+            rule: None,
+        }
+    }
+
+    /// Create a new edit with a rule name
+    pub fn with_rule(
+        span: Span,
+        replacement: impl Into<String>,
+        message: impl Into<String>,
+        rule: impl Into<String>,
+    ) -> Self {
+        Self {
+            span,
+            replacement: replacement.into(),
+            message: message.into(),
+            rule: Some(rule.into()),
         }
     }
 
@@ -110,6 +196,28 @@ pub fn apply_edits(source: &str, edits: &[Edit]) -> Result<String, EditError> {
     }
 
     Ok(result)
+}
+
+/// Apply edit groups to source code atomically
+///
+/// Each group's edits are applied together. If any edit in a group fails,
+/// the entire group is skipped.
+///
+/// # Arguments
+/// * `source` - The original source code
+/// * `groups` - Slice of edit groups to apply
+///
+/// # Returns
+/// * `Ok(String)` - The modified source code
+/// * `Err(EditError)` - If edits overlap or are out of bounds
+pub fn apply_edit_groups(source: &str, groups: &[EditGroup]) -> Result<String, EditError> {
+    // Flatten all edits from all groups
+    let all_edits: Vec<Edit> = groups
+        .iter()
+        .flat_map(|g| g.edits.clone())
+        .collect();
+
+    apply_edits(source, &all_edits)
 }
 
 /// Attempt to preserve whitespace patterns from original code
