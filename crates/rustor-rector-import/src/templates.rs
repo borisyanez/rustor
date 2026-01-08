@@ -428,6 +428,170 @@ pub const VISITOR_COMPARISON_TO_FUNCTION: &str = r#"fn visit_expression(&mut sel
         true
     }"#;
 
+/// Visitor implementation for str_starts_with pattern
+pub const VISITOR_STR_STARTS_WITH: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        // Match: substr($h, 0, strlen($n)) === $n -> str_starts_with($h, $n)
+        // Match: strpos($h, $n) === 0 -> str_starts_with($h, $n)
+        if let Expression::Binary(binary) = expr {
+            let op_span = binary.operator.span();
+            let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+
+            let is_identical = op == "===" || op == "==";
+            let is_not_identical = op == "!==" || op == "!=";
+
+            if !is_identical && !is_not_identical {
+                return true;
+            }
+
+            // Pattern: strpos($haystack, $needle) === 0
+            if let Expression::Call(Call::Function(call)) = &*binary.lhs {
+                let name = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+                if name.eq_ignore_ascii_case("strpos") {
+                    let rhs = &self.source[binary.rhs.span().start.offset as usize..binary.rhs.span().end.offset as usize];
+                    if rhs.trim() == "0" {
+                        let args: Vec<_> = call.argument_list.arguments.iter().collect();
+                        if args.len() >= 2 {
+                            let haystack = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                            let needle = &self.source[args[1].span().start.offset as usize..args[1].span().end.offset as usize];
+                            let replacement = if is_not_identical {
+                                format!("!str_starts_with({}, {})", haystack, needle)
+                            } else {
+                                format!("str_starts_with({}, {})", haystack, needle)
+                            };
+                            self.edits.push(Edit::new(expr.span(), replacement, "Use str_starts_with() (PHP 8.0+)"));
+                        }
+                    }
+                }
+            }
+
+            // Pattern: substr($h, 0, strlen($n)) === $n
+            if let Expression::Call(Call::Function(call)) = &*binary.lhs {
+                let name = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+                if name.eq_ignore_ascii_case("substr") {
+                    let args: Vec<_> = call.argument_list.arguments.iter().collect();
+                    if args.len() >= 3 {
+                        let second_arg = &self.source[args[1].span().start.offset as usize..args[1].span().end.offset as usize];
+                        if second_arg.trim() == "0" {
+                            // Check if third arg is strlen($needle)
+                            if let Argument::Positional(pos) = args[2] {
+                                if let Expression::Call(Call::Function(strlen_call)) = &pos.value {
+                                    let strlen_name = &self.source[strlen_call.function.span().start.offset as usize..strlen_call.function.span().end.offset as usize];
+                                    if strlen_name.eq_ignore_ascii_case("strlen") {
+                                        let haystack = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                                        if let Some(needle_arg) = strlen_call.argument_list.arguments.iter().next() {
+                                            let needle = &self.source[needle_arg.span().start.offset as usize..needle_arg.span().end.offset as usize];
+                                            let replacement = if is_not_identical {
+                                                format!("!str_starts_with({}, {})", haystack, needle)
+                                            } else {
+                                                format!("str_starts_with({}, {})", haystack, needle)
+                                            };
+                                            self.edits.push(Edit::new(expr.span(), replacement, "Use str_starts_with() (PHP 8.0+)"));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }"#;
+
+/// Visitor implementation for str_ends_with pattern
+pub const VISITOR_STR_ENDS_WITH: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        // Match: substr($h, -strlen($n)) === $n -> str_ends_with($h, $n)
+        if let Expression::Binary(binary) = expr {
+            let op_span = binary.operator.span();
+            let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+
+            let is_identical = op == "===" || op == "==";
+            let is_not_identical = op == "!==" || op == "!=";
+
+            if !is_identical && !is_not_identical {
+                return true;
+            }
+
+            // Pattern: substr($h, -strlen($n)) === $n
+            if let Expression::Call(Call::Function(call)) = &*binary.lhs {
+                let name = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+                if name.eq_ignore_ascii_case("substr") {
+                    let args: Vec<_> = call.argument_list.arguments.iter().collect();
+                    if args.len() >= 2 {
+                        // Check if second arg is negative strlen
+                        if let Argument::Positional(pos) = args[1] {
+                            if let Expression::UnaryPrefix(unary) = &pos.value {
+                                let op_str = &self.source[unary.operator.span().start.offset as usize..unary.operator.span().end.offset as usize];
+                                if op_str == "-" {
+                                    if let Expression::Call(Call::Function(strlen_call)) = &*unary.operand {
+                                        let strlen_name = &self.source[strlen_call.function.span().start.offset as usize..strlen_call.function.span().end.offset as usize];
+                                        if strlen_name.eq_ignore_ascii_case("strlen") {
+                                            let haystack = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                                            if let Some(needle_arg) = strlen_call.argument_list.arguments.iter().next() {
+                                                let needle = &self.source[needle_arg.span().start.offset as usize..needle_arg.span().end.offset as usize];
+                                                let replacement = if is_not_identical {
+                                                    format!("!str_ends_with({}, {})", haystack, needle)
+                                                } else {
+                                                    format!("str_ends_with({}, {})", haystack, needle)
+                                                };
+                                                self.edits.push(Edit::new(expr.span(), replacement, "Use str_ends_with() (PHP 8.0+)"));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }"#;
+
+/// Visitor implementation for str_contains pattern
+pub const VISITOR_STR_CONTAINS: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        // Match: strpos($h, $n) !== false -> str_contains($h, $n)
+        // Match: strstr($h, $n) !== false -> str_contains($h, $n)
+        if let Expression::Binary(binary) = expr {
+            let op_span = binary.operator.span();
+            let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+
+            let is_identical = op == "===" || op == "==";
+            let is_not_identical = op == "!==" || op == "!=";
+
+            if !is_identical && !is_not_identical {
+                return true;
+            }
+
+            // Check RHS is false
+            let rhs = &self.source[binary.rhs.span().start.offset as usize..binary.rhs.span().end.offset as usize];
+            if !rhs.trim().eq_ignore_ascii_case("false") {
+                return true;
+            }
+
+            // Check LHS is strpos or strstr
+            if let Expression::Call(Call::Function(call)) = &*binary.lhs {
+                let name = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+                if name.eq_ignore_ascii_case("strpos") || name.eq_ignore_ascii_case("strstr") {
+                    let args: Vec<_> = call.argument_list.arguments.iter().collect();
+                    if args.len() >= 2 {
+                        let haystack = &self.source[args[0].span().start.offset as usize..args[0].span().end.offset as usize];
+                        let needle = &self.source[args[1].span().start.offset as usize..args[1].span().end.offset as usize];
+
+                        // !== false means contains (positive), === false means not contains (negate)
+                        let replacement = if is_identical {
+                            format!("!str_contains({}, {})", haystack, needle)
+                        } else {
+                            format!("str_contains({}, {})", haystack, needle)
+                        };
+                        self.edits.push(Edit::new(expr.span(), replacement, "Use str_contains() (PHP 8.0+)"));
+                    }
+                }
+            }
+        }
+        true
+    }"#;
+
 /// Visitor implementation for complex/unknown patterns (skeleton only)
 pub const VISITOR_COMPLEX: &str = r#"fn visit_expression(&mut self, _expr: &Expression<'a>, _source: &str) -> bool {
         // TODO: Implement pattern detection

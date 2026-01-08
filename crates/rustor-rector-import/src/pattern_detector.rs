@@ -94,6 +94,21 @@ pub fn detect_pattern(refactor_body: &str, node_types: &[String]) -> RulePattern
         return pattern;
     }
 
+    // 18. str_starts_with pattern: substr($h, 0, strlen($n)) === $n
+    if let Some(pattern) = detect_str_starts_with(refactor_body, node_types) {
+        return pattern;
+    }
+
+    // 19. str_ends_with pattern: substr($h, -strlen($n)) === $n
+    if let Some(pattern) = detect_str_ends_with(refactor_body, node_types) {
+        return pattern;
+    }
+
+    // 20. str_contains pattern: strpos !== false or strstr
+    if let Some(pattern) = detect_str_contains(refactor_body, node_types) {
+        return pattern;
+    }
+
     // Fall back to complex pattern with hints
     let hints = extract_pattern_hints(refactor_body);
     if !hints.is_empty() {
@@ -489,6 +504,110 @@ fn detect_comparison_to_function(body: &str) -> Option<RulePattern> {
     None
 }
 
+/// Detect str_starts_with pattern
+/// Patterns:
+/// - substr($h, 0, strlen($n)) === $n -> str_starts_with($h, $n)
+/// - strpos($h, $n) === 0 -> str_starts_with($h, $n)
+/// - strncmp($h, $n, strlen($n)) === 0 -> str_starts_with($h, $n)
+fn detect_str_starts_with(body: &str, node_types: &[String]) -> Option<RulePattern> {
+    // Must operate on comparison nodes
+    let has_comparison_types = node_types.iter().any(|t| {
+        t == "Identical" || t == "NotIdentical" || t == "Equal" || t == "NotEqual"
+    });
+
+    if !has_comparison_types && !node_types.is_empty() {
+        return None;
+    }
+
+    // Check for str_starts_with in output
+    let has_str_starts_with = body.contains("str_starts_with")
+        || body.contains("'str_starts_with'")
+        || body.contains("\"str_starts_with\"");
+
+    if !has_str_starts_with {
+        return None;
+    }
+
+    // Check for input patterns
+    let has_substr_pattern = body.contains("substr") && body.contains("strlen");
+    let has_strpos_zero = body.contains("strpos") && (body.contains("=== 0") || body.contains("== 0"));
+    let has_strncmp = body.contains("strncmp");
+
+    if has_substr_pattern || has_strpos_zero || has_strncmp {
+        return Some(RulePattern::StrStartsWith);
+    }
+
+    None
+}
+
+/// Detect str_ends_with pattern
+/// Pattern: substr($h, -strlen($n)) === $n -> str_ends_with($h, $n)
+fn detect_str_ends_with(body: &str, node_types: &[String]) -> Option<RulePattern> {
+    // Must operate on comparison nodes
+    let has_comparison_types = node_types.iter().any(|t| {
+        t == "Identical" || t == "NotIdentical" || t == "Equal" || t == "NotEqual"
+    });
+
+    if !has_comparison_types && !node_types.is_empty() {
+        return None;
+    }
+
+    // Check for str_ends_with in output
+    let has_str_ends_with = body.contains("str_ends_with")
+        || body.contains("'str_ends_with'")
+        || body.contains("\"str_ends_with\"");
+
+    if !has_str_ends_with {
+        return None;
+    }
+
+    // Check for substr with negative offset pattern
+    let has_substr_negative = body.contains("substr") &&
+        (body.contains("-strlen") || body.contains("- strlen") || body.contains("UnaryMinus"));
+
+    // Check for substr_compare pattern
+    let has_substr_compare = body.contains("substr_compare");
+
+    if has_substr_negative || has_substr_compare {
+        return Some(RulePattern::StrEndsWith);
+    }
+
+    None
+}
+
+/// Detect str_contains pattern
+/// Pattern: strpos($h, $n) !== false -> str_contains($h, $n)
+/// Pattern: strstr($h, $n) !== false -> str_contains($h, $n)
+fn detect_str_contains(body: &str, node_types: &[String]) -> Option<RulePattern> {
+    // Must operate on comparison nodes
+    let has_comparison_types = node_types.iter().any(|t| {
+        t == "Identical" || t == "NotIdentical" || t == "Equal" || t == "NotEqual"
+    });
+
+    if !has_comparison_types && !node_types.is_empty() {
+        return None;
+    }
+
+    // Check for str_contains in output
+    let has_str_contains = body.contains("str_contains")
+        || body.contains("'str_contains'")
+        || body.contains("\"str_contains\"");
+
+    if !has_str_contains {
+        return None;
+    }
+
+    // Check for strpos/strstr with false comparison
+    let has_strpos_false = (body.contains("strpos") || body.contains("strstr")) &&
+        (body.contains("false") || body.contains("FALSE"));
+
+    if has_strpos_false {
+        return Some(RulePattern::StrContains);
+    }
+
+    None
+}
+
 /// Extract hints about what the pattern does
 fn extract_pattern_hints(body: &str) -> Vec<String> {
     let mut hints = Vec::new();
@@ -531,6 +650,115 @@ fn extract_pattern_hints(body: &str) -> Vec<String> {
     }
 
     hints
+}
+
+/// Detect pattern from code samples (before/after)
+/// This is used as a fallback when refactor body analysis fails
+pub fn detect_pattern_from_samples(
+    before: &str,
+    after: &str,
+    node_types: &[String],
+) -> RulePattern {
+    // str_starts_with pattern
+    // Before: substr($h, 0, strlen($n)) === $n  OR  strpos($h, $n) === 0
+    // After: str_starts_with($h, $n)
+    if after.contains("str_starts_with") {
+        let before_lower = before.to_lowercase();
+        let has_substr_strlen = before_lower.contains("substr") && before_lower.contains("strlen");
+        let has_strpos_zero = before_lower.contains("strpos")
+            && (before.contains("=== 0") || before.contains("== 0") || before.contains("!== 0") || before.contains("!= 0"));
+        let has_strncmp = before_lower.contains("strncmp");
+
+        if has_substr_strlen || has_strpos_zero || has_strncmp {
+            return RulePattern::StrStartsWith;
+        }
+    }
+
+    // str_ends_with pattern
+    // Before: substr($h, -strlen($n)) === $n
+    // After: str_ends_with($h, $n)
+    if after.contains("str_ends_with") {
+        let before_lower = before.to_lowercase();
+        let has_substr_neg = before_lower.contains("substr") && before.contains("-");
+
+        if has_substr_neg {
+            return RulePattern::StrEndsWith;
+        }
+    }
+
+    // str_contains pattern
+    // Before: strpos($h, $n) !== false  OR  strstr($h, $n) !== false
+    // After: str_contains($h, $n)
+    if after.contains("str_contains") {
+        let before_lower = before.to_lowercase();
+        let has_strpos_false = (before_lower.contains("strpos") || before_lower.contains("strstr"))
+            && (before.contains("false") || before.contains("FALSE"));
+
+        if has_strpos_false {
+            return RulePattern::StrContains;
+        }
+    }
+
+    // Ternary to elvis: $a ? $a : $b -> $a ?: $b
+    if after.contains("?:") && before.contains("?") && before.contains(":") && !before.contains("?:") {
+        return RulePattern::TernaryToElvis;
+    }
+
+    // Nullsafe operator: $x !== null ? $x->y : null -> $x?->y
+    if after.contains("?->") && !before.contains("?->") {
+        return RulePattern::NullsafeMethodCall;
+    }
+
+    // Null coalesce: isset($x) ? $x : $y -> $x ?? $y
+    if after.contains("??") && !before.contains("??") {
+        if before.contains("isset") {
+            return RulePattern::TernaryToCoalesce {
+                condition_func: "isset".to_string(),
+            };
+        } else if before.contains("?") && before.contains(":") {
+            return RulePattern::TernaryToCoalesce {
+                condition_func: "ternary".to_string(),
+            };
+        }
+    }
+
+    // Closure to arrow: function() use ($x) { return $y; } -> fn() => $y
+    if (after.contains("fn(") || after.contains("fn ("))
+        && (before.contains("function") && before.contains("return"))
+    {
+        return RulePattern::ClosureToArrow;
+    }
+
+    // First-class callable: Closure::fromCallable([$obj, 'method']) -> $obj->method(...)
+    if after.contains("...)")
+        && (before.contains("fromCallable") || before.contains("Closure::fromCallable"))
+    {
+        return RulePattern::FirstClassCallable;
+    }
+
+    // pow to ** operator
+    if after.contains("**") && before.to_lowercase().contains("pow(") {
+        return RulePattern::FunctionToOperator {
+            func: "pow".to_string(),
+            operator: "**".to_string(),
+            arg_positions: vec![0, 1], // pow($base, $exp) -> $base ** $exp
+        };
+    }
+
+    // Check for comparison type requirements
+    let has_comparison_types = node_types.iter().any(|t| {
+        t == "Identical" || t == "NotIdentical" || t == "Equal" || t == "NotEqual"
+    });
+
+    // Fall back to complex if we have hints
+    if has_comparison_types || !node_types.is_empty() {
+        return RulePattern::Complex {
+            hints: vec!["Detected from code samples".to_string()],
+            refactor_body: format!("Before: {}\nAfter: {}", before, after),
+        };
+    }
+
+    RulePattern::Unknown
 }
 
 #[cfg(test)]

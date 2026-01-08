@@ -262,6 +262,21 @@ impl CodeGenerator {
                 (impl_code, true) // Complex pattern, needs review
             }
 
+            RulePattern::StrStartsWith => {
+                let impl_code = templates::VISITOR_STR_STARTS_WITH.to_string();
+                (impl_code, false)
+            }
+
+            RulePattern::StrEndsWith => {
+                let impl_code = templates::VISITOR_STR_ENDS_WITH.to_string();
+                (impl_code, false)
+            }
+
+            RulePattern::StrContains => {
+                let impl_code = templates::VISITOR_STR_CONTAINS.to_string();
+                (impl_code, false)
+            }
+
             RulePattern::Complex { hints, refactor_body } => {
                 let hints_str = hints
                     .iter()

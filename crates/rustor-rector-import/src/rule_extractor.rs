@@ -1,6 +1,6 @@
 //! Rule extractor - builds RectorRule from parsed PHP files
 
-use crate::pattern_detector::detect_pattern;
+use crate::pattern_detector::{detect_pattern, detect_pattern_from_samples};
 use crate::php_parser::{extract_category, extract_php_version, parse_rule_file};
 use crate::{ImportResult, RectorRule, RulePattern};
 use std::fs;
@@ -70,11 +70,22 @@ pub fn extract_rule_from_file(path: &Path) -> Result<Option<RectorRule>, String>
     let min_php_version = extract_php_version(&category);
 
     // Detect pattern from refactor body
-    let pattern = if let Some(ref body) = parsed.refactor_body {
+    let mut pattern = if let Some(ref body) = parsed.refactor_body {
         detect_pattern(body, &parsed.node_types)
     } else {
         RulePattern::Unknown
     };
+
+    // If pattern detection from refactor body failed, try code samples
+    if matches!(pattern, RulePattern::Unknown | RulePattern::Complex { .. }) {
+        if let (Some(ref before), Some(ref after)) = (&parsed.before_code, &parsed.after_code) {
+            let sample_pattern = detect_pattern_from_samples(before, after, &parsed.node_types);
+            // Only use sample-based detection if it gives us a specific pattern
+            if !matches!(sample_pattern, RulePattern::Unknown | RulePattern::Complex { .. }) {
+                pattern = sample_pattern;
+            }
+        }
+    }
 
     Ok(Some(RectorRule {
         name,

@@ -18,6 +18,7 @@ pub mod remove_useless_is_object_check;
 pub mod rename_mktime_without_args_to_time;
 pub mod restore_include_path_to_ini_restore;
 pub mod simplify_strpos_lower;
+pub mod str_starts_with;
 pub mod ternary_implode_to_implode;
 pub mod unwrap_sprintf_one_argument;
 pub mod utf_8_decode_encode_to_mb_convert_encoding;
@@ -46,5 +47,6 @@ pub fn imported_rules() -> Vec<Box<dyn Rule>> {
         Box::new(ternary_implode_to_implode::TernaryImplodeToImplodeRule),
         Box::new(unwrap_sprintf_one_argument::UnwrapSprintfOneArgumentRule),
         Box::new(utf_8_decode_encode_to_mb_convert_encoding::Utf8DecodeEncodeToMbConvertEncodingRule),
+        Box::new(str_starts_with::StrStartsWithRule),
     ]
 }

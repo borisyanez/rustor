@@ -152,6 +152,16 @@ pub enum RulePattern {
         negate_result: bool,
     },
 
+    /// String starts with pattern: substr($h, 0, strlen($n)) === $n → str_starts_with($h, $n)
+    /// Also: strpos($h, $n) === 0 → str_starts_with($h, $n)
+    StrStartsWith,
+
+    /// String ends with pattern: substr($h, -strlen($n)) === $n → str_ends_with($h, $n)
+    StrEndsWith,
+
+    /// String contains pattern: strpos($h, $n) !== false → str_contains($h, $n)
+    StrContains,
+
     /// Complex pattern requiring manual implementation
     Complex {
         hints: Vec<String>,
@@ -189,6 +199,9 @@ impl RulePattern {
             RulePattern::TernaryToElvis => "TernaryToElvis",
             RulePattern::FunctionArgSwap { .. } => "FunctionArgSwap",
             RulePattern::ComparisonToFunction { .. } => "ComparisonToFunction",
+            RulePattern::StrStartsWith => "StrStartsWith",
+            RulePattern::StrEndsWith => "StrEndsWith",
+            RulePattern::StrContains => "StrContains",
             RulePattern::Complex { .. } => "Complex",
             RulePattern::Unknown => "Unknown",
         }
