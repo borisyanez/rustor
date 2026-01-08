@@ -46,6 +46,8 @@ struct Scope {
     is_closure: bool,
     /// Variables inherited via closure `use` clause
     inherited: HashSet<String>,
+    /// Whether $this is available in this scope (inside a class method)
+    has_this: bool,
 }
 
 impl Scope {
@@ -54,6 +56,7 @@ impl Scope {
             defined: HashSet::new(),
             is_closure: false,
             inherited: HashSet::new(),
+            has_this: false,
         }
     }
 
@@ -62,6 +65,7 @@ impl Scope {
             defined: HashSet::new(),
             is_closure: true,
             inherited: HashSet::new(),
+            has_this: false,
         }
     }
 
@@ -85,7 +89,7 @@ impl<'s> VariableAnalyzer<'s> {
     fn define_superglobals(&mut self) {
         let superglobals = [
             "$_GET", "$_POST", "$_REQUEST", "$_SERVER", "$_SESSION", "$_COOKIE",
-            "$_FILES", "$_ENV", "$GLOBALS", "$this", "$argc", "$argv",
+            "$_FILES", "$_ENV", "$GLOBALS", "$argc", "$argv",
         ];
         for var in superglobals {
             self.current_scope_mut().define(var.to_string());
@@ -104,14 +108,37 @@ impl<'s> VariableAnalyzer<'s> {
         self.scopes.push(Scope::new());
     }
 
+    fn push_method_scope(&mut self) {
+        let mut scope = Scope::new();
+        scope.has_this = true;
+        scope.define("$this".to_string());
+        self.scopes.push(scope);
+    }
+
     fn push_closure_scope(&mut self) {
-        self.scopes.push(Scope::closure());
+        let mut scope = Scope::closure();
+        // In PHP 5.4+, closures automatically bind $this from enclosing class method
+        if self.has_this_in_scope() {
+            scope.has_this = true;
+            scope.define("$this".to_string());
+        }
+        self.scopes.push(scope);
     }
 
     fn pop_scope(&mut self) {
         if self.scopes.len() > 1 {
             self.scopes.pop();
         }
+    }
+
+    /// Check if $this is available in the current scope chain
+    fn has_this_in_scope(&self) -> bool {
+        for scope in self.scopes.iter().rev() {
+            if scope.has_this {
+                return true;
+            }
+        }
+        false
     }
 
     fn is_defined(&self, name: &str) -> bool {
@@ -306,9 +333,8 @@ impl<'s> VariableAnalyzer<'s> {
     fn analyze_class_member<'a>(&mut self, member: &ClassLikeMember<'a>) {
         if let ClassLikeMember::Method(method) = member {
             if let MethodBody::Concrete(body) = &method.body {
-                self.push_scope();
-                // Define $this
-                self.define("$this".to_string());
+                // Use push_method_scope which sets has_this and defines $this
+                self.push_method_scope();
                 // Define parameters
                 for param in method.parameter_list.parameters.iter() {
                     let span = param.variable.span();
