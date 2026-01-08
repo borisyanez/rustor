@@ -38,7 +38,7 @@ use std::sync::Mutex;
 use cache::{hash_file, hash_rules, Cache};
 use config::Config;
 use output::{EditInfo, OutputFormat, Reporter};
-use process::{process_file_with_config, write_file};
+use process::{process_file_with_skip, write_file};
 use rustor_rules::{Category, PhpVersion, Preset, RuleConfigs, RuleRegistry};
 
 #[derive(Parser)]
@@ -555,7 +555,7 @@ fn run() -> Result<ExitCode> {
             }
 
             // Cache miss - process the file
-            let result = process_file_to_result(path, &enabled_rules, &rule_configs);
+            let result = process_file_to_result(path, &enabled_rules, &rule_configs, &config);
 
             // Update cache with result
             if use_cache {
@@ -730,8 +730,17 @@ fn process_file_to_result(
     path: &PathBuf,
     enabled_rules: &HashSet<String>,
     rule_configs: &RuleConfigs,
+    config: &Config,
 ) -> FileResult {
-    match process_file_with_config(path, enabled_rules, rule_configs) {
+    // Check if all rules should be skipped for this path
+    if config.should_skip_all_rules(path) {
+        return FileResult::NoChanges;
+    }
+
+    // Get rules to skip for this specific path
+    let skip_rules = config.skipped_rules_for_path(path);
+
+    match process_file_with_skip(path, enabled_rules, rule_configs, &skip_rules) {
         Ok(Some(result)) => {
             if result.edits.is_empty() {
                 FileResult::NoChanges

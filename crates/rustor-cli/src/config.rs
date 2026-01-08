@@ -16,6 +16,9 @@ pub struct Config {
     pub output: OutputConfig,
     pub php: PhpConfig,
     pub fix: FixConfig,
+    /// Skip rules for specific paths (Rector-style)
+    #[serde(default)]
+    pub skip: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -206,6 +209,91 @@ impl Config {
             }
         }
 
+        false
+    }
+
+    /// Check if a specific rule should be skipped for a given path
+    /// Returns true if the rule should be skipped based on [skip] config
+    pub fn should_skip_rule(&self, rule_name: &str, path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+
+        // Check rule-specific skip patterns
+        if let Some(patterns) = self.skip.get(rule_name) {
+            if Self::matches_any_pattern(&path_str, path, patterns) {
+                return true;
+            }
+        }
+
+        // Check wildcard skip patterns (applies to all rules)
+        if let Some(patterns) = self.skip.get("*") {
+            if Self::matches_any_pattern(&path_str, path, patterns) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Get list of rules to skip for a given path
+    pub fn skipped_rules_for_path(&self, path: &Path) -> HashSet<String> {
+        let path_str = path.to_string_lossy();
+        let mut skipped = HashSet::new();
+
+        for (rule_name, patterns) in &self.skip {
+            if rule_name == "*" {
+                continue; // Wildcard handled separately
+            }
+            if Self::matches_any_pattern(&path_str, path, patterns) {
+                skipped.insert(rule_name.clone());
+            }
+        }
+
+        skipped
+    }
+
+    /// Check if all rules should be skipped for this path (wildcard match)
+    pub fn should_skip_all_rules(&self, path: &Path) -> bool {
+        if let Some(patterns) = self.skip.get("*") {
+            let path_str = path.to_string_lossy();
+            return Self::matches_any_pattern(&path_str, path, patterns);
+        }
+        false
+    }
+
+    /// Helper to check if a path matches any of the given patterns
+    fn matches_any_pattern(path_str: &str, path: &Path, patterns: &[String]) -> bool {
+        for pattern in patterns {
+            // Try glob matching
+            if let Ok(glob_pattern) = glob::Pattern::new(pattern) {
+                if glob_pattern.matches(path_str) {
+                    return true;
+                }
+                // Also try matching against just the file/dir name
+                if let Some(file_name) = path.file_name() {
+                    if glob_pattern.matches(&file_name.to_string_lossy()) {
+                        return true;
+                    }
+                }
+            }
+
+            // Also do simple prefix/contains matching for directory patterns
+            if pattern.ends_with('/') {
+                let dir_pattern = pattern.trim_end_matches('/');
+                if path_str.contains(&format!("/{}/", dir_pattern))
+                    || path_str.starts_with(&format!("{}/", dir_pattern))
+                {
+                    return true;
+                }
+            }
+
+            // Simple contains matching for patterns like "*/Fixtures/*"
+            if pattern.contains('/') && !pattern.starts_with('/') {
+                let simple_pattern = pattern.replace('*', "");
+                if path_str.contains(&simple_pattern) {
+                    return true;
+                }
+            }
+        }
         false
     }
 }
@@ -465,5 +553,99 @@ backup_dir = ".rustor-backups"
         assert_eq!(config.output.color, Some(false));
         assert_eq!(config.fix.backup, Some(true));
         assert_eq!(config.fix.backup_dir, Some(".rustor-backups".to_string()));
+    }
+
+    #[test]
+    fn test_skip_rule_for_path() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[skip]
+rename_class = ["src/Legacy/*", "tests/fixtures/*"]
+sizeof = ["vendor/*"]
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        // rename_class should be skipped for Legacy paths
+        assert!(config.should_skip_rule("rename_class", Path::new("src/Legacy/OldService.php")));
+        assert!(config.should_skip_rule("rename_class", Path::new("tests/fixtures/test.php")));
+        assert!(!config.should_skip_rule("rename_class", Path::new("src/Service.php")));
+
+        // sizeof should be skipped for vendor
+        assert!(config.should_skip_rule("sizeof", Path::new("vendor/package/file.php")));
+        assert!(!config.should_skip_rule("sizeof", Path::new("src/file.php")));
+
+        // Other rules should not be skipped
+        assert!(!config.should_skip_rule("array_push", Path::new("src/Legacy/OldService.php")));
+    }
+
+    #[test]
+    fn test_skip_all_rules_wildcard() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[skip]
+"*" = ["generated/*", "*.generated.php"]
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        // All rules should be skipped for generated paths
+        assert!(config.should_skip_all_rules(Path::new("generated/models/User.php")));
+        assert!(config.should_skip_all_rules(Path::new("src/Model.generated.php")));
+        assert!(!config.should_skip_all_rules(Path::new("src/Model.php")));
+    }
+
+    #[test]
+    fn test_skipped_rules_for_path() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[skip]
+rename_class = ["src/Legacy/*"]
+sizeof = ["src/Legacy/*"]
+array_push = ["other/*"]
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        let skipped = config.skipped_rules_for_path(Path::new("src/Legacy/Service.php"));
+        assert!(skipped.contains("rename_class"));
+        assert!(skipped.contains("sizeof"));
+        assert!(!skipped.contains("array_push"));
+        assert_eq!(skipped.len(), 2);
+    }
+
+    #[test]
+    fn test_skip_with_glob_patterns() {
+        let temp = TempDir::new().unwrap();
+        create_config(
+            temp.path(),
+            r#"
+[skip]
+rename_class = ["**/*.test.php", "tests/**"]
+"#,
+        );
+
+        let (config, _) = Config::load_from(temp.path().to_path_buf())
+            .unwrap()
+            .unwrap();
+
+        assert!(config.should_skip_rule("rename_class", Path::new("src/Service.test.php")));
+        assert!(config.should_skip_rule("rename_class", Path::new("tests/Unit/ServiceTest.php")));
+        assert!(!config.should_skip_rule("rename_class", Path::new("src/Service.php")));
     }
 }

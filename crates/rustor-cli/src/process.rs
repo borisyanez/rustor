@@ -36,6 +36,16 @@ pub fn process_file_with_config(
     enabled_rules: &HashSet<String>,
     rule_configs: &RuleConfigs,
 ) -> Result<Option<ProcessResult>> {
+    process_file_with_skip(path, enabled_rules, rule_configs, &HashSet::new())
+}
+
+/// Process a single PHP file with rule configuration and skip rules
+pub fn process_file_with_skip(
+    path: &Path,
+    enabled_rules: &HashSet<String>,
+    rule_configs: &RuleConfigs,
+    skip_rules: &HashSet<String>,
+) -> Result<Option<ProcessResult>> {
     let source_code = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
@@ -74,8 +84,8 @@ pub fn process_file_with_config(
             let (line, column) = offset_to_line_column(&source_code, edit.span.start.offset as usize);
             let rule = extract_rule_name(&edit.message);
 
-            // Check if this edit should be ignored
-            if ignores.should_ignore(line, &rule) {
+            // Check if this edit should be ignored (inline comments or skip config)
+            if ignores.should_ignore(line, &rule) || skip_rules.contains(&rule) {
                 return None;
             }
 
@@ -97,13 +107,13 @@ pub fn process_file_with_config(
         }));
     }
 
-    // Filter the actual edits to only include non-ignored ones
+    // Filter the actual edits to only include non-ignored/non-skipped ones
     let filtered_edits: Vec<_> = edits
         .into_iter()
         .filter(|edit| {
             let (line, _) = offset_to_line_column(&source_code, edit.span.start.offset as usize);
             let rule = extract_rule_name(&edit.message);
-            !ignores.should_ignore(line, &rule)
+            !ignores.should_ignore(line, &rule) && !skip_rules.contains(&rule)
         })
         .collect();
 

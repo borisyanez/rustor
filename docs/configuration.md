@@ -77,6 +77,13 @@ enabled = true
 # Cache directory (default: .rustor-cache)
 dir = ".rustor-cache"
 
+[skip]
+# Skip specific rules for specific paths (Rector-style)
+rename_class = ["src/Legacy/*", "tests/fixtures/*"]
+sizeof = ["vendor/*"]
+# Skip ALL rules for certain paths
+"*" = ["generated/*", "*.generated.php"]
+
 # Rule-specific configuration
 [rules.string_contains]
 # Also convert loose comparisons (== and !=)
@@ -177,6 +184,53 @@ exclude = [
     "node_modules/",
     "**/*.generated.php",
     "**/fixtures/**"
+]
+```
+
+---
+
+### `[skip]`
+
+Skip specific rules for specific paths. This is similar to Rector's `withSkip()` configuration.
+
+#### Rule-specific skipping
+
+Skip a rule only for certain paths:
+
+```toml
+[skip]
+rename_class = ["src/Legacy/*", "tests/fixtures/*"]
+sizeof = ["vendor/*"]
+```
+
+In this example:
+- `rename_class` rule will be skipped for files in `src/Legacy/` and `tests/fixtures/`
+- `sizeof` rule will be skipped for files in `vendor/`
+
+#### Wildcard skipping
+
+Skip ALL rules for certain paths using the `"*"` key:
+
+```toml
+[skip]
+"*" = ["generated/*", "*.generated.php"]
+```
+
+This skips all rules for:
+- All files in the `generated/` directory
+- All files ending with `.generated.php`
+
+#### Glob patterns
+
+Supports standard glob patterns:
+
+```toml
+[skip]
+rename_class = [
+    "src/Legacy/*",           # All files in Legacy directory
+    "**/fixtures/**",         # Any fixtures directory
+    "**/*.test.php",          # All test files
+    "tests/**"                # Everything under tests
 ]
 ```
 
