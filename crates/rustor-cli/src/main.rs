@@ -12,6 +12,7 @@
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval/boolval to cast syntax
 
+mod analyze;
 mod baseline;
 mod cache;
 mod backup;
@@ -162,6 +163,25 @@ fn main() -> ExitCode {
             .expect("Failed to create tokio runtime")
             .block_on(lsp::run_lsp_server());
         return ExitCode::SUCCESS;
+    }
+
+    // Check for analyze subcommand early
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if analyze::should_run_analyze(&args) {
+        let analyze_args = args.into_iter().skip(1).collect::<Vec<_>>();
+        match analyze::parse_analyze_args(&analyze_args) {
+            Ok(args) => match analyze::run_analyze(args) {
+                Ok(code) => return code,
+                Err(e) => {
+                    eprintln!("{}: {:#}", "Error".red(), e);
+                    return ExitCode::from(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("{}: {:#}", "Error".red(), e);
+                return ExitCode::from(1);
+            }
+        }
     }
 
     match run() {

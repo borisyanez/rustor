@@ -5,6 +5,7 @@ members = [
     "crates/rustor-rules",
     "crates/rustor-cli",
     "crates/rustor-rector-import",
+    "crates/rustor-analyze",
 ]
 
 [profile.release]

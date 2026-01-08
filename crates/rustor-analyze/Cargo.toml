@@ -1,0 +1,37 @@
+[package]
+name = "rustor-analyze"
+version = "0.1.0"
+edition = "2021"
+description = "PHPStan-compatible static analysis for rustor"
+
+[dependencies]
+rustor-core = { path = "../rustor-core" }
+mago-syntax = "1.0"
+mago-span = "1.0"
+mago-database = "1.0"
+bumpalo = "3.16"
+
+# NEON parser
+nom = "7.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+
+# Path pattern matching for ignoreErrors
+fnmatch-regex = "0.2"
+
+# Glob pattern matching
+glob = "0.3"
+
+# Parallel analysis
+rayon = "1.10"
+
+# File walking
+walkdir = "2.5"
+
+[dev-dependencies]
+tempfile = "3.17"

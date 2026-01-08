@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 rustor-core = { path = "../rustor-core" }
 rustor-rules = { path = "../rustor-rules" }
+rustor-analyze = { path = "../rustor-analyze" }
 mago-syntax = "1.0"
 mago-span = "1.0"
 mago-database = "1.0"
