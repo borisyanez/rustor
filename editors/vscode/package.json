@@ -1,0 +1,101 @@
+{
+  "name": "rustor",
+  "displayName": "Rustor - PHP Refactoring",
+  "description": "Automated PHP code modernization and refactoring",
+  "version": "0.1.0",
+  "publisher": "rustor",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rustor/rustor"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Formatters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "php",
+    "refactoring",
+    "modernization",
+    "code quality",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:php"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "Rustor",
+      "properties": {
+        "rustor.path": {
+          "type": "string",
+          "default": "rustor",
+          "description": "Path to the rustor executable"
+        },
+        "rustor.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the rustor language server"
+        },
+        "rustor.phpVersion": {
+          "type": "string",
+          "default": "8.2",
+          "enum": ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"],
+          "description": "Target PHP version for rules"
+        },
+        "rustor.preset": {
+          "type": "string",
+          "default": "recommended",
+          "enum": ["recommended", "performance", "modernize", "all"],
+          "description": "Rule preset to use"
+        },
+        "rustor.trace.server": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "messages", "verbose"],
+          "description": "Trace communication with the language server"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "rustor.restart",
+        "title": "Rustor: Restart Language Server"
+      },
+      {
+        "command": "rustor.fixFile",
+        "title": "Rustor: Fix Current File"
+      },
+      {
+        "command": "rustor.fixWorkspace",
+        "title": "Rustor: Fix Entire Workspace"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
