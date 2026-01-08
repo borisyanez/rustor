@@ -287,6 +287,78 @@ array_map(function($x) { return $x * 2; }, $arr);
 array_map(fn($x) => $x * 2, $arr);
 ```
 
+### FunctionToClassConstant
+
+Converts `get_class()` calls to `::class` constant (PHP 8.0+).
+
+```php
+// Before
+get_class($object);
+
+// After
+$object::class;
+```
+
+### FunctionToInstanceof
+
+Converts `is_a()` checks to `instanceof` expressions.
+
+```php
+// Before
+is_a($obj, SomeClass::class);
+
+// After
+$obj instanceof SomeClass;
+```
+
+### UnwrapSingleArgFunction
+
+Removes unnecessary function wrappers when the function just returns its argument.
+
+```php
+// Before
+sprintf($string);
+
+// After
+$string;
+```
+
+### FunctionNoArgsToFunction
+
+Converts function calls without arguments to a different function.
+
+```php
+// Before
+mktime();
+
+// After
+time();
+```
+
+### NullsafeMethodCall
+
+Converts null-check ternaries to nullsafe operator (PHP 8.0+).
+
+```php
+// Before
+$obj ? $obj->method() : null;
+
+// After
+$obj?->method();
+```
+
+### FirstClassCallable
+
+Converts `Closure::fromCallable()` to first-class callable syntax (PHP 8.1+).
+
+```php
+// Before
+Closure::fromCallable([$this, 'method']);
+
+// After
+$this->method(...);
+```
+
 ---
 
 ## Generated Code Structure

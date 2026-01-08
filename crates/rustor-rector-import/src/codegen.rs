@@ -181,6 +181,60 @@ impl CodeGenerator {
                 (impl_code, true)
             }
 
+            RulePattern::FunctionToClassConstant { func } => {
+                let impl_code = templates::VISITOR_FUNCTION_TO_CLASS_CONSTANT
+                    .replace("{{func}}", func);
+                (impl_code, false)
+            }
+
+            RulePattern::FunctionToInstanceof { func } => {
+                let impl_code = templates::VISITOR_FUNCTION_TO_INSTANCEOF
+                    .replace("{{func}}", func);
+                (impl_code, false)
+            }
+
+            RulePattern::UnwrapSingleArgFunction { func } => {
+                let impl_code = templates::VISITOR_UNWRAP_SINGLE_ARG
+                    .replace("{{func}}", func);
+                (impl_code, false)
+            }
+
+            RulePattern::FunctionRemoveFirstArg { func } => {
+                // This pattern needs more context - generate skeleton
+                let impl_code = format!(
+                    r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {{
+        if let Expression::Call(Call::Function(call)) = expr {{
+            let name_str = &self.source[call.function.span().start.offset..call.function.span().end.offset];
+
+            if name_str.eq_ignore_ascii_case("{}") {{
+                // TODO: Remove first argument pattern
+                // Implementation depends on specific function semantics
+            }}
+        }}
+        true
+    }}"#,
+                    func
+                );
+                (impl_code, true)
+            }
+
+            RulePattern::FunctionNoArgsToFunction { from, to } => {
+                let impl_code = templates::VISITOR_FUNCTION_NO_ARGS
+                    .replace("{{from_func}}", from)
+                    .replace("{{to_func}}", to);
+                (impl_code, false)
+            }
+
+            RulePattern::NullsafeMethodCall => {
+                let impl_code = templates::VISITOR_NULLSAFE_METHOD_CALL.to_string();
+                (impl_code, true) // Complex pattern, needs review
+            }
+
+            RulePattern::FirstClassCallable => {
+                let impl_code = templates::VISITOR_FIRST_CLASS_CALLABLE.to_string();
+                (impl_code, true) // Complex pattern, needs review
+            }
+
             RulePattern::Complex { hints, refactor_body } => {
                 let hints_str = hints
                     .iter()

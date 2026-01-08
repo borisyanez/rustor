@@ -95,6 +95,38 @@ pub enum RulePattern {
     /// Closure to arrow function
     ClosureToArrow,
 
+    /// Function to ::class constant: get_class($obj) → $obj::class
+    FunctionToClassConstant {
+        func: String,
+    },
+
+    /// Function to instanceof: is_a($obj, Class::class) → $obj instanceof Class
+    FunctionToInstanceof {
+        func: String,
+    },
+
+    /// Unwrap single-arg function that returns its arg: sprintf($x) → $x
+    UnwrapSingleArgFunction {
+        func: String,
+    },
+
+    /// Remove first argument: implode(',', $arr) → implode($arr) (PHP 7.4+)
+    FunctionRemoveFirstArg {
+        func: String,
+    },
+
+    /// Function without args to another: mktime() → time()
+    FunctionNoArgsToFunction {
+        from: String,
+        to: String,
+    },
+
+    /// Nullsafe method call: $x ? $x->y() : null → $x?->y()
+    NullsafeMethodCall,
+
+    /// First-class callable syntax: Closure::fromCallable([$this, 'method']) → $this->method(...)
+    FirstClassCallable,
+
     /// Complex pattern requiring manual implementation
     Complex {
         hints: Vec<String>,
@@ -122,6 +154,13 @@ impl RulePattern {
             RulePattern::TernaryToCoalesce { .. } => "TernaryToCoalesce",
             RulePattern::ArraySyntaxModern => "ArraySyntaxModern",
             RulePattern::ClosureToArrow => "ClosureToArrow",
+            RulePattern::FunctionToClassConstant { .. } => "FunctionToClassConstant",
+            RulePattern::FunctionToInstanceof { .. } => "FunctionToInstanceof",
+            RulePattern::UnwrapSingleArgFunction { .. } => "UnwrapSingleArgFunction",
+            RulePattern::FunctionRemoveFirstArg { .. } => "FunctionRemoveFirstArg",
+            RulePattern::FunctionNoArgsToFunction { .. } => "FunctionNoArgsToFunction",
+            RulePattern::NullsafeMethodCall => "NullsafeMethodCall",
+            RulePattern::FirstClassCallable => "FirstClassCallable",
             RulePattern::Complex { .. } => "Complex",
             RulePattern::Unknown => "Unknown",
         }

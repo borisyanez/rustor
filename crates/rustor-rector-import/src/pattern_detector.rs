@@ -13,37 +13,68 @@ pub fn detect_pattern(refactor_body: &str, node_types: &[String]) -> RulePattern
         return pattern;
     }
 
-    // 2. Function to comparison: is_null -> $x === null
+    // 2. Function to instanceof: is_a($x, Class::class) -> $x instanceof Class
+    // Must be checked before function_to_comparison to avoid false matches on is_a
+    if let Some(pattern) = detect_function_to_instanceof(refactor_body) {
+        return pattern;
+    }
+
+    // 3. Function to comparison: is_null -> $x === null
     if let Some(pattern) = detect_function_to_comparison(refactor_body) {
         return pattern;
     }
 
-    // 3. Function to cast: strval -> (string)
+    // 4. Function to cast: strval -> (string)
     if let Some(pattern) = detect_function_to_cast(refactor_body) {
         return pattern;
     }
 
-    // 4. Function to operator: pow -> **
+    // 5. Function to operator: pow -> **
     if let Some(pattern) = detect_function_to_operator(refactor_body) {
         return pattern;
     }
 
-    // 5. Generic function rename pattern: isName + new Name
+    // 6. Function to ::class constant: get_class($x) -> $x::class
+    if let Some(pattern) = detect_function_to_class_constant(refactor_body) {
+        return pattern;
+    }
+
+    // 7. Unwrap single-arg function: sprintf($x) -> $x
+    if let Some(pattern) = detect_unwrap_single_arg_function(refactor_body) {
+        return pattern;
+    }
+
+    // 8. Function no args to another: mktime() -> time()
+    if let Some(pattern) = detect_function_no_args_to_function(refactor_body) {
+        return pattern;
+    }
+
+    // 9. Generic function rename pattern: isName + new Name
     if let Some(pattern) = detect_function_rename(refactor_body) {
         return pattern;
     }
 
-    // 6. Array syntax modernization
+    // 10. Array syntax modernization
     if node_types.contains(&"Array_".to_string()) || refactor_body.contains("ShortArraySyntax") {
         return RulePattern::ArraySyntaxModern;
     }
 
-    // 7. Closure to arrow function
+    // 11. Closure to arrow function
     if node_types.contains(&"Closure".to_string()) && refactor_body.contains("ArrowFunction") {
         return RulePattern::ClosureToArrow;
     }
 
-    // 8. Ternary to coalesce
+    // 12. First-class callable syntax
+    if refactor_body.contains("fromCallable") && refactor_body.contains("FirstClassCallable") {
+        return RulePattern::FirstClassCallable;
+    }
+
+    // 13. Nullsafe method call
+    if refactor_body.contains("NullsafeMethodCall") || refactor_body.contains("nullsafe") {
+        return RulePattern::NullsafeMethodCall;
+    }
+
+    // 14. Ternary to coalesce
     if let Some(pattern) = detect_ternary_to_coalesce(refactor_body) {
         return pattern;
     }
@@ -122,24 +153,45 @@ fn detect_function_to_comparison(body: &str) -> Option<RulePattern> {
 
 /// Detect function alias: sizeof -> count
 fn detect_function_alias(body: &str) -> Option<RulePattern> {
-    // Known aliases
+    // Known aliases - comprehensive list of PHP function aliases
     let aliases = [
+        // Array functions
         ("sizeof", "count"),
+        ("key_exists", "array_key_exists"),
+        ("pos", "current"),
+        // String functions
         ("join", "implode"),
         ("chop", "rtrim"),
-        ("close", "closedir"),
-        ("doubleval", "floatval"),
-        ("fputs", "fwrite"),
-        ("ini_alter", "ini_set"),
+        ("strchr", "strstr"),
+        ("split", "preg_split"),
+        ("spliti", "preg_split"),
+        // Type check functions
         ("is_double", "is_float"),
         ("is_integer", "is_int"),
         ("is_long", "is_int"),
         ("is_real", "is_float"),
         ("is_writeable", "is_writable"),
-        ("key_exists", "array_key_exists"),
-        ("pos", "current"),
+        // I/O functions
+        ("fputs", "fwrite"),
+        ("close", "closedir"),
         ("show_source", "highlight_file"),
-        ("strchr", "strstr"),
+        // Value conversion
+        ("doubleval", "floatval"),
+        // Config functions
+        ("ini_alter", "ini_set"),
+        // Multibyte string functions
+        ("mb_substr", "substr"),
+        ("mb_strpos", "strpos"),
+        // Other aliases
+        ("set_file_buffer", "stream_set_write_buffer"),
+        ("socket_get_status", "stream_get_meta_data"),
+        ("socket_set_blocking", "stream_set_blocking"),
+        ("socket_set_timeout", "stream_set_timeout"),
+        ("mysql_escape_string", "mysqli_real_escape_string"),
+        ("ereg", "preg_match"),
+        ("eregi", "preg_match"),
+        ("ereg_replace", "preg_replace"),
+        ("eregi_replace", "preg_replace"),
     ];
 
     for (from, to) in aliases {
@@ -171,12 +223,20 @@ fn detect_function_to_cast(body: &str) -> Option<RulePattern> {
         ("strval", "string"),
         ("intval", "int"),
         ("floatval", "float"),
+        ("doubleval", "float"),
         ("boolval", "bool"),
+        ("settype", "various"),
     ];
 
     for (func, cast_type) in casts {
         if body.contains(&format!("'{}'", func)) || body.contains(&format!("\"{}\"", func)) {
-            if body.contains("Cast") || body.contains(&format!("({})", cast_type)) {
+            if body.contains("Cast")
+                || body.contains(&format!("({})", cast_type))
+                || body.contains("String_")
+                || body.contains("Int_")
+                || body.contains("Double")
+                || body.contains("Bool_")
+            {
                 return Some(RulePattern::FunctionToCast {
                     func: func.to_string(),
                     cast_type: cast_type.to_string(),
@@ -224,6 +284,90 @@ fn detect_ternary_to_coalesce(body: &str) -> Option<RulePattern> {
                     condition_func: "empty".to_string(),
                 });
             }
+        }
+    }
+    None
+}
+
+/// Detect function to ::class constant: get_class($x) -> $x::class
+fn detect_function_to_class_constant(body: &str) -> Option<RulePattern> {
+    // Pattern: isName('get_class') and creates ClassConstFetch with 'class'
+    if body.contains("get_class") || body.contains("'get_class'") {
+        if body.contains("ClassConstFetch") || body.contains("::class") {
+            return Some(RulePattern::FunctionToClassConstant {
+                func: "get_class".to_string(),
+            });
+        }
+    }
+    None
+}
+
+/// Detect function to instanceof: is_a($x, Class::class) -> $x instanceof Class
+fn detect_function_to_instanceof(body: &str) -> Option<RulePattern> {
+    // Pattern: isName('is_a') and creates Instanceof node
+    if body.contains("'is_a'") || body.contains("\"is_a\"") {
+        if body.contains("Instanceof") {
+            return Some(RulePattern::FunctionToInstanceof {
+                func: "is_a".to_string(),
+            });
+        }
+    }
+    None
+}
+
+/// Detect unwrap single-arg function: sprintf($x) -> $x
+fn detect_unwrap_single_arg_function(body: &str) -> Option<RulePattern> {
+    // Pattern: returns the first argument directly (unwraps the function)
+    // Common patterns: sprintf with 1 arg, trim with 1 arg, etc.
+    let unwrap_funcs = [
+        ("sprintf", "getArgs", "count($node->args) === 1"),
+        ("trim", "args", "count"),
+        ("addslashes", "args", "count"),
+        ("stripslashes", "args", "count"),
+    ];
+
+    for (func, _, count_check) in unwrap_funcs {
+        let has_func =
+            body.contains(&format!("'{}'", func)) || body.contains(&format!("\"{}\"", func));
+        let has_single_arg = body.contains("getArgs()[0]")
+            || body.contains("args[0]")
+            || body.contains(count_check);
+        let returns_arg = body.contains("return $node->args[0]")
+            || body.contains("return $node->getArgs()[0]")
+            || body.contains("->value");
+
+        if has_func && has_single_arg && returns_arg {
+            return Some(RulePattern::UnwrapSingleArgFunction {
+                func: func.to_string(),
+            });
+        }
+    }
+    None
+}
+
+/// Detect function no args to another function: mktime() -> time()
+fn detect_function_no_args_to_function(body: &str) -> Option<RulePattern> {
+    // Pattern: check for no args, rename to different function
+    let conversions = [
+        ("mktime", "time"),
+        ("gmmktime", "time"),
+        ("restore_include_path", "ini_restore"),
+    ];
+
+    for (from, to) in conversions {
+        let has_from =
+            body.contains(&format!("'{}'", from)) || body.contains(&format!("\"{}\"", from));
+        let has_to = body.contains(&format!("'{}'", to)) || body.contains(&format!("\"{}\"", to));
+        let checks_no_args = body.contains("args") && body.contains("count")
+            || body.contains("getArgs()")
+            || body.contains("args === []")
+            || body.contains("args === null");
+
+        if has_from && has_to && checks_no_args {
+            return Some(RulePattern::FunctionNoArgsToFunction {
+                from: from.to_string(),
+                to: to.to_string(),
+            });
         }
     }
     None
@@ -323,5 +467,85 @@ mod tests {
             pattern,
             RulePattern::FunctionAlias { from, to } if from == "sizeof" && to == "count"
         ));
+    }
+
+    #[test]
+    fn test_detect_function_to_class_constant() {
+        let body = r#"
+            if (!$this->isName($node, 'get_class')) {
+                return null;
+            }
+            return new ClassConstFetch($arg, new Identifier('class'));
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(
+            pattern,
+            RulePattern::FunctionToClassConstant { func } if func == "get_class"
+        ));
+    }
+
+    #[test]
+    fn test_detect_function_to_instanceof() {
+        let body = r#"
+            if (!$this->isName($node, 'is_a')) {
+                return null;
+            }
+            return new Instanceof($firstArg, $secondArg);
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(
+            pattern,
+            RulePattern::FunctionToInstanceof { func } if func == "is_a"
+        ));
+    }
+
+    #[test]
+    fn test_detect_function_no_args_to_function() {
+        let body = r#"
+            if (!$this->isName($node, 'mktime')) {
+                return null;
+            }
+            if (count($node->args) !== 0) {
+                return null;
+            }
+            return new FuncCall(new Name('time'));
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(
+            pattern,
+            RulePattern::FunctionNoArgsToFunction { from, to } if from == "mktime" && to == "time"
+        ));
+    }
+
+    #[test]
+    fn test_detect_closure_to_arrow() {
+        let body = r#"
+            return new ArrowFunction([
+                'params' => $node->params,
+                'expr' => $expr,
+            ]);
+        "#;
+        let pattern = detect_pattern(body, &["Closure".to_string()]);
+        assert!(matches!(pattern, RulePattern::ClosureToArrow));
+    }
+
+    #[test]
+    fn test_detect_first_class_callable() {
+        let body = r#"
+            if ($this->isName($node->class, 'Closure') && $this->isName($node->name, 'fromCallable')) {
+                return new FirstClassCallable();
+            }
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(pattern, RulePattern::FirstClassCallable));
+    }
+
+    #[test]
+    fn test_detect_nullsafe_method_call() {
+        let body = r#"
+            return new NullsafeMethodCall($var, $node->name, $node->args);
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(pattern, RulePattern::NullsafeMethodCall));
     }
 }

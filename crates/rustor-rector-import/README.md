@@ -7,7 +7,7 @@ This crate analyzes Rector PHP rule files and automatically generates equivalent
 ## Features
 
 - **PHP File Parser** - Regex-based extraction of rule metadata from Rector PHP files
-- **Pattern Detection** - Recognizes 8 common rule patterns for automatic code generation
+- **Pattern Detection** - Recognizes 15 rule patterns for automatic code generation
 - **Code Generation** - Generates complete Rust rule implementations with tests
 - **Compatibility Reports** - Terminal, Markdown, and JSON reports
 - **CLI Tool** - Full-featured command-line interface
@@ -104,9 +104,16 @@ The following patterns can be automatically converted to Rust rules:
 | `FunctionToComparison` | Function to comparison | `is_null($x)` → `$x === null` |
 | `FunctionToCast` | Function to type cast | `strval($x)` → `(string) $x` |
 | `FunctionToOperator` | Function to operator | `pow($x, 2)` → `$x ** 2` |
+| `FunctionToClassConstant` | Function to ::class | `get_class($x)` → `$x::class` |
+| `FunctionToInstanceof` | Function to instanceof | `is_a($x, Foo::class)` → `$x instanceof Foo` |
+| `UnwrapSingleArgFunction` | Remove wrapper function | `sprintf($x)` → `$x` |
+| `FunctionNoArgsToFunction` | Replace no-arg function | `mktime()` → `time()` |
 | `TernaryToCoalesce` | Ternary to null coalesce | `isset($x) ? $x : $d` → `$x ?? $d` |
 | `ArraySyntaxModern` | Legacy array to short syntax | `array()` → `[]` |
 | `ClosureToArrow` | Closure to arrow function | `function($x) { return $x; }` → `fn($x) => $x` |
+| `NullsafeMethodCall` | Nullsafe operator | `$x ? $x->y() : null` → `$x?->y()` |
+| `FirstClassCallable` | First-class callable | `Closure::fromCallable(...)` → `$obj->method(...)` |
+| `FunctionRemoveFirstArg` | Remove first argument | `implode(',', $arr)` → `implode($arr)` |
 
 ## Generated Code Structure
 
@@ -183,8 +190,8 @@ Tested against Rector repository (rector-src):
 | Metric | Count |
 |--------|-------|
 | Total rules analyzed | 468 |
-| Auto-generatable | 20 (4.3%) |
-| Complex patterns | 157 |
+| Auto-generatable | 24 (5.1%) |
+| Complex patterns | 153 |
 | Unknown patterns | 291 |
 | Parse failures | 0 |
 
