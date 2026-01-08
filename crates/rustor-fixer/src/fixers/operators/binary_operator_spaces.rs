@@ -27,166 +27,169 @@ impl Fixer for BinaryOperatorSpacesFixer {
     fn check(&self, source: &str, _config: &FixerConfig) -> Vec<Edit> {
         let mut edits = Vec::new();
 
-        // Binary operators that need spaces
-        let operators = [
-            // Assignment
-            ("=", "="),
-            ("+=", "\\+="),
-            ("-=", "-="),
-            ("*=", "\\*="),
-            ("/=", "/="),
-            ("%=", "%="),
-            (".=", "\\.="),
-            ("??=", "\\?\\?="),
-            // Comparison
-            ("==", "=="),
-            ("===", "==="),
-            ("!=", "!="),
-            ("!==", "!=="),
-            ("<>", "<>"),
-            ("<", "<"),
-            (">", ">"),
-            ("<=", "<="),
-            (">=", ">="),
-            ("<=>", "<=>"),
-            // Logical
-            ("&&", "&&"),
-            ("||", "\\|\\|"),
-            ("??", "\\?\\?"),
-            // Arithmetic (be careful with negative numbers)
-            ("+", "\\+"),
-            ("-", "-"),
-            ("*", "\\*"),
-            ("/", "/"),
-            ("%", "%"),
-            ("**", "\\*\\*"),
-            // Bitwise
-            ("&", "&"),
-            ("|", "\\|"),
-            ("^", "\\^"),
-            ("<<", "<<"),
-            (">>", ">>"),
-        ];
+        // Process character by character to find standalone = that need spacing
+        let chars: Vec<char> = source.chars().collect();
+        let len = chars.len();
+        let mut i = 0;
 
-        for (op, pattern) in &operators {
-            // Skip single character operators for now - too many edge cases
-            if op.len() == 1 && !["="].contains(op) {
+        while i < len {
+            // Calculate byte position for this character
+            let byte_pos: usize = chars[..i].iter().map(|c| c.len_utf8()).sum();
+
+            // Skip strings and comments
+            if is_in_string_or_comment(&source[..byte_pos]) {
+                i += 1;
                 continue;
             }
 
-            // Pattern: operator without proper spacing
-            // Match operator with missing space before or after
-            let first_char_escaped = regex::escape(&op[..1]);
-            let re_str = format!(
-                r"([^\s{first}]){pat}|{pat}([^\s=])",
-                first = first_char_escaped,
-                pat = pattern,
-            );
-
-            if let Ok(re) = Regex::new(&re_str) {
-                for mat in re.find_iter(source) {
-                    // Skip if in string/comment
-                    if is_in_string_or_comment(&source[..mat.start()]) {
-                        continue;
-                    }
-
-                    // Check for specific edge cases
-                    let context_start = mat.start().saturating_sub(3);
-                    let context = &source[context_start..mat.end().min(source.len())];
-
-                    // Skip if part of arrow function =>
-                    if context.contains("=>") && *op == "=" {
-                        continue;
-                    }
-
-                    // Skip negative numbers
-                    if *op == "-" {
-                        let before = &source[..mat.start()];
-                        if before.trim_end().ends_with(&['=', '(', ',', '[', ':', '?'][..]) {
-                            continue;
-                        }
-                    }
-
-                    // Skip type hints (e.g., ?string)
-                    if (*op == "?" || op.starts_with('?')) && context.contains("?") {
-                        let after_pos = mat.end();
-                        if after_pos < source.len() {
-                            let after_char = source[after_pos..].chars().next();
-                            if after_char.map(|c| c.is_alphabetic()).unwrap_or(false) {
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Focus on the most important: assignment operator
-        // Match = that doesn't have space on both sides
-        let assign_re = Regex::new(r"[^\s=!<>+\-*/%&|^.?]=|=[^\s=>]").unwrap();
-
-        for mat in assign_re.find_iter(source) {
-            if is_in_string_or_comment(&source[..mat.start()]) {
+            // Skip = inside declare() statements - they shouldn't have spaces per PSR-12
+            if chars[i] == '=' && is_in_declare(&source[..byte_pos]) {
+                i += 1;
                 continue;
             }
 
-            let matched = mat.as_str();
+            if chars[i] == '=' {
+                // Check what's before and after to determine the operator type
+                let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+                let next = if i + 1 < len { Some(chars[i + 1]) } else { None };
+                let _next2 = if i + 2 < len { Some(chars[i + 2]) } else { None };
 
-            // Skip ==, ===, !=, !==, <=, >=, <>, =>, +=, -=, etc.
-            if matched.contains("==") || matched.contains("=>") || matched.contains("!=")
-                || matched.contains("<=") || matched.contains(">=") || matched.contains("<>")
-                || matched.ends_with("+=") || matched.ends_with("-=")
-                || matched.ends_with("*=") || matched.ends_with("/=")
-                || matched.ends_with(".=") || matched.ends_with("%=")
-                || matched.ends_with("&=") || matched.ends_with("|=")
-                || matched.ends_with("^=") || matched.ends_with("??=")
-            {
-                continue;
-            }
-
-            // Find the actual = position
-            let eq_pos = matched.find('=').unwrap();
-            let abs_pos = mat.start() + eq_pos;
-
-            // Get surrounding context
-            let before_char = if abs_pos > 0 {
-                source[..abs_pos].chars().last()
-            } else {
-                None
-            };
-            let after_char = if abs_pos + 1 < source.len() {
-                source[abs_pos + 1..].chars().next()
-            } else {
-                None
-            };
-
-            let needs_space_before = before_char.map(|c| c != ' ' && c != '\t').unwrap_or(false);
-            let needs_space_after = after_char.map(|c| c != ' ' && c != '\t' && c != '=').unwrap_or(false);
-
-            if needs_space_before || needs_space_after {
-                let start = if needs_space_before { abs_pos } else { abs_pos };
-                let end = if needs_space_after { abs_pos + 1 } else { abs_pos + 1 };
-
-                let replacement = if needs_space_before && needs_space_after {
-                    " = ".to_string()
-                } else if needs_space_before {
-                    " =".to_string()
-                } else {
-                    "= ".to_string()
+                // Skip compound operators: ===, ==, !==, !=, <=, >=, <>, =>, +=, -=, *=, /=, .=, %=, &=, |=, ^=, ??=
+                let is_compound = match (prev, next) {
+                    // === or ==
+                    (Some('='), _) => true,
+                    (_, Some('=')) => true,
+                    // !==, !=
+                    (Some('!'), _) => true,
+                    // <=, >=, <>
+                    (Some('<'), _) => true,
+                    (Some('>'), _) => true,
+                    // =>
+                    (_, Some('>')) => true,
+                    // +=, -=, *=, /=, .=, %=, &=, |=, ^=
+                    (Some('+'), _) => true,
+                    (Some('-'), _) => true,
+                    (Some('*'), _) => true,
+                    (Some('/'), _) => true,
+                    (Some('.'), _) => true,
+                    (Some('%'), _) => true,
+                    (Some('&'), _) => true,
+                    (Some('|'), _) => true,
+                    (Some('^'), _) => true,
+                    // ??=
+                    (Some('?'), _) => true,
+                    _ => false,
                 };
 
-                edits.push(edit_with_rule(
-                    start,
-                    end,
-                    replacement,
-                    "Add space around assignment operator".to_string(),
-                    "binary_operator_spaces",
-                ));
+                if is_compound {
+                    i += 1;
+                    continue;
+                }
+
+                // This is a standalone = (assignment)
+                // Check if it needs spacing
+                let needs_space_before = prev.map(|c| !c.is_whitespace()).unwrap_or(false);
+                let needs_space_after = next.map(|c| !c.is_whitespace() && c != '=' && c != '>').unwrap_or(false);
+
+                if needs_space_before || needs_space_after {
+                    let replacement = if needs_space_before && needs_space_after {
+                        " = ".to_string()
+                    } else if needs_space_before {
+                        " =".to_string()
+                    } else {
+                        "= ".to_string()
+                    };
+
+                    // Calculate byte position
+                    let byte_pos: usize = chars[..i].iter().map(|c| c.len_utf8()).sum();
+
+                    edits.push(edit_with_rule(
+                        byte_pos,
+                        byte_pos + 1,
+                        replacement,
+                        "Add space around assignment operator".to_string(),
+                        "binary_operator_spaces",
+                    ));
+                }
             }
+
+            i += 1;
+        }
+
+        // Handle && and || operators
+        let mut i = 0;
+        while i < len.saturating_sub(1) {
+            let byte_pos: usize = chars[..i].iter().map(|c| c.len_utf8()).sum();
+
+            // Skip strings and comments
+            if is_in_string_or_comment(&source[..byte_pos]) {
+                i += 1;
+                continue;
+            }
+
+            let curr = chars[i];
+            let next = chars[i + 1];
+
+            // Check for && or ||
+            if (curr == '&' && next == '&') || (curr == '|' && next == '|') {
+                let op = if curr == '&' { "&&" } else { "||" };
+                let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+                let after = if i + 2 < len { Some(chars[i + 2]) } else { None };
+
+                let needs_space_before = prev.map(|c| !c.is_whitespace()).unwrap_or(false);
+                let needs_space_after = after.map(|c| !c.is_whitespace()).unwrap_or(false);
+
+                if needs_space_before || needs_space_after {
+                    let replacement = if needs_space_before && needs_space_after {
+                        format!(" {} ", op)
+                    } else if needs_space_before {
+                        format!(" {}", op)
+                    } else {
+                        format!("{} ", op)
+                    };
+
+                    edits.push(edit_with_rule(
+                        byte_pos,
+                        byte_pos + 2,
+                        replacement,
+                        format!("Add space around {} operator", op),
+                        "binary_operator_spaces",
+                    ));
+
+                    i += 2; // Skip both characters
+                    continue;
+                }
+            }
+
+            i += 1;
         }
 
         edits
     }
+}
+
+/// Check if we're inside a declare() statement (between 'declare(' and ')')
+fn is_in_declare(before: &str) -> bool {
+    // Look for the last declare( and check if we've seen the closing )
+    let lower = before.to_lowercase();
+    if let Some(declare_pos) = lower.rfind("declare(") {
+        let after_declare = &before[declare_pos..];
+        // Count parentheses to handle nested expressions
+        let mut depth = 0;
+        for c in after_declare.chars() {
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    return false; // We've closed the declare()
+                }
+            }
+        }
+        // Still inside declare() if depth > 0
+        return depth > 0;
+    }
+    false
 }
 
 fn is_in_string_or_comment(before: &str) -> bool {
@@ -287,5 +290,74 @@ mod tests {
         let edits = check("<?php\n$a = 'b=c';\n");
         // Should only check code, not string content
         assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_skip_declare_statement() {
+        // PSR-12 says no spaces in declare statements
+        let edits = check("<?php\ndeclare(strict_types=1);\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_triple_equals_unchanged() {
+        let edits = check("<?php\nif ($a === $b) { }\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_not_equals_unchanged() {
+        let edits = check("<?php\nif ($a !== $b) { }\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_arrow_unchanged() {
+        let edits = check("<?php\nforeach ($arr as $k => $v) { }\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_and_operator_no_space() {
+        let source = "<?php\n$a&&$b;\n";
+        let edits = check(source);
+        assert!(!edits.is_empty());
+        assert!(edits[0].replacement.contains(" && "));
+    }
+
+    #[test]
+    fn test_or_operator_no_space() {
+        let source = "<?php\n$a||$b;\n";
+        let edits = check(source);
+        assert!(!edits.is_empty());
+        assert!(edits[0].replacement.contains(" || "));
+    }
+
+    #[test]
+    fn test_and_operator_correct() {
+        let edits = check("<?php\n$a && $b;\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_or_operator_correct() {
+        let edits = check("<?php\n$a || $b;\n");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_and_operator_space_after_only() {
+        let source = "<?php\n$a&& $b;\n";
+        let edits = check(source);
+        assert!(!edits.is_empty());
+        assert_eq!(edits[0].replacement, " &&");
+    }
+
+    #[test]
+    fn test_and_operator_space_before_only() {
+        let source = "<?php\n$a &&$b;\n";
+        let edits = check(source);
+        assert!(!edits.is_empty());
+        assert_eq!(edits[0].replacement, "&& ");
     }
 }

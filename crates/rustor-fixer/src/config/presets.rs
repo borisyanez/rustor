@@ -6,6 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
     Psr12,
+    PerCs,
     Symfony,
     PhpCsFixer,
 }
@@ -14,6 +15,7 @@ impl Preset {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "psr12" | "psr-12" | "@psr12" | "@psr-12" => Some(Preset::Psr12),
+            "per" | "per-cs" | "percs" | "@per" | "@per-cs" => Some(Preset::PerCs),
             "symfony" | "@symfony" => Some(Preset::Symfony),
             "phpcsfixer" | "php_cs_fixer" | "@phpcsfixer" => Some(Preset::PhpCsFixer),
             _ => None,
@@ -25,6 +27,7 @@ impl Preset {
 pub fn get_preset_rules(preset_name: &str) -> &'static [&'static str] {
     match preset_name.to_uppercase().replace("-", "").as_str() {
         "PSR12" | "@PSR12" => PSR12_RULES,
+        "PER" | "PERCS" | "@PER" | "@PERCS" => PERCS_RULES,
         "SYMFONY" | "@SYMFONY" => SYMFONY_RULES,
         "PHPCSFIXER" | "@PHPCSFIXER" => PHPCSFIXER_RULES,
         _ => &[],
@@ -70,6 +73,7 @@ pub const PSR12_RULES: &[&str] = &[
     "elseif",
     "no_alternative_syntax",
     "no_unneeded_braces",
+    "single_space_around_construct",
     "switch_case_semicolon_to_colon",
     "switch_case_space",
 
@@ -93,6 +97,64 @@ pub const PSR12_RULES: &[&str] = &[
     // Comments
     "no_trailing_whitespace_in_comment",
     "single_line_comment_style",
+];
+
+/// PER-CS preset rules (PHP Evolved Recommendations - extends PSR-12)
+/// PER-CS 2.0 is the modern evolution of PSR-12
+pub const PERCS_RULES: &[&str] = &[
+    // All PSR-12 rules
+    "encoding",
+    "full_opening_tag",
+    "blank_line_after_opening_tag",
+    "no_closing_tag",
+    "indentation_type",
+    "line_ending",
+    "no_trailing_whitespace",
+    "no_whitespace_in_blank_line",
+    "single_blank_line_at_end_of_file",
+    "constant_case",
+    "lowercase_keywords",
+    "lowercase_static_reference",
+    "blank_line_after_namespace",
+    "no_leading_import_slash",
+    "ordered_imports",
+    "single_import_per_statement",
+    "single_line_after_imports",
+    "braces_position",
+    "class_definition",
+    "no_blank_lines_after_class_opening",
+    "single_class_element_per_statement",
+    "single_trait_insert_per_statement",
+    "visibility_required",
+    "control_structure_braces",
+    "control_structure_continuation_position",
+    "elseif",
+    "no_alternative_syntax",
+    "no_unneeded_braces",
+    "switch_case_semicolon_to_colon",
+    "switch_case_space",
+    "compact_nullable_type_declaration",
+    "declare_equal_normalize",
+    "function_declaration",
+    "method_argument_space",
+    "no_spaces_after_function_name",
+    "return_type_declaration",
+    "binary_operator_spaces",
+    "concat_space",
+    "new_with_parentheses",
+    "no_space_around_double_colon",
+    "object_operator_without_whitespace",
+    "ternary_operator_spaces",
+    "unary_operator_spaces",
+    "no_trailing_whitespace_in_comment",
+    "single_line_comment_style",
+
+    // PER-CS 2.0 additions (modern PHP features)
+    "native_function_casing",
+    "magic_method_casing",
+    "magic_constant_casing",
+    "ordered_class_elements",
+    "method_chaining_indentation",
 ];
 
 /// Symfony preset rules (extends PSR-12)
@@ -274,6 +336,9 @@ mod tests {
         assert_eq!(Preset::from_str("psr12"), Some(Preset::Psr12));
         assert_eq!(Preset::from_str("PSR-12"), Some(Preset::Psr12));
         assert_eq!(Preset::from_str("@PSR12"), Some(Preset::Psr12));
+        assert_eq!(Preset::from_str("per"), Some(Preset::PerCs));
+        assert_eq!(Preset::from_str("per-cs"), Some(Preset::PerCs));
+        assert_eq!(Preset::from_str("@per-cs"), Some(Preset::PerCs));
         assert_eq!(Preset::from_str("symfony"), Some(Preset::Symfony));
         assert_eq!(Preset::from_str("unknown"), None);
     }
@@ -284,6 +349,11 @@ mod tests {
         assert!(psr12.contains(&"indentation_type"));
         assert!(psr12.contains(&"line_ending"));
         assert!(psr12.contains(&"no_trailing_whitespace"));
+
+        let percs = get_preset_rules("PERCS");
+        assert!(percs.contains(&"native_function_casing"));
+        assert!(percs.contains(&"magic_method_casing"));
+        assert!(percs.contains(&"ordered_class_elements"));
     }
 
     #[test]

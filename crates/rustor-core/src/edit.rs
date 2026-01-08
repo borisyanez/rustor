@@ -222,7 +222,12 @@ pub fn apply_edit_groups(source: &str, groups: &[EditGroup]) -> Result<String, E
 
 /// Attempt to preserve whitespace patterns from original code
 fn adjust_whitespace(original: &str, replacement: &str) -> String {
-    // Simple heuristic: preserve leading whitespace
+    // Don't adjust if original is purely whitespace - these are intentional whitespace edits
+    if original.chars().all(|c| c.is_whitespace()) {
+        return replacement.to_string();
+    }
+
+    // Simple heuristic: preserve leading whitespace for non-whitespace original content
     let leading_ws: String = original
         .chars()
         .take_while(|c| c.is_whitespace())

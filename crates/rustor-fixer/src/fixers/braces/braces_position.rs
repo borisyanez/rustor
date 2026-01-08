@@ -136,7 +136,7 @@ impl Fixer for BracesPositionFixer {
                 edits.push(edit_with_rule(
                     full_match.start(),
                     full_match.end(),
-                    format!("{}{}{{{}", signature, line_ending, indent),
+                    format!("{}{}{}{{", signature, line_ending, indent),
                     "Opening brace for function on next line".to_string(),
                     "braces_position",
                 ));
@@ -174,7 +174,7 @@ impl Fixer for BracesPositionFixer {
                 edits.push(edit_with_rule(
                     full_match.start(),
                     full_match.end(),
-                    format!("{}{}{{{}", signature, line_ending, indent),
+                    format!("{}{}{}{{", signature, line_ending, indent),
                     "Opening brace for class on next line".to_string(),
                     "braces_position",
                 ));
