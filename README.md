@@ -71,6 +71,7 @@ $power = $base ** $exp;
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
 - **[Configuration](docs/configuration.md)** - `.rustor.toml` file format
 - **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
+- **[Rector Import](docs/rector-import.md)** - Import rules from Rector PHP
 - **[Development Guide](docs/development.md)** - Architecture and contributing
 
 ## Rule Presets
@@ -159,6 +160,23 @@ backup_dir = ".rustor-backups"
 ```
 
 See [Configuration](docs/configuration.md) for full details.
+
+## Importing Rules from Rector
+
+Rustor includes a tool to import refactoring rules from [Rector](https://github.com/rectorphp/rector):
+
+```bash
+# Clone Rector source
+git clone --depth 1 https://github.com/rectorphp/rector-src.git /tmp/rector
+
+# Generate compatibility report
+rustor-import-rector report -r /tmp/rector
+
+# Generate Rust rules
+rustor-import-rector generate -r /tmp/rector -o ./imported/ --auto-only
+```
+
+Supports 8 pattern types including function renames, type casts, and operator conversions. See [Rector Import](docs/rector-import.md) for full documentation.
 
 ## Performance
 

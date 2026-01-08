@@ -4,7 +4,7 @@ This guide covers rustor's architecture, how to add new rules, and contribution 
 
 ## Architecture Overview
 
-Rustor is organized as a Cargo workspace with three crates:
+Rustor is organized as a Cargo workspace with four crates:
 
 ```
 rustor/
@@ -12,7 +12,8 @@ rustor/
 ├── crates/
 │   ├── rustor-core/        # Core types: Edit, apply_edits, Visitor
 │   ├── rustor-rules/       # All 23 refactoring rules
-│   └── rustor-cli/         # CLI application
+│   ├── rustor-cli/         # CLI application
+│   └── rustor-rector-import/ # Import rules from Rector PHP
 └── docs/                   # Documentation
 ```
 
@@ -23,6 +24,9 @@ rustor-cli
     ├── rustor-rules
     │   └── rustor-core
     └── rustor-core
+
+rustor-rector-import (standalone tool)
+    └── (no internal dependencies)
 ```
 
 ---
@@ -294,6 +298,33 @@ crates/rustor-cli/
     └── lsp.rs           # LSP server
 ```
 
+### rustor-rector-import
+
+Tool for importing rules from Rector PHP:
+
+```
+crates/rustor-rector-import/
+├── Cargo.toml
+└── src/
+    ├── lib.rs              # Core types (RectorRule, RulePattern)
+    ├── main.rs             # CLI entry point
+    ├── php_parser.rs       # Regex-based PHP file parser
+    ├── rule_extractor.rs   # Extracts rules from PHP files
+    ├── pattern_detector.rs # Detects rule patterns from refactor() body
+    ├── ast_mapper.rs       # Maps PHP-Parser AST to mago-syntax
+    ├── codegen.rs          # Generates Rust code from templates
+    ├── templates.rs        # Handlebars templates for code generation
+    └── report.rs           # Report generation (terminal, markdown, JSON)
+```
+
+Key exports:
+- `RectorRule` - Metadata for a Rector rule
+- `RulePattern` - Detected pattern type (FunctionRename, FunctionAlias, etc.)
+- `ImportResult` - Result of importing rules from a repository
+- `CodeGenerator` - Generates Rust code from rules
+
+See [Rector Import](rector-import.md) for usage documentation.
+
 ---
 
 ## Testing
@@ -529,4 +560,5 @@ Include:
 
 - [Rules Reference](rules.md) - Existing rule implementations
 - [CLI Reference](cli.md) - Command-line options
+- [Rector Import](rector-import.md) - Import rules from Rector PHP
 - [mago-syntax documentation](https://docs.rs/mago-syntax) - PHP parser
