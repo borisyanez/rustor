@@ -22,12 +22,18 @@ use super::casing::{
     LowercaseKeywordsFixer,
     ConstantCaseFixer,
     LowercaseStaticReferenceFixer,
+    NativeFunctionCasingFixer,
+    MagicMethodCasingFixer,
+    MagicConstantCasingFixer,
 };
 use super::braces::{
     ElseifFixer,
     NoClosingTagFixer,
     SwitchCaseSpaceFixer,
     BracesPositionFixer,
+    SwitchCaseSemicolonToColonFixer,
+    DeclareEqualNormalizeFixer,
+    ControlStructureBracesFixer,
 };
 use super::functions::{
     FunctionDeclarationFixer,
@@ -38,6 +44,7 @@ use super::operators::{
     ConcatSpaceFixer,
     BinaryOperatorSpacesFixer,
     UnaryOperatorSpacesFixer,
+    MethodChainingIndentationFixer,
 };
 use super::imports::{
     BlankLineAfterNamespaceFixer,
@@ -56,6 +63,9 @@ use super::class::{
     VisibilityRequiredFixer,
     NoBlankLinesAfterClassOpeningFixer,
     ClassDefinitionFixer,
+    SingleClassElementPerStatementFixer,
+    SingleTraitInsertPerStatementFixer,
+    OrderedClassElementsFixer,
 };
 
 /// Information about a registered fixer
@@ -98,12 +108,18 @@ impl FixerRegistry {
         registry.register(Arc::new(LowercaseKeywordsFixer));
         registry.register(Arc::new(ConstantCaseFixer));
         registry.register(Arc::new(LowercaseStaticReferenceFixer));
+        registry.register(Arc::new(NativeFunctionCasingFixer));
+        registry.register(Arc::new(MagicMethodCasingFixer));
+        registry.register(Arc::new(MagicConstantCasingFixer));
 
         // Register braces/control structure fixers
         registry.register(Arc::new(NoClosingTagFixer));
         registry.register(Arc::new(ElseifFixer));
         registry.register(Arc::new(SwitchCaseSpaceFixer));
         registry.register(Arc::new(BracesPositionFixer));
+        registry.register(Arc::new(SwitchCaseSemicolonToColonFixer));
+        registry.register(Arc::new(DeclareEqualNormalizeFixer));
+        registry.register(Arc::new(ControlStructureBracesFixer));
 
         // Register function fixers
         registry.register(Arc::new(FunctionDeclarationFixer));
@@ -114,6 +130,7 @@ impl FixerRegistry {
         registry.register(Arc::new(ConcatSpaceFixer));
         registry.register(Arc::new(BinaryOperatorSpacesFixer));
         registry.register(Arc::new(UnaryOperatorSpacesFixer));
+        registry.register(Arc::new(MethodChainingIndentationFixer));
 
         // Register import/namespace fixers
         registry.register(Arc::new(BlankLineAfterNamespaceFixer));
@@ -132,6 +149,9 @@ impl FixerRegistry {
         registry.register(Arc::new(VisibilityRequiredFixer));
         registry.register(Arc::new(NoBlankLinesAfterClassOpeningFixer));
         registry.register(Arc::new(ClassDefinitionFixer));
+        registry.register(Arc::new(SingleClassElementPerStatementFixer));
+        registry.register(Arc::new(SingleTraitInsertPerStatementFixer));
+        registry.register(Arc::new(OrderedClassElementsFixer));
 
         // Sort by priority (descending - higher priority runs first)
         registry.fixers.sort_by(|a, b| b.priority().cmp(&a.priority()));
