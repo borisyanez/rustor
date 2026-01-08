@@ -1,6 +1,6 @@
 # Fixers Reference
 
-Rustor includes 43 PHP-CS-Fixer compatible fixers for code formatting. These fixers enforce PSR-12 coding standards and can be run separately from refactoring rules.
+Rustor includes 55 PHP-CS-Fixer compatible fixers for code formatting. These fixers enforce PSR-12 coding standards and can be run separately from refactoring rules.
 
 ## Quick Start
 
@@ -453,6 +453,62 @@ process($item);
 }
 ```
 
+### control_structure_continuation_position
+
+Ensures `} else {`, `} catch {`, etc. are on the same line as the closing brace.
+
+**PHP-CS-Fixer name:** `control_structure_continuation_position`
+**Priority:** 35
+
+```php
+// Before
+if ($a) {
+}
+else {
+}
+
+// After
+if ($a) {
+} else {
+}
+```
+
+### no_alternative_syntax
+
+Replaces alternative syntax (if/endif, foreach/endforeach) with braces.
+
+**PHP-CS-Fixer name:** `no_alternative_syntax`
+**Priority:** 30
+
+```php
+// Before
+if ($a):
+    echo 1;
+endif;
+
+// After
+if ($a) {
+    echo 1;
+}
+```
+
+### no_unneeded_braces
+
+Removes unnecessary curly braces.
+
+**PHP-CS-Fixer name:** `no_unneeded_braces`
+**Priority:** 30
+
+```php
+// Before
+$a = 1; { }
+switch ($x) { case 1: { break; } }
+
+// After
+$a = 1;
+switch ($x) { case 1: break; }
+```
+
 ---
 
 ## Function Fixers
@@ -508,6 +564,40 @@ function foo(): int {}
 function bar(): int {}
 ```
 
+### compact_nullable_type_declaration
+
+Removes whitespace after `?` in nullable type declarations.
+
+**PHP-CS-Fixer name:** `compact_nullable_type_declaration`
+**Priority:** 30
+
+```php
+// Before
+function foo(): ? int {}
+function bar(? string $x) {}
+
+// After
+function foo(): ?int {}
+function bar(?string $x) {}
+```
+
+### no_spaces_after_function_name
+
+Removes whitespace between function name and opening parenthesis.
+
+**PHP-CS-Fixer name:** `no_spaces_after_function_name`
+**Priority:** 30
+
+```php
+// Before
+foo ();
+$obj->bar ();
+
+// After
+foo();
+$obj->bar();
+```
+
 ---
 
 ## Operator Fixers
@@ -559,6 +649,74 @@ $b = - 5;
 // After
 if (!$a) {}
 $b = -5;
+```
+
+### new_with_parentheses
+
+Ensures `new Foo` is written as `new Foo()`.
+
+**PHP-CS-Fixer name:** `new_with_parentheses`
+**Priority:** 20
+
+```php
+// Before
+$a = new Foo;
+$b = new App\Model;
+
+// After
+$a = new Foo();
+$b = new App\Model();
+```
+
+### no_space_around_double_colon
+
+Removes whitespace around the `::` operator.
+
+**PHP-CS-Fixer name:** `no_space_around_double_colon`
+**Priority:** 20
+
+```php
+// Before
+Foo :: bar();
+self :: CONST;
+
+// After
+Foo::bar();
+self::CONST;
+```
+
+### object_operator_without_whitespace
+
+Removes whitespace around the `->` and `?->` operators.
+
+**PHP-CS-Fixer name:** `object_operator_without_whitespace`
+**Priority:** 20
+
+```php
+// Before
+$obj -> method();
+$obj ?-> prop;
+
+// After
+$obj->method();
+$obj?->prop;
+```
+
+### ternary_operator_spaces
+
+Ensures proper spacing around ternary operator `?` and `:`.
+
+**PHP-CS-Fixer name:** `ternary_operator_spaces`
+**Priority:** 20
+
+```php
+// Before
+$a = $b?$c : $d;
+$a = ($x)?1 : 0;
+
+// After
+$a = $b ? $c : $d;
+$a = ($x) ? 1 : 0;
 ```
 
 ### method_chaining_indentation
@@ -931,17 +1089,92 @@ Some fixers are marked as "risky" because they may change code behavior:
 | Fixer | Risk |
 |-------|------|
 | `no_unused_imports` | May remove imports used only in docblocks or strings |
+| `strict_comparison` | Converts `==` to `===`, may break type-coercion logic |
+| `declare_strict_types` | Adds `declare(strict_types=1)`, may cause TypeError |
+| `no_alias_functions` | Replaces deprecated aliases, some may have subtle differences |
+
+### strict_comparison
+
+Converts loose comparisons to strict comparisons.
+
+**PHP-CS-Fixer name:** `strict_comparison`
+**Priority:** 5
+**Risky:** Yes - May break code that relies on PHP's type juggling
+
+```php
+// Before
+if ($a == $b) {}
+if ($x != $y) {}
+
+// After
+if ($a === $b) {}
+if ($x !== $y) {}
+```
+
+### declare_strict_types
+
+Adds `declare(strict_types=1)` at the beginning of PHP files.
+
+**PHP-CS-Fixer name:** `declare_strict_types`
+**Priority:** 5
+**Risky:** Yes - May cause TypeError exceptions in loosely typed code
+
+```php
+// Before
+<?php
+namespace App;
+
+// After
+<?php
+declare(strict_types=1);
+
+namespace App;
+```
+
+### no_alias_functions
+
+Replaces deprecated function aliases with their canonical names.
+
+**PHP-CS-Fixer name:** `no_alias_functions`
+**Priority:** 5
+**Risky:** Yes - Some aliases may have subtle behavioral differences
+
+```php
+// Before
+$len = sizeof($arr);
+$str = join(',', $arr);
+if (is_integer($x)) {}
+
+// After
+$len = count($arr);
+$str = implode(',', $arr);
+if (is_int($x)) {}
+```
+
+Supported aliases:
+- `sizeof` → `count`
+- `join` → `implode`
+- `is_integer`, `is_long` → `is_int`
+- `is_double`, `is_real` → `is_float`
+- `chop` → `rtrim`
+- `fputs` → `fwrite`
+- `key_exists` → `array_key_exists`
+- And 20+ more mbstring aliases
+
+---
 
 Risky fixers are not included in default presets. Enable them explicitly:
 
 ```bash
-rustor src/ --fixer --rule no_unused_imports
+rustor src/ --fixer --rule strict_comparison
+rustor src/ --fixer --rule no_alias_functions
 ```
 
 Or in configuration:
 
 ```toml
 [fixer.rules]
-no_unused_imports = true
+strict_comparison = true
+no_alias_functions = true
 risky_allowed = true
 ```

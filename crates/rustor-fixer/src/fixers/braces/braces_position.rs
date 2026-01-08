@@ -288,4 +288,14 @@ mod tests {
         let edits = check(source);
         assert!(edits.is_empty());
     }
+
+    #[test]
+    fn test_for_brace_next_line() {
+        let source = "<?php\nfor($i=0;$i<10;$i++)\n{\n}\n";
+        let edits = check(source);
+
+        assert_eq!(edits.len(), 1);
+        // Fixer adds a space after keyword: for ($i=0;...) {
+        assert!(edits[0].replacement.contains(") {"));
+    }
 }

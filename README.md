@@ -7,7 +7,7 @@ Rustor automatically modernizes your PHP codebase by applying safe, semantic tra
 ## Features
 
 - **44 refactoring rules** covering modernization, performance, and compatibility
-- **43 formatting fixers** for PSR-12 code style enforcement
+- **55 formatting fixers** for PSR-12 code style enforcement
 - **Blazing fast** - processes thousands of files in seconds using parallel execution
 - **Format-preserving** - maintains your code style while making targeted changes
 - **Safe by default** - dry-run mode, backup support, and parse verification

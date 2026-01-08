@@ -889,7 +889,8 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
     let file_count = files.len();
 
     // Process files in parallel
-    let results: Vec<(PathBuf, Vec<rustor_core::Edit>)> = files
+    let apply_fixes = cli.fix;
+    let results: Vec<(PathBuf, Vec<rustor_core::Edit>, bool)> = files
         .par_iter()
         .filter_map(|path| {
             let source = match std::fs::read_to_string(path) {
@@ -897,12 +898,23 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
                 Err(_) => return None,
             };
 
-            let edits = fixer_registry.check_preset(&source, fixer_preset, &fixer_config);
+            let (fixed_source, edits) = fixer_registry.check_preset(&source, fixer_preset, &fixer_config);
 
             if edits.is_empty() {
                 None
             } else {
-                Some((path.clone(), edits))
+                // Apply fixes if requested
+                let fixed = if apply_fixes {
+                    // Use the already-fixed source from sequential processing
+                    if std::fs::write(path, &fixed_source).is_ok() {
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                Some((path.clone(), edits, fixed))
             }
         })
         .collect();
@@ -911,17 +923,21 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
     let mut total_edits = 0;
     let mut files_with_changes = 0;
 
+    let mut files_fixed = 0;
+
     match output_format {
         OutputFormat::Json => {
             use serde_json::json;
 
             let file_results: Vec<_> = results
                 .iter()
-                .map(|(path, edits)| {
+                .map(|(path, edits, fixed)| {
                     total_edits += edits.len();
                     files_with_changes += 1;
+                    if *fixed { files_fixed += 1; }
                     json!({
                         "path": path.display().to_string(),
+                        "fixed": fixed,
                         "edits": edits.iter().map(|e| {
                             json!({
                                 "rule": e.rule.as_deref().unwrap_or("unknown"),
@@ -937,6 +953,7 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
                 "summary": {
                     "files_processed": file_count,
                     "files_with_changes": files_with_changes,
+                    "files_fixed": files_fixed,
                     "total_edits": total_edits,
                 },
                 "files": file_results
@@ -945,12 +962,15 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         OutputFormat::Text => {
-            for (path, edits) in &results {
+            for (path, edits, fixed) in &results {
                 files_with_changes += 1;
                 total_edits += edits.len();
+                if *fixed { files_fixed += 1; }
+                let status = if *fixed { " [FIXED]".green() } else { "".normal() };
                 println!(
-                    "{}",
-                    format!("{}", path.display()).cyan()
+                    "{}{}",
+                    format!("{}", path.display()).cyan(),
+                    status
                 );
                 for edit in edits {
                     println!(
@@ -962,15 +982,24 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
             }
 
             println!();
-            println!(
-                "{}: {} file(s), {} edit(s)",
-                "Summary".bold(),
-                files_with_changes,
-                total_edits
-            );
+            if apply_fixes {
+                println!(
+                    "{}: {} file(s) fixed, {} edit(s) applied",
+                    "Summary".bold(),
+                    files_fixed,
+                    total_edits
+                );
+            } else {
+                println!(
+                    "{}: {} file(s), {} edit(s)",
+                    "Summary".bold(),
+                    files_with_changes,
+                    total_edits
+                );
+            }
         }
         OutputFormat::Diff => {
-            for (path, edits) in &results {
+            for (path, edits, _) in &results {
                 let source = std::fs::read_to_string(path).unwrap_or_default();
                 if let Ok(fixed) = rustor_core::apply_edits(&source, edits) {
                     println!("--- a/{}", path.display());
@@ -988,7 +1017,7 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
         }
         _ => {
             // For other formats, just output basic info
-            for (path, edits) in &results {
+            for (path, edits, _) in &results {
                 println!("{}: {} edit(s)", path.display(), edits.len());
             }
         }

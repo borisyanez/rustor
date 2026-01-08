@@ -12,6 +12,12 @@ pub mod operators;
 pub mod comments;
 pub mod class;
 pub mod functions;
+pub mod risky;
+pub mod syntax;
+pub mod cleanup;
+pub mod phpdoc;
+pub mod types;
+pub mod misc;
 
 pub use registry::{FixerRegistry, FixerInfo};
 

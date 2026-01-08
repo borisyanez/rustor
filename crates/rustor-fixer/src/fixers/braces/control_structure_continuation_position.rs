@@ -30,19 +30,26 @@ impl Fixer for ControlStructureContinuationPositionFixer {
         let mut edits = Vec::new();
 
         // Match `}\n  else` or `}\n  elseif` or `}\n  catch` or `}\n  finally`
-        let re = Regex::new(r"\}(\s*\n\s*)(else\s*if|elseif|else|catch|finally)\b").unwrap();
+        // Also match `}else` (no space) - needs a space added
+        let re = Regex::new(r"\}(\s*\n\s*|\s*)(else\s*if|elseif|else|catch|finally)\b").unwrap();
 
         for cap in re.captures_iter(source) {
             let full_match = cap.get(0).unwrap();
             let whitespace = cap.get(1).unwrap();
             let keyword = cap.get(2).unwrap().as_str();
+            let ws_str = whitespace.as_str();
 
             // Skip if in string
             if is_in_string(&source[..full_match.start()]) {
                 continue;
             }
 
-            // Replace newline+whitespace with single space
+            // Skip if already correct (single space)
+            if ws_str == " " {
+                continue;
+            }
+
+            // Replace with single space
             edits.push(edit_with_rule(
                 whitespace.start(),
                 whitespace.end(),

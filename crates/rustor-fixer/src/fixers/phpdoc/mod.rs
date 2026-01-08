@@ -1,0 +1,63 @@
+//! PHPDoc fixers
+//!
+//! Fixers for PHPDoc comments formatting and style.
+
+mod phpdoc_align;
+mod phpdoc_indent;
+mod phpdoc_scalar_type;
+mod phpdoc_separation;
+mod phpdoc_single_line_var_spacing;
+mod phpdoc_summary;
+mod phpdoc_trim;
+mod phpdoc_trim_consecutive_blank_line_separation;
+mod phpdoc_types_order;
+mod phpdoc_var_without_name;
+mod phpdoc_no_empty_return;
+mod phpdoc_order;
+mod phpdoc_order_by_value;
+mod phpdoc_return_self_reference;
+mod phpdoc_no_alias_tag;
+mod phpdoc_no_package;
+mod phpdoc_no_useless_inheritdoc;
+mod phpdoc_tag_type;
+mod phpdoc_line_span;
+mod phpdoc_array_type;
+mod general_phpdoc_annotation_remove;
+mod general_phpdoc_tag_rename;
+mod no_blank_lines_after_phpdoc;
+mod phpdoc_annotation_without_dot;
+mod phpdoc_inline_tag_normalizer;
+mod phpdoc_no_access;
+mod phpdoc_to_comment;
+mod phpdoc_types;
+mod phpdoc_var_annotation_correct_order;
+
+pub use phpdoc_align::PhpdocAlignFixer;
+pub use phpdoc_indent::PhpdocIndentFixer;
+pub use phpdoc_scalar_type::PhpdocScalarTypeFixer;
+pub use phpdoc_separation::PhpdocSeparationFixer;
+pub use phpdoc_single_line_var_spacing::PhpdocSingleLineVarSpacingFixer;
+pub use phpdoc_summary::PhpdocSummaryFixer;
+pub use phpdoc_trim::PhpdocTrimFixer;
+pub use phpdoc_trim_consecutive_blank_line_separation::PhpdocTrimConsecutiveBlankLineSeparationFixer;
+pub use phpdoc_types_order::PhpdocTypesOrderFixer;
+pub use phpdoc_var_without_name::PhpdocVarWithoutNameFixer;
+pub use phpdoc_no_empty_return::PhpdocNoEmptyReturnFixer;
+pub use phpdoc_order::PhpdocOrderFixer;
+pub use phpdoc_order_by_value::PhpdocOrderByValueFixer;
+pub use phpdoc_return_self_reference::PhpdocReturnSelfReferenceFixer;
+pub use phpdoc_no_alias_tag::PhpdocNoAliasTagFixer;
+pub use phpdoc_no_package::PhpdocNoPackageFixer;
+pub use phpdoc_no_useless_inheritdoc::PhpdocNoUselessInheritdocFixer;
+pub use phpdoc_tag_type::PhpdocTagTypeFixer;
+pub use phpdoc_line_span::PhpdocLineSpanFixer;
+pub use phpdoc_array_type::PhpdocArrayTypeFixer;
+pub use general_phpdoc_annotation_remove::GeneralPhpdocAnnotationRemoveFixer;
+pub use general_phpdoc_tag_rename::GeneralPhpdocTagRenameFixer;
+pub use no_blank_lines_after_phpdoc::NoBlankLinesAfterPhpdocFixer;
+pub use phpdoc_annotation_without_dot::PhpdocAnnotationWithoutDotFixer;
+pub use phpdoc_inline_tag_normalizer::PhpdocInlineTagNormalizerFixer;
+pub use phpdoc_no_access::PhpdocNoAccessFixer;
+pub use phpdoc_to_comment::PhpdocToCommentFixer;
+pub use phpdoc_types::PhpdocTypesFixer;
+pub use phpdoc_var_annotation_correct_order::PhpdocVarAnnotationCorrectOrderFixer;

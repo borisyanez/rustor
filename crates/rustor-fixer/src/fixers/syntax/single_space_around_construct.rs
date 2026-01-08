@@ -16,7 +16,8 @@ impl Fixer for SingleSpaceAroundConstructFixer {
         let mut edits = Vec::new();
 
         // Control structures that need single space before (
-        let constructs = ["if", "elseif", "while", "for", "foreach", "switch", "catch"];
+        // Also includes fn for arrow functions (PHP 7.4+)
+        let constructs = ["if", "elseif", "while", "for", "foreach", "switch", "catch", "fn"];
 
         for construct in constructs {
             // Multiple spaces between construct and (

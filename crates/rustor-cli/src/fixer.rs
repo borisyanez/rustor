@@ -24,7 +24,7 @@ pub fn run_fixers_on_file(
     config: &FixerConfig,
     fixer_names: Option<&[&str]>,
 ) -> Result<(String, Vec<rustor_core::Edit>)> {
-    let edits = if let Some(names) = fixer_names {
+    let (fixed, edits) = if let Some(names) = fixer_names {
         registry.check(source, names, config)
     } else {
         registry.check_all(source, config)
@@ -34,7 +34,6 @@ pub fn run_fixers_on_file(
         return Ok((source.to_string(), vec![]));
     }
 
-    let fixed = apply_edits(source, &edits)?;
     Ok((fixed, edits))
 }
 
@@ -45,13 +44,12 @@ pub fn run_fixers_with_preset(
     config: &FixerConfig,
     preset: &str,
 ) -> Result<(String, Vec<rustor_core::Edit>)> {
-    let edits = registry.check_preset(source, preset, config);
+    let (fixed, edits) = registry.check_preset(source, preset, config);
 
     if edits.is_empty() {
         return Ok((source.to_string(), vec![]));
     }
 
-    let fixed = apply_edits(source, &edits)?;
     Ok((fixed, edits))
 }
 

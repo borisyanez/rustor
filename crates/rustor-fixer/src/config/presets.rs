@@ -89,6 +89,7 @@ pub const PSR12_RULES: &[&str] = &[
     "binary_operator_spaces",
     "concat_space",
     "new_with_parentheses",
+    "space_after_semicolon",
     "no_space_around_double_colon",
     "object_operator_without_whitespace",
     "ternary_operator_spaces",

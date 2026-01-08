@@ -28,7 +28,7 @@ impl Fixer for ConcatSpaceFixer {
             name: "spacing",
             description: "Spacing to apply: 'one' (single space) or 'none' (no space)",
             option_type: OptionType::Enum(vec!["one", "none"]),
-            default: Some(ConfigValue::String("none".to_string())),
+            default: Some(ConfigValue::String("one".to_string())),
         }]
     }
 
@@ -39,7 +39,7 @@ impl Fixer for ConcatSpaceFixer {
                 _ => None,
             })
             .map(|s| s == "one")
-            .unwrap_or(false); // Default: no space
+            .unwrap_or(true); // Default: use space (matches PHP-CS-Fixer)
 
         let mut edits = Vec::new();
         let bytes = source.as_bytes();
@@ -102,6 +102,19 @@ fn is_concat_operator(source: &str, i: usize) -> bool {
         }
         // Check for ->
         if before == b'-' {
+            return false;
+        }
+    }
+
+    // Check if part of .= (compound assignment operator)
+    // Skip whitespace to find the next non-space character
+    let mut next_idx = i + 1;
+    while next_idx < bytes.len() && (bytes[next_idx] == b' ' || bytes[next_idx] == b'\t') {
+        next_idx += 1;
+    }
+    if next_idx < bytes.len() && bytes[next_idx] == b'=' {
+        // Check it's not == (comparison after concat)
+        if next_idx + 1 >= bytes.len() || bytes[next_idx + 1] != b'=' {
             return false;
         }
     }
@@ -195,7 +208,12 @@ mod tests {
     use std::collections::HashMap;
 
     fn check_no_space(source: &str) -> Vec<Edit> {
-        ConcatSpaceFixer.check(source, &FixerConfig::default())
+        let mut options = HashMap::new();
+        options.insert("spacing".to_string(), ConfigValue::String("none".to_string()));
+        ConcatSpaceFixer.check(source, &FixerConfig {
+            options,
+            ..Default::default()
+        })
     }
 
     fn check_with_space(source: &str) -> Vec<Edit> {
@@ -236,6 +254,15 @@ mod tests {
         let source = "<?php\n$a = 'hello' . 'world';\n";
         let edits = check_with_space(source);
         assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_default_adds_spaces() {
+        // Default is now "one" (with spaces)
+        let source = "<?php\n$a = 'hello'.'world';\n";
+        let edits = ConcatSpaceFixer.check(source, &FixerConfig::default());
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].replacement, " . ");
     }
 
     #[test]

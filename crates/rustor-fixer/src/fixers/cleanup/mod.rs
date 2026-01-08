@@ -1,0 +1,43 @@
+//! Cleanup fixers - remove unnecessary code
+
+mod no_empty_statement;
+mod no_useless_else;
+mod no_useless_return;
+mod no_empty_comment;
+mod no_empty_phpdoc;
+mod no_short_bool_cast;
+mod no_unset_cast;
+mod no_useless_concat_operator;
+mod no_useless_nullsafe_operator;
+mod simplified_if_return;
+mod simplified_null_return;
+mod no_superfluous_elseif;
+mod no_unneeded_control_parentheses;
+mod no_unneeded_import_alias;
+mod switch_continue_to_break;
+mod global_namespace_import;
+mod lambda_not_used_import;
+mod native_type_declaration_casing;
+mod no_trailing_comma_in_singleline;
+mod single_line_throw;
+
+pub use no_empty_statement::NoEmptyStatementFixer;
+pub use no_useless_else::NoUselessElseFixer;
+pub use no_useless_return::NoUselessReturnFixer;
+pub use no_empty_comment::NoEmptyCommentFixer;
+pub use no_empty_phpdoc::NoEmptyPhpdocFixer;
+pub use no_short_bool_cast::NoShortBoolCastFixer;
+pub use no_unset_cast::NoUnsetCastFixer;
+pub use no_useless_concat_operator::NoUselessConcatOperatorFixer;
+pub use no_useless_nullsafe_operator::NoUselessNullsafeOperatorFixer;
+pub use simplified_if_return::SimplifiedIfReturnFixer;
+pub use simplified_null_return::SimplifiedNullReturnFixer;
+pub use no_superfluous_elseif::NoSuperfluousElseifFixer;
+pub use no_unneeded_control_parentheses::NoUnneededControlParenthesesFixer;
+pub use no_unneeded_import_alias::NoUnneededImportAliasFixer;
+pub use switch_continue_to_break::SwitchContinueToBreakFixer;
+pub use global_namespace_import::GlobalNamespaceImportFixer;
+pub use lambda_not_used_import::LambdaNotUsedImportFixer;
+pub use native_type_declaration_casing::NativeTypeDeclarationCasingFixer;
+pub use no_trailing_comma_in_singleline::NoTrailingCommaInSinglelineFixer;
+pub use single_line_throw::SingleLineThrowFixer;

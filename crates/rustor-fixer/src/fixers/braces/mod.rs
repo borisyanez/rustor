@@ -9,6 +9,9 @@ mod braces_position;
 mod switch_case_semicolon_to_colon;
 mod declare_equal_normalize;
 mod control_structure_braces;
+mod control_structure_continuation_position;
+mod no_alternative_syntax;
+mod no_unneeded_braces;
 
 pub use elseif::ElseifFixer;
 pub use no_closing_tag::NoClosingTagFixer;
@@ -17,3 +20,6 @@ pub use braces_position::BracesPositionFixer;
 pub use switch_case_semicolon_to_colon::SwitchCaseSemicolonToColonFixer;
 pub use declare_equal_normalize::DeclareEqualNormalizeFixer;
 pub use control_structure_braces::ControlStructureBracesFixer;
+pub use control_structure_continuation_position::ControlStructureContinuationPositionFixer;
+pub use no_alternative_syntax::NoAlternativeSyntaxFixer;
+pub use no_unneeded_braces::NoUnneededBracesFixer;

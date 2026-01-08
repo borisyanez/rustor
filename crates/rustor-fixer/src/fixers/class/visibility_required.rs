@@ -90,6 +90,72 @@ impl Fixer for VisibilityRequiredFixer {
             ));
         }
 
+        // Check for static properties without visibility
+        // Match: static $prop (without visibility modifier before)
+        let static_prop_re = Regex::new(r"(?m)^([ \t]*)(static\s+)\$(\w+)").unwrap();
+
+        for cap in static_prop_re.captures_iter(source) {
+            let full_match = cap.get(0).unwrap();
+            let indent = cap.get(1).unwrap().as_str();
+            let static_keyword = cap.get(2).unwrap().as_str();
+            let prop_name = cap.get(3).unwrap().as_str();
+
+            if !is_in_class_context(&source[..full_match.start()]) {
+                continue;
+            }
+
+            // Skip if already has visibility
+            let before_line = get_line_before(source, full_match.start());
+            if has_visibility(before_line) {
+                continue;
+            }
+
+            edits.push(edit_with_rule(
+                full_match.start(),
+                full_match.end(),
+                format!("{}public {}${}", indent, static_keyword, prop_name),
+                format!("Add visibility modifier to static property '{}'", prop_name),
+                "visibility_required",
+            ));
+        }
+
+        // Check for const declarations without visibility (PHP 7.1+)
+        // Match: const FOO = value; (without visibility modifier)
+        let const_re = Regex::new(r"(?m)^([ \t]*)(const\s+)(\w+\s*=)").unwrap();
+
+        for cap in const_re.captures_iter(source) {
+            let full_match = cap.get(0).unwrap();
+            let indent = cap.get(1).unwrap().as_str();
+            let const_keyword = cap.get(2).unwrap().as_str();
+            let const_name_eq = cap.get(3).unwrap().as_str();
+
+            if !is_in_class_context(&source[..full_match.start()]) {
+                continue;
+            }
+
+            // Skip if already has visibility
+            let before_line = get_line_before(source, full_match.start());
+            if has_visibility(before_line) {
+                continue;
+            }
+
+            // Check if 'const' appears right at indent start or if there's something before it
+            let line_content = &source[full_match.start()..full_match.end()];
+            let trimmed = line_content.trim_start();
+            if !trimmed.starts_with("const ") {
+                // There's something before const (like visibility), skip
+                continue;
+            }
+
+            edits.push(edit_with_rule(
+                full_match.start(),
+                full_match.end(),
+                format!("{}public {}{}", indent, const_keyword, const_name_eq),
+                "Add visibility modifier to class constant".to_string(),
+                "visibility_required",
+            ));
+        }
+
         edits
     }
 }
