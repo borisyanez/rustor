@@ -235,6 +235,33 @@ impl CodeGenerator {
                 (impl_code, true) // Complex pattern, needs review
             }
 
+            RulePattern::TernaryToElvis => {
+                let impl_code = templates::VISITOR_TERNARY_TO_ELVIS.to_string();
+                (impl_code, false)
+            }
+
+            RulePattern::FunctionArgSwap { func, new_func, arg_order } => {
+                let impl_code = templates::VISITOR_FUNCTION_ARG_SWAP
+                    .replace("{{func}}", func)
+                    .replace("{{new_func}}", new_func)
+                    .replace("{{arg0}}", &arg_order.first().unwrap_or(&0).to_string())
+                    .replace("{{arg1}}", &arg_order.get(1).unwrap_or(&1).to_string());
+                (impl_code, true) // May need type checking
+            }
+
+            RulePattern::ComparisonToFunction {
+                old_func,
+                new_func,
+                negate_result,
+                ..
+            } => {
+                let impl_code = templates::VISITOR_COMPARISON_TO_FUNCTION
+                    .replace("{{old_func}}", old_func)
+                    .replace("{{new_func}}", new_func)
+                    .replace("{{negate}}", if *negate_result { "true" } else { "false" });
+                (impl_code, true) // Complex pattern, needs review
+            }
+
             RulePattern::Complex { hints, refactor_body } => {
                 let hints_str = hints
                     .iter()

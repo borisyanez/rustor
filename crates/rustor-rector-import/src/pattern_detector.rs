@@ -79,6 +79,21 @@ pub fn detect_pattern(refactor_body: &str, node_types: &[String]) -> RulePattern
         return pattern;
     }
 
+    // 15. Ternary to elvis: $a ? $a : $b -> $a ?: $b
+    if let Some(pattern) = detect_ternary_to_elvis(refactor_body, node_types) {
+        return pattern;
+    }
+
+    // 16. Function argument swap: array_key_exists($k, $arr) with type-checked $arr
+    if let Some(pattern) = detect_function_arg_swap(refactor_body) {
+        return pattern;
+    }
+
+    // 17. Comparison to function: strpos !== false -> str_contains
+    if let Some(pattern) = detect_comparison_to_function(refactor_body) {
+        return pattern;
+    }
+
     // Fall back to complex pattern with hints
     let hints = extract_pattern_hints(refactor_body);
     if !hints.is_empty() {
@@ -373,6 +388,107 @@ fn detect_function_no_args_to_function(body: &str) -> Option<RulePattern> {
     None
 }
 
+/// Detect ternary to elvis: $a ? $a : $b -> $a ?: $b
+fn detect_ternary_to_elvis(body: &str, node_types: &[String]) -> Option<RulePattern> {
+    // Must operate on Ternary nodes
+    if !node_types.contains(&"Ternary".to_string()) {
+        return None;
+    }
+
+    // Pattern: areNodesEqual($node->cond, $node->if) and sets $node->if = null
+    if body.contains("areNodesEqual") && body.contains("cond") && body.contains("->if") {
+        if body.contains("->if = null") || body.contains("if = null") {
+            return Some(RulePattern::TernaryToElvis);
+        }
+    }
+
+    // Also check for elvis-specific keywords
+    if body.contains("ELVIS") || body.contains("elvis") {
+        return Some(RulePattern::TernaryToElvis);
+    }
+
+    None
+}
+
+/// Detect function with argument swap: array_key_exists($k, $obj) -> property_exists($obj, $k)
+fn detect_function_arg_swap(body: &str) -> Option<RulePattern> {
+    // Known function swaps
+    let swaps = [
+        ("array_key_exists", "property_exists", vec![1, 0]),
+        // Add more as discovered
+    ];
+
+    for (from, to, order) in swaps {
+        let has_from =
+            body.contains(&format!("'{}'", from)) || body.contains(&format!("\"{}\"", from));
+        let has_to = body.contains(&format!("'{}'", to)) || body.contains(&format!("\"{}\"", to));
+        let has_reverse = body.contains("array_reverse") || body.contains("reverse");
+
+        if has_from && has_to && has_reverse {
+            return Some(RulePattern::FunctionArgSwap {
+                func: from.to_string(),
+                new_func: to.to_string(),
+                arg_order: order,
+            });
+        }
+    }
+
+    None
+}
+
+/// Detect comparison to function: strpos !== false -> str_contains
+fn detect_comparison_to_function(body: &str) -> Option<RulePattern> {
+    // Known comparison to function conversions
+    let conversions = [
+        (
+            "strpos",
+            "str_contains",
+            "!==",
+            "false",
+            false,
+        ),
+        (
+            "strpos",
+            "str_contains",
+            "===",
+            "false",
+            true,
+        ),
+        (
+            "strstr",
+            "str_contains",
+            "!==",
+            "false",
+            false,
+        ),
+    ];
+
+    for (old_func, new_func, _op, _val, negate) in conversions {
+        let has_old = body.contains(&format!("'{}'", old_func))
+            || body.contains(&format!("\"{}\"", old_func));
+        let has_new = body.contains(&format!("'{}'", new_func))
+            || body.contains(&format!("\"{}\"", new_func));
+
+        // Check for comparison pattern
+        let has_comparison = body.contains("Identical")
+            || body.contains("NotIdentical")
+            || body.contains("=== false")
+            || body.contains("!== false");
+
+        if has_old && has_new && has_comparison {
+            return Some(RulePattern::ComparisonToFunction {
+                old_func: old_func.to_string(),
+                new_func: new_func.to_string(),
+                operator: "!==".to_string(),
+                compare_value: "false".to_string(),
+                negate_result: negate,
+            });
+        }
+    }
+
+    None
+}
+
 /// Extract hints about what the pattern does
 fn extract_pattern_hints(body: &str) -> Vec<String> {
     let mut hints = Vec::new();
@@ -547,5 +663,37 @@ mod tests {
         "#;
         let pattern = detect_pattern(body, &[]);
         assert!(matches!(pattern, RulePattern::NullsafeMethodCall));
+    }
+
+    #[test]
+    fn test_detect_ternary_to_elvis() {
+        let body = r#"
+            if (!$this->nodeComparator->areNodesEqual($node->cond, $node->if)) {
+                return null;
+            }
+            $node->if = null;
+            return $node;
+        "#;
+        let pattern = detect_pattern(body, &["Ternary".to_string()]);
+        assert!(matches!(pattern, RulePattern::TernaryToElvis));
+    }
+
+    #[test]
+    fn test_detect_comparison_to_function() {
+        // Test body that matches comparison-to-function pattern without matching FunctionRename
+        let body = r#"
+            // Converts strpos($h, $n) !== false to str_contains($h, $n)
+            // Uses Identical or NotIdentical nodes for comparison
+            if ($node instanceof NotIdentical && $this->isFalseLiteral($node->right)) {
+                $funcCall = $this->createStrContainsCall('strpos', 'str_contains');
+                return $funcCall;
+            }
+        "#;
+        let pattern = detect_pattern(body, &[]);
+        assert!(matches!(
+            pattern,
+            RulePattern::ComparisonToFunction { old_func, new_func, .. }
+            if old_func == "strpos" && new_func == "str_contains"
+        ));
     }
 }

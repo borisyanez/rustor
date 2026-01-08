@@ -127,6 +127,31 @@ pub enum RulePattern {
     /// First-class callable syntax: Closure::fromCallable([$this, 'method']) → $this->method(...)
     FirstClassCallable,
 
+    /// Ternary to elvis: $a ? $a : $b → $a ?: $b
+    TernaryToElvis,
+
+    /// Function with argument swap: array_key_exists($k, $obj) → property_exists($obj, $k)
+    FunctionArgSwap {
+        func: String,
+        new_func: String,
+        /// New argument order (indices of original args)
+        arg_order: Vec<usize>,
+    },
+
+    /// Comparison to function: strpos($h, $n) !== false → str_contains($h, $n)
+    ComparisonToFunction {
+        /// Old function name
+        old_func: String,
+        /// New function name
+        new_func: String,
+        /// Comparison operator (===, !==, etc.)
+        operator: String,
+        /// Value being compared to
+        compare_value: String,
+        /// Whether result is negated
+        negate_result: bool,
+    },
+
     /// Complex pattern requiring manual implementation
     Complex {
         hints: Vec<String>,
@@ -161,6 +186,9 @@ impl RulePattern {
             RulePattern::FunctionNoArgsToFunction { .. } => "FunctionNoArgsToFunction",
             RulePattern::NullsafeMethodCall => "NullsafeMethodCall",
             RulePattern::FirstClassCallable => "FirstClassCallable",
+            RulePattern::TernaryToElvis => "TernaryToElvis",
+            RulePattern::FunctionArgSwap { .. } => "FunctionArgSwap",
+            RulePattern::ComparisonToFunction { .. } => "ComparisonToFunction",
             RulePattern::Complex { .. } => "Complex",
             RulePattern::Unknown => "Unknown",
         }

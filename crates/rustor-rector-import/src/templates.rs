@@ -345,6 +345,89 @@ pub const VISITOR_FIRST_CLASS_CALLABLE: &str = r#"fn visit_expression(&mut self,
         true
     }"#;
 
+/// Visitor implementation for ternary to elvis pattern: $a ? $a : $b -> $a ?: $b
+pub const VISITOR_TERNARY_TO_ELVIS: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        // Match ternary: $a ? $a : $b where condition equals if-branch
+        if let Expression::Conditional(cond) = expr {
+            // Get condition expression
+            let cond_str = &self.source[cond.condition.span().start.offset as usize..cond.condition.span().end.offset as usize];
+
+            // Get if-branch expression (the "then" part)
+            if let Some(ref if_expr) = cond.r#if {
+                let if_str = &self.source[if_expr.span().start.offset as usize..if_expr.span().end.offset as usize];
+
+                // If condition == if-branch, convert to elvis
+                if cond_str.trim() == if_str.trim() {
+                    let else_str = &self.source[cond.r#else.span().start.offset as usize..cond.r#else.span().end.offset as usize];
+                    let replacement = format!("{} ?: {}", cond_str, else_str);
+
+                    self.edits.push(Edit::new(
+                        expr.span(),
+                        replacement,
+                        "Use elvis operator",
+                    ));
+                }
+            }
+        }
+        true
+    }"#;
+
+/// Visitor implementation for function argument swap pattern
+pub const VISITOR_FUNCTION_ARG_SWAP: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        if let Expression::Call(Call::Function(call)) = expr {
+            let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+
+            if name_str.eq_ignore_ascii_case("{{func}}") {
+                let args: Vec<_> = call.argument_list.arguments.iter().collect();
+                if args.len() >= 2 {
+                    // Get arguments in new order
+                    let arg0 = &self.source[args[{{arg0}}].span().start.offset as usize..args[{{arg0}}].span().end.offset as usize];
+                    let arg1 = &self.source[args[{{arg1}}].span().start.offset as usize..args[{{arg1}}].span().end.offset as usize];
+
+                    let replacement = format!("{{new_func}}({}, {})", arg0, arg1);
+
+                    self.edits.push(Edit::new(
+                        expr.span(),
+                        replacement,
+                        "Replace {{func}}() with {{new_func}}() and swap arguments",
+                    ));
+                }
+            }
+        }
+        true
+    }"#;
+
+/// Visitor implementation for comparison to function pattern
+pub const VISITOR_COMPARISON_TO_FUNCTION: &str = r#"fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
+        // Match: strpos($h, $n) !== false -> str_contains($h, $n)
+        // or:    strpos($h, $n) === false -> !str_contains($h, $n)
+        if let Expression::Binary(binary) = expr {
+            // Check if left side is a function call
+            if let Expression::Call(Call::Function(call)) = &*binary.lhs {
+                let name_str = &self.source[call.function.span().start.offset as usize..call.function.span().end.offset as usize];
+
+                if name_str.eq_ignore_ascii_case("{{old_func}}") {
+                    // Get the arguments
+                    let args_str = &self.source[call.argument_list.span().start.offset as usize..call.argument_list.span().end.offset as usize];
+
+                    let negate = {{negate}};
+                    let replacement = if negate {
+                        format!("!{{new_func}}{}", args_str)
+                    } else {
+                        format!("{{new_func}}{}", args_str)
+                    };
+
+                    self.edits.push(Edit::new(
+                        expr.span(),
+                        replacement,
+                        "Replace {{old_func}}() comparison with {{new_func}}()",
+                    ));
+                }
+            }
+        }
+        true
+    }"#;
+
 /// Visitor implementation for complex/unknown patterns (skeleton only)
 pub const VISITOR_COMPLEX: &str = r#"fn visit_expression(&mut self, _expr: &Expression<'a>, _source: &str) -> bool {
         // TODO: Implement pattern detection
@@ -416,6 +499,9 @@ pub fn get_visitor_template(pattern_type: &str) -> &'static str {
         "FunctionNoArgsToFunction" => VISITOR_FUNCTION_NO_ARGS,
         "NullsafeMethodCall" => VISITOR_NULLSAFE_METHOD_CALL,
         "FirstClassCallable" => VISITOR_FIRST_CLASS_CALLABLE,
+        "TernaryToElvis" => VISITOR_TERNARY_TO_ELVIS,
+        "FunctionArgSwap" => VISITOR_FUNCTION_ARG_SWAP,
+        "ComparisonToFunction" => VISITOR_COMPARISON_TO_FUNCTION,
         _ => VISITOR_COMPLEX,
     }
 }
