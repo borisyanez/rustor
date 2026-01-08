@@ -1,0 +1,59 @@
+# Example: PHP Code Quality Check with Rustor
+#
+# Copy this to your PHP project as .github/workflows/php-check.yml
+
+name: PHP Code Check
+
+on:
+  pull_request:
+    paths:
+      - '**.php'
+  push:
+    branches: [main]
+    paths:
+      - '**.php'
+
+jobs:
+  rustor:
+    name: Rustor Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for PR diff
+
+      - name: Install Rustor
+        run: |
+          curl -sL https://github.com/rustor/rustor/releases/latest/download/rustor-linux-x86_64 -o rustor
+          chmod +x rustor
+          sudo mv rustor /usr/local/bin/
+
+      - name: Run Rustor (PR - changed files only)
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-only origin/${{ github.base_ref }} | grep '\.php$' | head -100 | xargs -r rustor --format github
+
+      - name: Run Rustor (push - full scan)
+        if: github.event_name == 'push'
+        run: |
+          rustor src/ --format sarif > rustor.sarif || true
+
+      - name: Upload SARIF
+        if: github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rustor.sarif
+        continue-on-error: true
+
+  # Alternative: Using the rustor action (when published)
+  # rustor-action:
+  #   name: Rustor (Action)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: rustor/rustor-action@v1
+  #       with:
+  #         path: src/
+  #         preset: modernize
+  #         php-version: "8.2"
+  #         format: github
