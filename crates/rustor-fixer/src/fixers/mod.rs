@@ -8,6 +8,9 @@ pub mod whitespace;
 pub mod casing;
 pub mod braces;
 pub mod imports;
+pub mod operators;
+pub mod comments;
+pub mod class;
 
 pub use registry::{FixerRegistry, FixerInfo};
 

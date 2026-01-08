@@ -23,6 +23,31 @@ use super::casing::{
     ConstantCaseFixer,
     LowercaseStaticReferenceFixer,
 };
+use super::braces::{
+    ElseifFixer,
+    NoClosingTagFixer,
+    SwitchCaseSpaceFixer,
+};
+use super::operators::{
+    ConcatSpaceFixer,
+    BinaryOperatorSpacesFixer,
+    UnaryOperatorSpacesFixer,
+};
+use super::imports::{
+    BlankLineAfterNamespaceFixer,
+    NoLeadingImportSlashFixer,
+    SingleLineAfterImportsFixer,
+};
+use super::comments::{
+    NoTrailingWhitespaceInCommentFixer,
+    SingleLineCommentStyleFixer,
+    MultilineWhitespaceBeforeSemicolonsFixer,
+};
+use super::class::{
+    VisibilityRequiredFixer,
+    NoBlankLinesAfterClassOpeningFixer,
+    ClassDefinitionFixer,
+};
 
 /// Information about a registered fixer
 #[derive(Clone)]
@@ -64,6 +89,31 @@ impl FixerRegistry {
         registry.register(Arc::new(LowercaseKeywordsFixer));
         registry.register(Arc::new(ConstantCaseFixer));
         registry.register(Arc::new(LowercaseStaticReferenceFixer));
+
+        // Register braces/control structure fixers
+        registry.register(Arc::new(NoClosingTagFixer));
+        registry.register(Arc::new(ElseifFixer));
+        registry.register(Arc::new(SwitchCaseSpaceFixer));
+
+        // Register operator fixers
+        registry.register(Arc::new(ConcatSpaceFixer));
+        registry.register(Arc::new(BinaryOperatorSpacesFixer));
+        registry.register(Arc::new(UnaryOperatorSpacesFixer));
+
+        // Register import/namespace fixers
+        registry.register(Arc::new(BlankLineAfterNamespaceFixer));
+        registry.register(Arc::new(NoLeadingImportSlashFixer));
+        registry.register(Arc::new(SingleLineAfterImportsFixer));
+
+        // Register comment fixers
+        registry.register(Arc::new(NoTrailingWhitespaceInCommentFixer));
+        registry.register(Arc::new(SingleLineCommentStyleFixer));
+        registry.register(Arc::new(MultilineWhitespaceBeforeSemicolonsFixer));
+
+        // Register class/visibility fixers
+        registry.register(Arc::new(VisibilityRequiredFixer));
+        registry.register(Arc::new(NoBlankLinesAfterClassOpeningFixer));
+        registry.register(Arc::new(ClassDefinitionFixer));
 
         // Sort by priority (descending - higher priority runs first)
         registry.fixers.sort_by(|a, b| b.priority().cmp(&a.priority()));
