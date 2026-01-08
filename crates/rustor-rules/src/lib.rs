@@ -36,6 +36,7 @@ pub mod null_safe_operator;
 pub mod override_attribute;
 pub mod pow_to_operator;
 pub mod readonly_properties;
+pub mod single_in_array_to_compare;
 pub mod sizeof;
 pub mod sprintf_positional;
 pub mod string_contains;
