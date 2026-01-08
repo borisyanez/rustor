@@ -20,6 +20,7 @@ mod git;
 mod ignore;
 mod lsp;
 mod output;
+mod plugin;
 mod process;
 mod watch;
 

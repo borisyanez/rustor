@@ -1,0 +1,10 @@
+# Example Rustor Plugin
+# This plugin echoes back an edit that prepends a comment to the file
+
+name = "echo-plugin"
+version = "1.0.0"
+description = "Example plugin that adds a comment to PHP files"
+command = "python3"
+args = ["plugin.py"]
+min_php_version = "7.0"
+category = "example"
