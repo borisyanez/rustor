@@ -387,6 +387,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::redundant_type_check::RedundantTypeCheckRule));
+        registry.register(Box::new(super::rename_class::RenameClassRule::with_config(&get_config("rename_class"))));
         registry.register(Box::new(super::rename_function::RenameFunctionRule::with_config(&get_config("rename_function"))));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));

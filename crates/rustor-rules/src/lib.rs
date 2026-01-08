@@ -37,6 +37,7 @@ pub mod override_attribute;
 pub mod pow_to_operator;
 pub mod readonly_properties;
 pub mod redundant_type_check;
+pub mod rename_class;
 pub mod rename_function;
 pub mod single_in_array_to_compare;
 pub mod sizeof;
