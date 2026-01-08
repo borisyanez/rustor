@@ -6,7 +6,7 @@ Rustor automatically modernizes your PHP codebase by applying safe, semantic tra
 
 ## Features
 
-- **23 refactoring rules** covering modernization, performance, and compatibility
+- **44 refactoring rules** covering modernization, performance, and compatibility
 - **Blazing fast** - processes thousands of files in seconds using parallel execution
 - **Format-preserving** - maintains your code style while making targeted changes
 - **Safe by default** - dry-run mode, backup support, and parse verification
@@ -67,7 +67,7 @@ $power = $base ** $exp;
 
 ## Documentation
 
-- **[Rules Reference](docs/rules.md)** - Complete list of all 23 refactoring rules
+- **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
 - **[Configuration](docs/configuration.md)** - `.rustor.toml` file format
 - **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
@@ -81,7 +81,7 @@ $power = $base ** $exp;
 | `recommended` | Safe, widely-applicable rules (default) | 6 rules |
 | `performance` | Performance-focused optimizations | 5 rules |
 | `modernize` | Syntax modernization for newer PHP | 13 rules |
-| `all` | All available rules | 23 rules |
+| `all` | All available rules | 44 rules |
 
 ## Output Formats
 

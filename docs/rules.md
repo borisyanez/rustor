@@ -1,6 +1,6 @@
 # Rules Reference
 
-Rustor includes 23 refactoring rules organized into four categories. Each rule is designed to be safe and produce semantically equivalent code.
+Rustor includes 44 refactoring rules organized into four categories. Each rule is designed to be safe and produce semantically equivalent code.
 
 ## Table of Contents
 
@@ -8,6 +8,7 @@ Rustor includes 23 refactoring rules organized into four categories. Each rule i
 - [Modernization Rules](#modernization-rules)
 - [Simplification Rules](#simplification-rules)
 - [Compatibility Rules](#compatibility-rules)
+- [Imported Rules (from Rector)](#imported-rules-from-rector)
 - [Rule Configuration](#rule-configuration)
 
 ---
@@ -636,6 +637,396 @@ $str = implode(', ', $array);
 
 ---
 
+## Imported Rules (from Rector)
+
+These rules were auto-generated from the [Rector PHP](https://github.com/rectorphp/rector) project using `rustor-import-rector`. They cover additional modernization and simplification patterns.
+
+### Modernization Rules (Imported)
+
+#### `array_key_exists_on_property`
+
+Change `array_key_exists()` on property to `property_exists()`.
+
+**PHP Version:** 7.4+
+**Category:** Modernization
+
+```php
+// Before
+array_key_exists('key', $object);
+
+// After
+property_exists($object, 'key');
+```
+
+---
+
+#### `class_on_object`
+
+Change `get_class($object)` to faster `$object::class`.
+
+**PHP Version:** 8.0+
+**Category:** Modernization
+
+```php
+// Before
+$className = get_class($object);
+
+// After
+$className = $object::class;
+```
+
+**Notes:**
+- Similar to `get_class_this` but handles any variable, not just `$this`
+- Using `::class` on objects was added in PHP 8.0
+
+---
+
+#### `filter_var_to_add_slashes`
+
+Change `filter_var()` with slash escaping to `addslashes()`.
+
+**PHP Version:** 7.4+
+**Category:** Modernization
+
+```php
+// Before
+$escaped = filter_var($str, FILTER_SANITIZE_MAGIC_QUOTES);
+
+// After
+$escaped = addslashes($str);
+```
+
+**Notes:**
+- `FILTER_SANITIZE_MAGIC_QUOTES` was deprecated in PHP 7.4 and removed in PHP 8.0
+
+---
+
+#### `hebrevc_to_nl_2_br_hebrev`
+
+Change `hebrevc()` to `nl2br(hebrev())`.
+
+**PHP Version:** 7.4+
+**Category:** Modernization
+
+```php
+// Before
+$result = hebrevc($str);
+
+// After
+$result = nl2br(hebrev($str));
+```
+
+**Notes:**
+- `hebrevc()` was deprecated in PHP 7.4 and removed in PHP 8.0
+
+---
+
+#### `remove_get_class_get_parent_class_no_args`
+
+Replace `get_class()` and `get_parent_class()` without arguments.
+
+**PHP Version:** 8.3+
+**Category:** Modernization
+
+```php
+// Before
+$class = get_class();
+$parent = get_parent_class();
+
+// After
+$class = self::class;
+$parent = parent::class;
+```
+
+**Notes:**
+- Calling these functions without arguments was deprecated in PHP 8.3
+
+---
+
+#### `restore_include_path_to_ini_restore`
+
+Change `restore_include_path()` to `ini_restore('include_path')`.
+
+**PHP Version:** 7.4+
+**Category:** Modernization
+
+```php
+// Before
+restore_include_path();
+
+// After
+ini_restore('include_path');
+```
+
+**Notes:**
+- `restore_include_path()` was deprecated in PHP 7.4 and removed in PHP 8.0
+
+---
+
+#### `utf_8_decode_encode_to_mb_convert_encoding`
+
+Change deprecated `utf8_decode()` and `utf8_encode()` to `mb_convert_encoding()`.
+
+**PHP Version:** 8.2+
+**Category:** Modernization
+
+```php
+// Before
+$decoded = utf8_decode($value);
+$encoded = utf8_encode($value);
+
+// After
+$decoded = mb_convert_encoding($value, 'ISO-8859-1');
+$encoded = mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1');
+```
+
+**Notes:**
+- `utf8_decode()` and `utf8_encode()` were deprecated in PHP 8.2
+
+---
+
+### Simplification Rules (Imported)
+
+#### `consistent_implode`
+
+Changes various `implode()` forms to consistent argument order.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+$str = implode($array);
+
+// After
+$str = implode('', $array);
+```
+
+**Notes:**
+- Ensures consistent argument order for `implode()` calls
+
+---
+
+#### `get_class_on_null`
+
+Handle `get_class()` behavior change with null arguments.
+
+**PHP Version:** 7.2+
+**Category:** Simplification
+
+```php
+// Before
+$class = get_class($maybeNull);
+
+// After
+$class = $maybeNull !== null ? get_class($maybeNull) : self::class;
+```
+
+**Notes:**
+- In PHP 8.0+, `get_class(null)` throws an error instead of returning the current class
+
+---
+
+#### `inline_is_a_instance_of`
+
+Change `is_a()` with object and class name check to `instanceof`.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+if (is_a($object, SomeType::class)) { }
+
+// After
+if ($object instanceof SomeType) { }
+```
+
+**Notes:**
+- `instanceof` is more readable and idiomatic PHP
+
+---
+
+#### `is_a_with_string_with_third_argument`
+
+Complete missing 3rd argument in `is_a()` function for string class names.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+is_a($className, ParentClass::class);
+
+// After
+is_a($className, ParentClass::class, true);
+```
+
+**Notes:**
+- When first argument is a string (class name), third argument should be `true`
+
+---
+
+#### `pow_to_exp`
+
+Changes `pow()` to `**` operator.
+
+**PHP Version:** 5.6+
+**Category:** Simplification
+
+```php
+// Before
+$result = pow($base, $exp);
+
+// After
+$result = $base ** $exp;
+```
+
+**Notes:**
+- Same as built-in `pow_to_operator` rule, imported from Rector
+
+---
+
+#### `preg_replace_e_modifier`
+
+The `/e` modifier is no longer supported, use `preg_replace_callback` instead.
+
+**PHP Version:** 5.5+
+**Category:** Simplification
+
+```php
+// Before
+preg_replace('/pattern/e', 'strtoupper("$1")', $subject);
+
+// After
+preg_replace_callback('/pattern/', function($m) { return strtoupper($m[1]); }, $subject);
+```
+
+**Notes:**
+- The `/e` modifier was deprecated in PHP 5.5 and removed in PHP 7.0
+
+---
+
+#### `remove_sole_value_sprintf`
+
+Remove `sprintf()` wrapper if not needed.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+$str = sprintf('%s', $value);
+
+// After
+$str = $value;
+```
+
+**Notes:**
+- Removes unnecessary `sprintf()` calls with single `%s` placeholder
+
+---
+
+#### `remove_useless_is_object_check`
+
+Remove useless `is_object()` check combined with `instanceof`.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+if (is_object($var) && $var instanceof SomeClass) { }
+
+// After
+if ($var instanceof SomeClass) { }
+```
+
+**Notes:**
+- `instanceof` already returns false for non-objects
+
+---
+
+#### `rename_mktime_without_args_to_time`
+
+Rename `mktime()` without arguments to `time()`.
+
+**PHP Version:** 7.0+
+**Category:** Simplification
+
+```php
+// Before
+$timestamp = mktime();
+
+// After
+$timestamp = time();
+```
+
+**Notes:**
+- `mktime()` without arguments was deprecated in PHP 5.1
+
+---
+
+#### `simplify_strpos_lower`
+
+Simplify `strpos(strtolower())` patterns.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+strpos(strtolower($haystack), strtolower($needle));
+
+// After
+stripos($haystack, $needle);
+```
+
+**Notes:**
+- Uses case-insensitive `stripos()` instead of lowercasing both strings
+
+---
+
+#### `ternary_implode_to_implode`
+
+Narrow ternary with `implode()` and empty string to direct `implode()`.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+$str = count($arr) > 0 ? implode(',', $arr) : '';
+
+// After
+$str = implode(',', $arr);
+```
+
+**Notes:**
+- `implode()` on empty array returns empty string anyway
+
+---
+
+#### `unwrap_sprintf_one_argument`
+
+Unwrap `sprintf()` with one argument.
+
+**PHP Version:** Any
+**Category:** Simplification
+
+```php
+// Before
+$str = sprintf($template);
+
+// After
+$str = $template;
+```
+
+**Notes:**
+- `sprintf()` with no placeholders just returns the format string
+
+---
+
 ## Rule Configuration
 
 ### Presets
@@ -645,7 +1036,7 @@ $str = implode(', ', $array);
 | `recommended` | array_push, array_syntax, implode_order, is_null, isset_coalesce, sizeof |
 | `performance` | array_key_first_last, array_push, pow_to_operator, sizeof, type_cast |
 | `modernize` | array_syntax, assign_coalesce, constructor_promotion, first_class_callables, get_class_this, list_short_syntax, isset_coalesce, empty_coalesce, match_expression, null_safe_operator, readonly_properties, string_contains, string_starts_ends |
-| `all` | All 23 rules |
+| `all` | All 44 rules |
 
 ### Per-Rule Configuration
 
