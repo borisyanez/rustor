@@ -9,6 +9,7 @@ mod lowercase_static_reference;
 mod native_function_casing;
 mod magic_method_casing;
 mod magic_constant_casing;
+mod lowercase_cast;
 
 pub use lowercase_keywords::LowercaseKeywordsFixer;
 pub use constant_case::ConstantCaseFixer;
@@ -16,3 +17,4 @@ pub use lowercase_static_reference::LowercaseStaticReferenceFixer;
 pub use native_function_casing::NativeFunctionCasingFixer;
 pub use magic_method_casing::MagicMethodCasingFixer;
 pub use magic_constant_casing::MagicConstantCasingFixer;
+pub use lowercase_cast::LowercaseCastFixer;

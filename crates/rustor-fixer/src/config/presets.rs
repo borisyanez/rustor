@@ -49,6 +49,7 @@ pub const PSR12_RULES: &[&str] = &[
 
     // Casing
     "constant_case",
+    "lowercase_cast",
     "lowercase_keywords",
     "lowercase_static_reference",
 
@@ -60,10 +61,13 @@ pub const PSR12_RULES: &[&str] = &[
     "single_line_after_imports",
 
     // Class structure
+    "array_indentation",
     "braces_position",
     "class_definition",
+    "linebreak_after_opening_tag",
     "no_blank_lines_after_class_opening",
     "single_class_element_per_statement",
+    "single_line_empty_body",
     "single_trait_insert_per_statement",
     "visibility_required",
 

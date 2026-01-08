@@ -23,6 +23,8 @@ mod trim_array_spaces;
 mod type_declaration_spaces;
 mod whitespace_after_comma_in_array;
 mod statement_indentation;
+mod array_indentation;
+mod linebreak_after_opening_tag;
 
 pub use trailing_whitespace::TrailingWhitespaceFixer;
 pub use line_ending::LineEndingFixer;
@@ -44,3 +46,5 @@ pub use trim_array_spaces::TrimArraySpacesFixer;
 pub use type_declaration_spaces::TypeDeclarationSpacesFixer;
 pub use whitespace_after_comma_in_array::WhitespaceAfterCommaInArrayFixer;
 pub use statement_indentation::StatementIndentationFixer;
+pub use array_indentation::ArrayIndentationFixer;
+pub use linebreak_after_opening_tag::LinebreakAfterOpeningTagFixer;

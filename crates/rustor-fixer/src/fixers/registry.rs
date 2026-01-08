@@ -29,6 +29,8 @@ use super::whitespace::{
     TypeDeclarationSpacesFixer,
     WhitespaceAfterCommaInArrayFixer,
     StatementIndentationFixer,
+    ArrayIndentationFixer,
+    LinebreakAfterOpeningTagFixer,
 };
 use super::casing::{
     LowercaseKeywordsFixer,
@@ -37,6 +39,7 @@ use super::casing::{
     NativeFunctionCasingFixer,
     MagicMethodCasingFixer,
     MagicConstantCasingFixer,
+    LowercaseCastFixer,
 };
 use super::braces::{
     ElseifFixer,
@@ -49,6 +52,7 @@ use super::braces::{
     ControlStructureContinuationPositionFixer,
     NoAlternativeSyntaxFixer,
     NoUnneededBracesFixer,
+    SingleLineEmptyBodyFixer,
 };
 use super::functions::{
     FunctionDeclarationFixer,
@@ -247,6 +251,8 @@ impl FixerRegistry {
         registry.register(Arc::new(TypeDeclarationSpacesFixer));
         registry.register(Arc::new(WhitespaceAfterCommaInArrayFixer));
         registry.register(Arc::new(StatementIndentationFixer));
+        registry.register(Arc::new(ArrayIndentationFixer));
+        registry.register(Arc::new(LinebreakAfterOpeningTagFixer));
 
         // Register casing fixers
         registry.register(Arc::new(LowercaseKeywordsFixer));
@@ -255,6 +261,7 @@ impl FixerRegistry {
         registry.register(Arc::new(NativeFunctionCasingFixer));
         registry.register(Arc::new(MagicMethodCasingFixer));
         registry.register(Arc::new(MagicConstantCasingFixer));
+        registry.register(Arc::new(LowercaseCastFixer));
 
         // Register braces/control structure fixers
         registry.register(Arc::new(NoClosingTagFixer));
@@ -267,6 +274,7 @@ impl FixerRegistry {
         registry.register(Arc::new(ControlStructureContinuationPositionFixer));
         registry.register(Arc::new(NoAlternativeSyntaxFixer));
         registry.register(Arc::new(NoUnneededBracesFixer));
+        registry.register(Arc::new(SingleLineEmptyBodyFixer));
 
         // Register function fixers
         registry.register(Arc::new(FunctionDeclarationFixer));
