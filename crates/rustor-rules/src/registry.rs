@@ -375,6 +375,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::override_attribute::OverrideAttributeRule));
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
+        registry.register(Box::new(super::redundant_type_check::RedundantTypeCheckRule));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::switch_negated_ternary::SwitchNegatedTernaryRule));

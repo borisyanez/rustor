@@ -36,6 +36,7 @@ pub mod null_safe_operator;
 pub mod override_attribute;
 pub mod pow_to_operator;
 pub mod readonly_properties;
+pub mod redundant_type_check;
 pub mod single_in_array_to_compare;
 pub mod sizeof;
 pub mod switch_negated_ternary;
