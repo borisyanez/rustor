@@ -1,6 +1,6 @@
 # Fixers Reference
 
-Rustor includes 33 PHP-CS-Fixer compatible fixers for code formatting. These fixers enforce PSR-12 coding standards and can be run separately from refactoring rules.
+Rustor includes 43 PHP-CS-Fixer compatible fixers for code formatting. These fixers enforce PSR-12 coding standards and can be run separately from refactoring rules.
 
 ## Quick Start
 
@@ -234,6 +234,65 @@ class Foo {
 }
 ```
 
+### native_function_casing
+
+Ensures native PHP functions are lowercase.
+
+**PHP-CS-Fixer name:** `native_function_casing`
+**Priority:** 40
+
+```php
+// Before
+STRLEN($str);
+Array_Map($fn, $arr);
+JSON_ENCODE($data);
+
+// After
+strlen($str);
+array_map($fn, $arr);
+json_encode($data);
+```
+
+### magic_method_casing
+
+Ensures magic methods use correct casing.
+
+**PHP-CS-Fixer name:** `magic_method_casing`
+**Priority:** 40
+
+```php
+// Before
+class Foo {
+    function __CONSTRUCT() {}
+    function __TOSTRING() {}
+}
+
+// After
+class Foo {
+    function __construct() {}
+    function __toString() {}
+}
+```
+
+### magic_constant_casing
+
+Ensures magic constants are uppercase.
+
+**PHP-CS-Fixer name:** `magic_constant_casing`
+**Priority:** 40
+
+```php
+// Before
+echo __class__;
+echo __file__;
+echo __method__;
+
+// After
+echo __CLASS__;
+echo __FILE__;
+echo __METHOD__;
+```
+
 ---
 
 ## Braces & Control Structure Fixers
@@ -329,6 +388,69 @@ $a = 1;
 // After
 <?php
 $a = 1;
+```
+
+### switch_case_semicolon_to_colon
+
+Converts semicolons in case/default statements to colons.
+
+**PHP-CS-Fixer name:** `switch_case_semicolon_to_colon`
+**Priority:** 30
+
+```php
+// Before
+switch ($a) {
+    case 1;
+        break;
+    default;
+        break;
+}
+
+// After
+switch ($a) {
+    case 1:
+        break;
+    default:
+        break;
+}
+```
+
+### declare_equal_normalize
+
+Normalizes spacing in declare statements.
+
+**PHP-CS-Fixer name:** `declare_equal_normalize`
+**Priority:** 20
+
+```php
+// Before
+declare(strict_types = 1);
+declare( strict_types=1 );
+
+// After
+declare(strict_types=1);
+declare(strict_types=1);
+```
+
+### control_structure_braces
+
+Ensures control structures use braces.
+
+**PHP-CS-Fixer name:** `control_structure_braces`
+**Priority:** 35
+
+```php
+// Before
+if ($a) doSomething();
+foreach ($items as $item) process($item);
+
+// After
+if ($a) {
+doSomething();
+}
+foreach ($items as $item) {
+process($item);
+}
 ```
 
 ---
@@ -437,6 +559,27 @@ $b = - 5;
 // After
 if (!$a) {}
 $b = -5;
+```
+
+### method_chaining_indentation
+
+Ensures method chains have proper indentation.
+
+**PHP-CS-Fixer name:** `method_chaining_indentation`
+**Priority:** 20
+
+```php
+// Before
+$builder
+->select('*')
+->from('users')
+->where('active', true);
+
+// After
+$builder
+    ->select('*')
+    ->from('users')
+    ->where('active', true);
 ```
 
 ---
@@ -672,6 +815,78 @@ class Foo{}
 // After
 class Foo extends Bar implements Baz {}
 class Foo {}
+```
+
+### single_class_element_per_statement
+
+Splits multiple property/constant declarations into separate statements.
+
+**PHP-CS-Fixer name:** `single_class_element_per_statement`
+**Priority:** 20
+
+```php
+// Before
+class Foo {
+    public $a, $b, $c;
+    const X = 1, Y = 2;
+}
+
+// After
+class Foo {
+    public $a;
+    public $b;
+    public $c;
+    const X = 1;
+    const Y = 2;
+}
+```
+
+### single_trait_insert_per_statement
+
+Splits multiple trait imports into separate statements.
+
+**PHP-CS-Fixer name:** `single_trait_insert_per_statement`
+**Priority:** 20
+
+```php
+// Before
+class Foo {
+    use TraitA, TraitB, TraitC;
+}
+
+// After
+class Foo {
+    use TraitA;
+    use TraitB;
+    use TraitC;
+}
+```
+
+### ordered_class_elements
+
+Orders class elements according to PSR conventions.
+
+**PHP-CS-Fixer name:** `ordered_class_elements`
+**Priority:** 20
+
+Order: traits → constants → properties → constructor → methods
+
+```php
+// Before
+class Foo {
+    public function bar() {}
+    public $prop;
+    use MyTrait;
+    const VALUE = 1;
+}
+
+// After
+class Foo {
+    use MyTrait;
+    const VALUE = 1;
+    public $prop;
+    public function bar() {}
+}
 ```
 
 ---
