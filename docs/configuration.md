@@ -699,8 +699,104 @@ mappings = { "OldService" = "NewService" }
 
 ---
 
+## Static Analysis Configuration (phpstan.neon)
+
+Rustor's static analysis command supports PHPStan NEON configuration files. Create a `phpstan.neon` file:
+
+```neon
+parameters:
+    level: 3
+    paths:
+        - src/
+        - app/
+    excludePaths:
+        - vendor/
+        - tests/fixtures/
+    phpVersion: 80100
+    treatPhpDocTypesAsCertain: true
+    checkMissingTypehints: false
+    reportUnmatchedIgnoredErrors: true
+
+    ignoreErrors:
+        - '#Call to undefined function legacy_func#'
+        -
+            message: '#Variable \$data might not be defined#'
+            path: src/Legacy/*.php
+        -
+            identifier: variable.undefined
+            path: src/Generated/*.php
+
+    parallel:
+        maximumNumberOfProcesses: 4
+
+    stubFiles:
+        - stubs/vendor-types.stub
+
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+
+includes:
+    - phpstan-baseline.neon
+```
+
+### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `level` | int/string | 0 | Analysis level (0-9 or "max") |
+| `paths` | string[] | [] | Paths to analyze |
+| `excludePaths` | string[]/object | [] | Paths to exclude |
+| `phpVersion` | int | null | PHP version (80100 = PHP 8.1.0) |
+| `treatPhpDocTypesAsCertain` | bool | true | Trust PHPDoc annotations |
+| `checkMissingTypehints` | bool | false | Report missing types (level 6) |
+| `reportUnmatchedIgnoredErrors` | bool | true | Report unmatched ignoreErrors |
+| `parallel.maximumNumberOfProcesses` | int | auto | Max parallel processes |
+| `ignoreErrors` | array | [] | Error patterns to ignore |
+| `stubFiles` | string[] | [] | Type stub files |
+| `bootstrapFiles` | string[] | [] | PHP files to run before analysis |
+
+### Ignoring Errors
+
+```neon
+parameters:
+    ignoreErrors:
+        # Simple string match
+        - 'Call to undefined function'
+
+        # Regex pattern
+        - '#Variable \$\w+ might not be defined#'
+
+        # With path filter
+        -
+            message: '#Undefined variable#'
+            path: src/Legacy/*.php
+
+        # By identifier
+        -
+            identifier: function.notFound
+            path: src/Generated/*.php
+
+        # With count limit
+        -
+            message: '#Call to undefined function#'
+            count: 5
+```
+
+### Include Files
+
+```neon
+includes:
+    - phpstan-baseline.neon
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+```
+
+See [Static Analysis](analyze.md) for comprehensive documentation.
+
+---
+
 ## See Also
 
+- [Static Analysis](analyze.md) - PHPStan-compatible analysis
 - [CLI Reference](cli.md) - Command-line options
 - [Rules Reference](rules.md) - All available refactoring rules
 - [Fixers Reference](fixers.md) - All available formatting fixers

@@ -8,12 +8,13 @@ Rustor automatically modernizes your PHP codebase by applying safe, semantic tra
 
 - **44 refactoring rules** covering modernization, performance, and compatibility
 - **55 formatting fixers** for PSR-12 code style enforcement
+- **PHPStan-compatible static analysis** at levels 0-6 with 100% compatibility for levels 0-3
 - **Blazing fast** - processes thousands of files in seconds using parallel execution
 - **Format-preserving** - maintains your code style while making targeted changes
 - **Safe by default** - dry-run mode, backup support, and parse verification
 - **IDE integration** - built-in LSP server for real-time diagnostics
 - **CI/CD ready** - SARIF, Checkstyle, and GitHub Actions output formats
-- **Configurable** - `.rustor.toml` configuration with presets and per-rule options
+- **Configurable** - `.rustor.toml` and `phpstan.neon` configuration support
 - **PHP-CS-Fixer compatible** - supports `.php-cs-fixer.php` configuration
 
 ## Quick Start
@@ -96,8 +97,45 @@ if ($a) {return true;}
 function foo($a, $b): int {}
 ```
 
+### Static Analysis
+
+```bash
+# Run PHPStan-compatible analysis at level 3
+rustor analyze src/ --level 3
+
+# Use existing PHPStan config
+rustor analyze -c phpstan.neon
+
+# JSON output for CI
+rustor analyze src/ --level 3 --error-format json
+
+# GitHub Actions annotations
+rustor analyze src/ --level 3 --error-format github
+```
+
+**PHPStan Compatibility:**
+
+| Level | Match Rate | Checks |
+|-------|------------|--------|
+| 0-3 | 100% | Undefined functions/classes/methods, variables, return types |
+| 4 | 92% | Dead code, always-false instanceof, unused results |
+| 5 | 92% | Argument type mismatches |
+| 6 | 85% | Missing type declarations |
+
+Supported checks include:
+- Undefined functions, classes, methods, properties, constants
+- Undefined and possibly-undefined variables
+- Unused constructor parameters
+- Return type and property type validation
+- Dead code detection
+- Argument count and type validation
+- Missing type hints
+
+See [Static Analysis](docs/analyze.md) for comprehensive documentation.
+
 ## Documentation
 
+- **[Static Analysis](docs/analyze.md)** - PHPStan-compatible analysis with NEON config support
 - **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
 - **[Fixers Reference](docs/fixers.md)** - All 33 formatting fixers for PSR-12
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags

@@ -476,7 +476,7 @@ Rustor respects the following environment variables:
 
 ### `analyze` - PHPStan-compatible Static Analysis
 
-Run PHPStan-compatible static analysis on PHP files.
+Run PHPStan-compatible static analysis on PHP files. This command provides comprehensive static analysis with full compatibility for PHPStan configuration files and error formats.
 
 ```bash
 rustor analyze [OPTIONS] [PATHS]...
@@ -511,16 +511,88 @@ rustor analyze src/ --level 1
 rustor analyze src/ --level 1 --phpstan-compat
 ```
 
+#### PHPStan Compatibility Status
+
+| Level | Match Rate | Status |
+|-------|------------|--------|
+| 0 | 100% | Full compatibility |
+| 1 | 100% | Full compatibility |
+| 2 | 100% | Full compatibility |
+| 3 | 100% | Full compatibility |
+| 4 | 92% | Missing: comparison always true/false |
+| 5 | 92% | Missing: comparison always true/false |
+| 6 | 85% | Missing: comparison always true/false, iterable value type |
+
 #### Analysis Levels
 
-Rustor supports PHPStan analysis levels 0-3:
+Rustor supports PHPStan analysis levels 0-6:
 
-| Level | Description |
-|-------|-------------|
-| 0 | Undefined functions, classes, static methods, class constants |
-| 1 | Undefined variables, possibly undefined variables |
-| 2 | Type-aware method/property checks on typed parameters |
-| 3 | Return type validation, void purity checks |
+| Level | Description | Checks |
+|-------|-------------|--------|
+| 0 | Basic checks | Undefined functions, classes, static methods, class constants, argument counts, missing returns |
+| 1 | Variable analysis | Undefined variables, possibly undefined variables, unused constructor parameters |
+| 2 | Type-aware checks | Unknown methods/properties on known types, method argument counts |
+| 3 | Return types | Return type validation, property type validation |
+| 4 | Dead code | Unreachable statements, always-false instanceof, redundant type narrowing, unused function results |
+| 5 | Argument types | Argument type mismatches in function/method calls |
+| 6 | Missing typehints | Parameters, return types, and properties without type declarations |
+
+#### PHPStan Error Identifiers
+
+Rustor uses PHPStan-compatible error identifiers:
+
+| Identifier | Level | Description |
+|------------|-------|-------------|
+| `function.notFound` | 0 | Undefined function call |
+| `class.notFound` | 0 | Undefined class |
+| `staticMethod.notFound` | 0 | Undefined static method |
+| `classConstant.notFound` | 0 | Undefined class constant |
+| `arguments.count` | 0 | Wrong argument count |
+| `return.missing` | 0 | Missing return statement |
+| `variable.undefined` | 1 | Undefined variable |
+| `variable.possiblyUndefined` | 1 | Possibly undefined variable |
+| `constructor.unusedParameter` | 1 | Unused constructor parameter |
+| `method.notFound` | 2 | Undefined method on known type |
+| `property.notFound` | 2 | Undefined property on known type |
+| `return.type` | 3 | Return type mismatch |
+| `property.type` | 3 | Property type mismatch |
+| `return.void` | 3 | Void function returns value |
+| `deadCode.unreachable` | 4 | Unreachable code |
+| `instanceof.alwaysFalse` | 4 | Always-false instanceof |
+| `function.alreadyNarrowedType` | 4 | Redundant type narrowing |
+| `function.resultUnused` | 4 | Unused pure function result |
+| `argument.type` | 5 | Argument type mismatch |
+| `missingType.parameter` | 6 | Missing parameter type |
+| `missingType.return` | 6 | Missing return type |
+| `missingType.property` | 6 | Missing property type |
+
+#### Configuration File Support
+
+Rustor fully supports PHPStan NEON configuration files:
+
+```neon
+# phpstan.neon
+parameters:
+    level: 3
+    paths:
+        - src/
+        - app/
+    excludePaths:
+        - vendor/
+        - tests/fixtures/
+    phpVersion: 80100
+    treatPhpDocTypesAsCertain: true
+    ignoreErrors:
+        - '#Call to undefined function legacy_func#'
+        -
+            message: '#Variable \$data might not be defined#'
+            path: src/Legacy/*.php
+
+includes:
+    - phpstan-baseline.neon
+```
+
+See [Static Analysis](analyze.md) for comprehensive configuration documentation.
 
 #### Examples
 
@@ -542,10 +614,14 @@ rustor analyze src/ --level 3 --error-format json
 
 # GitHub Actions annotations
 rustor analyze src/ --level 3 --error-format github
+
+# PHPStan exact compatibility mode
+rustor analyze src/ --level 3 --phpstan-compat
 ```
 
 ## See Also
 
-- [Rules Reference](rules.md) - Complete list of all rules
+- [Static Analysis](analyze.md) - Comprehensive analysis documentation
+- [Rules Reference](rules.md) - Complete list of all refactoring rules
 - [Configuration](configuration.md) - `.rustor.toml` file format
 - [IDE Integration](lsp.md) - LSP server setup
