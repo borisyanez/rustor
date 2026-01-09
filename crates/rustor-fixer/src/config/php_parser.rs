@@ -49,6 +49,12 @@ pub struct FinderConfig {
     pub name_patterns: Vec<String>,
     /// File patterns to ignore (->notName('*.generated.php'))
     pub not_name_patterns: Vec<String>,
+    /// Path patterns to ignore (->notPath('bootstrap/cache'))
+    pub not_path_patterns: Vec<String>,
+    /// Whether to ignore VCS-ignored files (->ignoreVCSIgnored(true))
+    pub ignore_vcs_ignored: bool,
+    /// Use current working directory (->in(getcwd()))
+    pub use_cwd: bool,
 }
 
 /// Parsed PHP-CS-Fixer configuration
@@ -253,7 +259,12 @@ fn parse_rules(content: &str) -> Result<HashMap<String, RuleConfig>, ParseError>
 fn parse_finder(content: &str) -> Result<FinderConfig, ParseError> {
     let mut finder = FinderConfig::default();
 
-    // Match ->in('path') or ->in(['path1', 'path2'])
+    // Match ->in(getcwd()) - use current working directory
+    if content.contains("->in(getcwd())") {
+        finder.use_cwd = true;
+    }
+
+    // Match ->in('path') or ->in(['path1', 'path2']) or ->in(__DIR__.'/path')
     let in_re = Regex::new(r#"->in\s*\(\s*(?:'([^']+)'|\[([^\]]+)\]|__DIR__\s*\.\s*'([^']*)')"#)?;
     for cap in in_re.captures_iter(content) {
         if let Some(single) = cap.get(1) {
@@ -291,6 +302,25 @@ fn parse_finder(content: &str) -> Result<FinderConfig, ParseError> {
     let not_name_re = Regex::new(r#"->notName\s*\(\s*'([^']+)'\s*\)"#)?;
     for cap in not_name_re.captures_iter(content) {
         finder.not_name_patterns.push(cap[1].to_string());
+    }
+
+    // Match ->notPath('path') or ->notPath(['path1', 'path2'])
+    let not_path_re = Regex::new(r#"->notPath\s*\(\s*(?:'([^']+)'|\[([^\]]+)\])"#)?;
+    for cap in not_path_re.captures_iter(content) {
+        if let Some(single) = cap.get(1) {
+            finder.not_path_patterns.push(single.as_str().to_string());
+        } else if let Some(array) = cap.get(2) {
+            let paths_re = Regex::new(r#"'([^']+)'"#)?;
+            for path_cap in paths_re.captures_iter(array.as_str()) {
+                finder.not_path_patterns.push(path_cap[1].to_string());
+            }
+        }
+    }
+
+    // Match ->ignoreVCSIgnored(true)
+    let vcs_re = Regex::new(r#"->ignoreVCSIgnored\s*\(\s*(true|false)\s*\)"#)?;
+    if let Some(cap) = vcs_re.captures(content) {
+        finder.ignore_vcs_ignored = &cap[1] == "true";
     }
 
     Ok(finder)
@@ -460,5 +490,99 @@ mod tests {
         assert_eq!(config.finder.paths, vec!["src"]);
         assert_eq!(config.finder.exclude, vec!["vendor"]);
         assert_eq!(config.cache_file, Some(".php-cs-fixer.cache".to_string()));
+    }
+
+    #[test]
+    fn test_parse_finder_getcwd() {
+        let content = r#"
+            $finder = Finder::create()
+                ->in(getcwd())
+                ->ignoreVCSIgnored(true)
+        "#;
+        let finder = parse_finder(content).unwrap();
+
+        assert!(finder.use_cwd);
+        assert!(finder.ignore_vcs_ignored);
+    }
+
+    #[test]
+    fn test_parse_finder_not_path() {
+        let content = r#"
+            $finder = Finder::create()
+                ->notPath('server.php')
+                ->notPath('bootstrap/cache')
+        "#;
+        let finder = parse_finder(content).unwrap();
+
+        assert_eq!(finder.not_path_patterns, vec!["server.php", "bootstrap/cache"]);
+    }
+
+    #[test]
+    fn test_parse_real_world_config() {
+        // Test parsing a real-world PHP-CS-Fixer config
+        let content = r#"
+<?php
+$finder = PhpCsFixer\Finder::create()
+    ->in(getcwd())
+    ->ignoreVCSIgnored(true)
+    ->exclude([
+        'bootstrap',
+        'config',
+        'db/migrations',
+        'storage',
+    ])
+    ->notName('__CG__*.php')
+    ->notName('*.blade.php')
+    ->notPath('server.php');
+
+return (new PhpCsFixer\Config())
+    ->setLineEnding("\n")
+    ->setFinder($finder)
+    ->setRules([
+        '@PSR12' => true,
+        'array_syntax' => ['syntax' => 'short'],
+        'braces_position' => [
+            'classes_opening_brace' => 'same_line',
+            'functions_opening_brace' => 'same_line',
+        ],
+        'single_quote' => true,
+        'ordered_imports' => [
+            'sort_algorithm' => 'alpha',
+        ],
+        'blank_line_before_statement' => [
+            'statements' => ['return', 'throw'],
+        ],
+    ]);
+        "#;
+
+        let config = parse_php_cs_fixer_config(content).unwrap();
+
+        // Check finder
+        assert!(config.finder.use_cwd);
+        assert!(config.finder.ignore_vcs_ignored);
+        assert_eq!(config.finder.exclude, vec!["bootstrap", "config", "db/migrations", "storage"]);
+        assert_eq!(config.finder.not_name_patterns, vec!["__CG__*.php", "*.blade.php"]);
+        assert_eq!(config.finder.not_path_patterns, vec!["server.php"]);
+
+        // Check whitespace
+        assert_eq!(config.whitespace.line_ending, LineEnding::Lf);
+
+        // Check rules
+        assert!(config.is_rule_enabled("array_syntax"));
+        assert!(config.is_rule_enabled("braces_position"));
+        assert!(config.is_rule_enabled("single_quote"));
+        assert!(config.is_rule_enabled("ordered_imports"));
+        assert!(config.is_rule_enabled("blank_line_before_statement"));
+
+        // Check rule options
+        let braces = config.get_rule_config("braces_position").unwrap();
+        assert!(matches!(braces.options.get("classes_opening_brace"),
+            Some(ConfigValue::String(s)) if s == "same_line"));
+        assert!(matches!(braces.options.get("functions_opening_brace"),
+            Some(ConfigValue::String(s)) if s == "same_line"));
+
+        let ordered = config.get_rule_config("ordered_imports").unwrap();
+        assert!(matches!(ordered.options.get("sort_algorithm"),
+            Some(ConfigValue::String(s)) if s == "alpha"));
     }
 }
