@@ -28,7 +28,7 @@ impl Fixer for ConcatSpaceFixer {
             name: "spacing",
             description: "Spacing to apply: 'one' (single space) or 'none' (no space)",
             option_type: OptionType::Enum(vec!["one", "none"]),
-            default: Some(ConfigValue::String("one".to_string())),
+            default: Some(ConfigValue::String("none".to_string())),
         }]
     }
 
@@ -39,7 +39,7 @@ impl Fixer for ConcatSpaceFixer {
                 _ => None,
             })
             .map(|s| s == "one")
-            .unwrap_or(true); // Default: use space (matches PHP-CS-Fixer)
+            .unwrap_or(false); // Default: no space (matches PHP-CS-Fixer)
 
         let mut edits = Vec::new();
         let bytes = source.as_bytes();
@@ -257,12 +257,21 @@ mod tests {
     }
 
     #[test]
-    fn test_default_adds_spaces() {
-        // Default is now "one" (with spaces)
+    fn test_default_no_spaces() {
+        // Default is "none" (no spaces) to match PHP-CS-Fixer
         let source = "<?php\n$a = 'hello'.'world';\n";
         let edits = ConcatSpaceFixer.check(source, &FixerConfig::default());
+        // No edits needed when source already has no spaces
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_default_removes_spaces() {
+        // Default is "none" - should remove existing spaces
+        let source = "<?php\n$a = 'hello' . 'world';\n";
+        let edits = ConcatSpaceFixer.check(source, &FixerConfig::default());
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].replacement, " . ");
+        assert_eq!(edits[0].replacement, ".");
     }
 
     #[test]

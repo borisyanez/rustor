@@ -20,7 +20,7 @@ impl Fixer for SingleSpaceAroundConstructFixer {
         let constructs = ["if", "elseif", "while", "for", "foreach", "switch", "catch", "fn"];
 
         for construct in constructs {
-            // Multiple spaces between construct and (
+            // Multiple spaces between construct and ( - normalize to single space
             let re = Regex::new(&format!(r"\b({})\s{{2,}}\(", construct)).unwrap();
             for cap in re.captures_iter(source) {
                 let full = cap.get(0).unwrap();
@@ -33,7 +33,7 @@ impl Fixer for SingleSpaceAroundConstructFixer {
                 ));
             }
 
-            // No space between construct and (
+            // No space between construct and ( - add single space
             let re = Regex::new(&format!(r"\b({})\(", construct)).unwrap();
             for cap in re.captures_iter(source) {
                 let full = cap.get(0).unwrap();
@@ -131,22 +131,25 @@ fn is_in_string(before: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn test_no_space() {
+    fn test_no_space_adds_space() {
+        // if(true) should add space between if and (
         let code = "<?php\nif(true) {}";
         let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
         assert!(!edits.is_empty());
     }
 
     #[test]
-    fn test_multiple_spaces() {
+    fn test_multiple_spaces_normalized() {
+        // Multiple spaces should be normalized to single space
         let code = "<?php\nif  (true) {}";
         let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
         assert!(!edits.is_empty());
     }
 
     #[test]
-    fn test_single_space() {
+    fn test_single_space_ok() {
         let code = "<?php\nif (true) {}";
         let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
         assert!(edits.is_empty());
@@ -163,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nested_parens_no_space() {
+    fn test_nested_parens_no_space_before_brace() {
         let code = "<?php\nif (!is_array($input)){}";
         let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
         assert!(!edits.is_empty());
@@ -176,5 +179,13 @@ mod tests {
         let code = "<?php\nif (true) {}";
         let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
         assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_no_space_with_no_space_before_brace() {
+        // if(true){} should add space after if AND before {
+        let code = "<?php\nif(true){}";
+        let edits = SingleSpaceAroundConstructFixer.check(code, &FixerConfig::default());
+        assert_eq!(edits.len(), 2); // "if (" and ") {"
     }
 }

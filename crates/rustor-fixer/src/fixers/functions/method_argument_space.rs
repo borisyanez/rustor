@@ -77,6 +77,7 @@ impl Fixer for MethodArgumentSpaceFixer {
 
         // Fix missing space after comma
         // foo($a,$b) -> foo($a, $b)
+        // Note: Only applies to function/method calls, NOT arrays
         let no_space_after_comma = Regex::new(r",([^\s\n])").unwrap();
 
         for cap in no_space_after_comma.captures_iter(source) {
@@ -88,7 +89,10 @@ impl Fixer for MethodArgumentSpaceFixer {
             }
 
             // Skip if in array (we're only fixing function args)
-            // This is a simplification - we'd need context tracking for accuracy
+            // Check if we're inside square brackets by counting unmatched [ and ]
+            if is_in_array(&source[..full_match.start()]) {
+                continue;
+            }
 
             edits.push(edit_with_rule(
                 full_match.start(),
@@ -101,6 +105,7 @@ impl Fixer for MethodArgumentSpaceFixer {
 
         // Fix multiple spaces after comma
         // foo($a,  $b) -> foo($a, $b)
+        // Note: Only applies to function/method calls, NOT arrays
         let multi_space_after_comma = Regex::new(r",[ \t]{2,}(\S)").unwrap();
 
         for cap in multi_space_after_comma.captures_iter(source) {
@@ -108,6 +113,10 @@ impl Fixer for MethodArgumentSpaceFixer {
             let next_char = cap.get(1).unwrap().as_str();
 
             if is_in_string(&source[..full_match.start()]) {
+                continue;
+            }
+
+            if is_in_array(&source[..full_match.start()]) {
                 continue;
             }
 
@@ -122,6 +131,7 @@ impl Fixer for MethodArgumentSpaceFixer {
 
         // Fix space before comma
         // foo($a , $b) -> foo($a, $b)
+        // Note: Only applies to function/method calls, NOT arrays
         let space_before_comma = Regex::new(r"(\S)[ \t]+,").unwrap();
 
         for cap in space_before_comma.captures_iter(source) {
@@ -129,6 +139,10 @@ impl Fixer for MethodArgumentSpaceFixer {
             let prev_char = cap.get(1).unwrap().as_str();
 
             if is_in_string(&source[..full_match.start()]) {
+                continue;
+            }
+
+            if is_in_array(&source[..full_match.start()]) {
                 continue;
             }
 
@@ -161,6 +175,36 @@ fn is_in_string(before: &str) -> bool {
     }
 
     in_single_quote || in_double_quote
+}
+
+/// Check if position is inside an array (between [ and ])
+fn is_in_array(before: &str) -> bool {
+    let mut bracket_depth = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut prev_char = '\0';
+
+    for c in before.chars() {
+        // Track string context
+        if c == '\'' && prev_char != '\\' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+        }
+        if c == '"' && prev_char != '\\' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        }
+
+        // Only count brackets outside of strings
+        if !in_single_quote && !in_double_quote {
+            if c == '[' {
+                bracket_depth += 1;
+            } else if c == ']' {
+                bracket_depth -= 1;
+            }
+        }
+        prev_char = c;
+    }
+
+    bracket_depth > 0
 }
 
 #[cfg(test)]
@@ -233,5 +277,15 @@ mod tests {
         let source = "<?php\nfunction foo( $a , $b ) {}\n";
         let edits = check(source);
         assert!(!edits.is_empty());
+    }
+
+    #[test]
+    fn test_skip_arrays() {
+        // method_argument_space should NOT touch arrays
+        // Array comma spacing is handled by whitespace_after_comma_in_array
+        let source = "<?php\n$a = [1,2,3];\n";
+        let edits = check(source);
+        // No edits for array commas
+        assert!(edits.iter().all(|e| !e.message.contains("comma")));
     }
 }

@@ -155,11 +155,20 @@ impl Fixer for OrderedImportsFixer {
                 .collect();
 
             if original_order != sorted_order {
-                // Generate new text with sorted imports
-                let new_lines: Vec<String> = sorted
-                    .iter()
-                    .map(|stmt| format!("{}{}", stmt.indent, stmt.full_statement))
-                    .collect();
+                // Generate new text with sorted imports and blank lines between type groups
+                let mut new_lines: Vec<String> = Vec::new();
+                let mut prev_type: Option<UseType> = None;
+
+                for stmt in &sorted {
+                    // Add blank line when type changes (class -> function -> const)
+                    if let Some(ref prev) = prev_type {
+                        if *prev != stmt.use_type {
+                            new_lines.push(String::new());
+                        }
+                    }
+                    new_lines.push(format!("{}{}", stmt.indent, stmt.full_statement));
+                    prev_type = Some(stmt.use_type.clone());
+                }
 
                 let new_text = new_lines.join(line_ending);
 
@@ -290,14 +299,18 @@ mod tests {
     #[test]
     fn test_grouped_by_type() {
         // Classes should come before functions, functions before consts
+        // Blank lines are inserted between type groups
         let source = "<?php\n\nuse function strlen;\nuse App\\Model;\nuse const PHP_EOL;\n";
         let edits = check(source);
 
         assert_eq!(edits.len(), 1);
         let lines: Vec<&str> = edits[0].replacement.lines().collect();
+        // With blank lines between groups: class, blank, function, blank, const
         assert!(lines[0].contains("use App\\Model"));
-        assert!(lines[1].contains("use function strlen"));
-        assert!(lines[2].contains("use const PHP_EOL"));
+        assert!(lines[1].is_empty()); // blank line between class and function
+        assert!(lines[2].contains("use function strlen"));
+        assert!(lines[3].is_empty()); // blank line between function and const
+        assert!(lines[4].contains("use const PHP_EOL"));
     }
 
     #[test]

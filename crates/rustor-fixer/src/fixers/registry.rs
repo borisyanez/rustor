@@ -31,6 +31,7 @@ use super::whitespace::{
     StatementIndentationFixer,
     ArrayIndentationFixer,
     LinebreakAfterOpeningTagFixer,
+    SpacesInsideParenthesesFixer,
 };
 use super::casing::{
     LowercaseKeywordsFixer,
@@ -253,6 +254,7 @@ impl FixerRegistry {
         registry.register(Arc::new(StatementIndentationFixer));
         registry.register(Arc::new(ArrayIndentationFixer));
         registry.register(Arc::new(LinebreakAfterOpeningTagFixer));
+        registry.register(Arc::new(SpacesInsideParenthesesFixer));
 
         // Register casing fixers
         registry.register(Arc::new(LowercaseKeywordsFixer));

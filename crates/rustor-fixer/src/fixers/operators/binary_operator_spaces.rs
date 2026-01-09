@@ -250,38 +250,8 @@ impl Fixer for BinaryOperatorSpacesFixer {
                         edits.push(edit);
                     }
                 }
-                '.' => {
-                    // Skip if part of .= (already handled)
-                    if next == Some('=') {
-                        i += 1;
-                        continue;
-                    }
-                    // Skip ... (spread operator)
-                    if next == Some('.') {
-                        i += 1;
-                        continue;
-                    }
-                    // Skip object property access: $obj->prop, $obj?->prop
-                    if prev == Some('>') || prev == Some('-') {
-                        i += 1;
-                        continue;
-                    }
-                    // Skip if followed by digit (float number like 1.5)
-                    if next.map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                        i += 1;
-                        continue;
-                    }
-                    // Skip if preceded by digit (float number)
-                    if prev.map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                        i += 1;
-                        continue;
-                    }
-
-                    // This is concatenation operator
-                    if let Some(edit) = check_operator_spacing(&chars, i, 1, ".") {
-                        edits.push(edit);
-                    }
-                }
+                // Note: '.' (concatenation) is NOT handled by binary_operator_spaces
+                // in PHP-CS-Fixer. Use concat_space fixer instead.
                 _ => {}
             }
 
@@ -550,22 +520,28 @@ mod tests {
     }
 
     #[test]
-    fn test_concatenation() {
+    fn test_concatenation_not_handled() {
+        // Concatenation is handled by concat_space fixer, not binary_operator_spaces
+        // Source with proper spacing around = but no spaces around .
         let source = "<?php\n$a = 'foo'.'bar';\n";
         let edits = check(source);
-        assert!(!edits.is_empty());
-        assert!(edits[0].replacement.contains(" . "));
+        // No edits - = already has spaces and . is not handled
+        assert!(edits.is_empty(), "Expected no edits for concat, got: {:?}", edits);
     }
 
     #[test]
-    fn test_concatenation_skip_float() {
+    fn test_float_unchanged() {
+        // Float literals should not be split
         let edits = check("<?php\n$a = 1.5;\n");
+        // No edits - = already has spaces
         assert!(edits.is_empty());
     }
 
     #[test]
-    fn test_concatenation_skip_property() {
+    fn test_property_access_unchanged() {
+        // Property access -> should not be treated as binary operator
         let edits = check("<?php\n$a = $obj->prop;\n");
+        // No edits - = already has spaces
         assert!(edits.is_empty());
     }
 

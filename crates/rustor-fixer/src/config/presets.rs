@@ -116,9 +116,10 @@ pub const PSR12_RULES: &[&str] = &[
     "control_structure_braces",
     "control_structure_continuation_position",
     "elseif",
-    "no_alternative_syntax",
-    "no_unneeded_braces",
+    // Note: no_alternative_syntax is NOT in PHP-CS-Fixer's @PSR12 preset
+    // Note: no_unneeded_braces is NOT in PHP-CS-Fixer's @PSR12 preset
     "single_space_around_construct",
+    "spaces_inside_parentheses",
     "switch_case_semicolon_to_colon",
     "switch_case_space",
 
@@ -132,7 +133,7 @@ pub const PSR12_RULES: &[&str] = &[
 
     // Operators and spacing
     "binary_operator_spaces",
-    "concat_space",
+    // Note: concat_space is NOT in PHP-CS-Fixer's @PSR12 preset (PSR-12 doesn't mandate concat spacing)
     "new_with_parentheses",
     // Note: space_after_semicolon is NOT in PHP-CS-Fixer's @PSR12 preset
     "no_space_around_double_colon",
