@@ -62,16 +62,16 @@ impl CheckRegistry {
         // Level 0 checks
         registry.register(Box::new(level0::UndefinedFunctionCheck));
         registry.register(Box::new(level0::UndefinedClassCheck));
-        registry.register(Box::new(level0::CallMethodsCheck));
         registry.register(Box::new(level0::CallStaticMethodsCheck));
-        registry.register(Box::new(level0::PropertyAccessCheck));
         registry.register(Box::new(level0::ClassConstantCheck));
+        registry.register(Box::new(level0::ArgumentCountCheck));
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
 
         // Level 2 checks
-        registry.register(Box::new(level2::ArgumentCountCheck));
+        registry.register(Box::new(level2::CallMethodsCheck));
+        registry.register(Box::new(level2::PropertyAccessCheck));
 
         registry
     }

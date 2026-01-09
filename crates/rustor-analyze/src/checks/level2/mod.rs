@@ -1,8 +1,10 @@
 //! Level 2 checks: Type-aware analysis
 //!
-//! - Argument count mismatches
-//! - Type mismatches (future)
+//! - Undefined methods on known types
+//! - Undefined properties on known types
 
-mod argument_count;
+mod call_methods;
+mod property_access;
 
-pub use argument_count::ArgumentCountCheck;
+pub use call_methods::CallMethodsCheck;
+pub use property_access::PropertyAccessCheck;
