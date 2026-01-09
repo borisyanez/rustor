@@ -1,0 +1,21 @@
+<?php
+
+use PhpCsFixer\Config;
+use PhpCsFixer\Finder;
+
+$finder = Finder::create()
+    ->in(__DIR__.'/original')
+    ->name('*.php');
+
+return (new Config())
+    ->setRiskyAllowed(true)
+    ->setRules([
+        '@PSR12' => true,
+        'braces_position' => [
+            'functions_opening_brace' => 'same_line',
+            'classes_opening_brace' => 'same_line',
+            'control_structures_opening_brace' => 'same_line',
+        ],
+        'single_quote' => true,
+    ])
+    ->setFinder($finder);
