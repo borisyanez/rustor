@@ -76,6 +76,7 @@ impl CheckRegistry {
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
         registry.register(Box::new(level1::MagicMethodsCheck));
+        registry.register(Box::new(level1::UnusedConstructorParameterCheck));
 
         // Level 2 checks
         registry.register(Box::new(level2::CallMethodsCheck));
@@ -87,6 +88,7 @@ impl CheckRegistry {
 
         // Level 4 checks
         registry.register(Box::new(level4::DeadCodeCheck));
+        registry.register(Box::new(level4::UnusedResultCheck));
 
         // Level 5 checks
         registry.register(Box::new(level5::ArgumentTypeCheck));

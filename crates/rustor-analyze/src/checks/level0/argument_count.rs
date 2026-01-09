@@ -196,8 +196,8 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                             .with_identifier("arguments.count"),
                         );
                     } else if let Some(max) = sig.max_args {
-                        // PHPStan only reports "too many arguments" at level 2+
-                        if arg_count > max && self.analysis_level >= 2 {
+                        // PHPStan reports "too many arguments" at level 1+
+                        if arg_count > max && self.analysis_level >= 1 {
                             let (line, col) = self.get_line_col(name_span.start.offset as usize);
                             self.issues.push(
                                 Issue::error(
@@ -269,8 +269,8 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                                 .with_identifier("arguments.count"),
                             );
                         } else if let Some(max) = sig.max_args {
-                            // PHPStan only reports "too many arguments" at level 2+
-                            if arg_count > max && self.analysis_level >= 2 {
+                            // PHPStan reports "too many arguments" at level 1+
+                            if arg_count > max && self.analysis_level >= 1 {
                                 let (line, col) = self.get_line_col(class_span.start.offset as usize);
                                 self.issues.push(
                                     Issue::error(

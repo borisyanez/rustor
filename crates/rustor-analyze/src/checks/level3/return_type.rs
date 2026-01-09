@@ -126,52 +126,11 @@ impl<'s> ReturnTypeAnalyzer<'s> {
         func_name: &str,
         return_type: Option<&str>,
         _is_method: bool,
-        func_span: mago_span::Span,
+        _func_span: mago_span::Span,
     ) {
-        let has_return_with_value = self.check_returns_in_block(body, func_name, return_type);
-
-        // Check if non-void function might not return a value
-        if let Some(rt) = return_type {
-            let rt_lower = rt.to_lowercase();
-            if rt_lower != "void" && rt_lower != "never" {
-                // Check if all code paths return a value
-                if !has_return_with_value && !self.block_all_paths_return(body) {
-                    let span = body.span();
-                    let (line, col) = self.get_line_col(span.end.offset as usize);
-                    self.issues.push(
-                        Issue::error(
-                            "return.type",
-                            format!(
-                                "Function {} should return {} but return statement is missing.",
-                                func_name, rt
-                            ),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("return.missing"),
-                    );
-                }
-            } else if rt_lower == "void" {
-                // Check void purity - void function with no side effects is useless
-                if !self.block_has_side_effects(body) {
-                    let (line, col) = self.get_line_col(func_span.start.offset as usize);
-                    self.issues.push(
-                        Issue::error(
-                            "return.type",
-                            format!(
-                                "Function {} with return type void does not have any side effects.",
-                                func_name
-                            ),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("void.pure"),
-                    );
-                }
-            }
-        }
+        // Check returns in block for type validation
+        // Missing return check is handled by MissingReturnCheck at level 0
+        self.check_returns_in_block(body, func_name, return_type);
     }
 
     fn analyze_method_body<'a>(
@@ -181,35 +140,9 @@ impl<'s> ReturnTypeAnalyzer<'s> {
         return_type: Option<&str>,
         _method_span: mago_span::Span,
     ) {
-        let has_return_with_value = self.check_returns_in_block(body, method_name, return_type);
-
-        // Check if non-void method might not return a value
-        if let Some(rt) = return_type {
-            let rt_lower = rt.to_lowercase();
-            // Skip constructor, destructor, void, never
-            if rt_lower != "void" && rt_lower != "never"
-               && !method_name.ends_with("::__construct")
-               && !method_name.ends_with("::__destruct") {
-                if !has_return_with_value && !self.block_all_paths_return(body) {
-                    let span = body.span();
-                    let (line, col) = self.get_line_col(span.end.offset as usize);
-                    self.issues.push(
-                        Issue::error(
-                            "return.type",
-                            format!(
-                                "Method {} should return {} but return statement is missing.",
-                                method_name, rt
-                            ),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("return.missing"),
-                    );
-                }
-            }
-            // Note: PHPStan only does void.pure check for standalone functions, not class methods
-        }
+        // Check returns in block for type validation
+        // Missing return check is handled by MissingReturnCheck at level 0
+        self.check_returns_in_block(body, method_name, return_type);
     }
 
     /// Check all return statements in a block and return true if any has a value
@@ -450,6 +383,14 @@ impl<'s> ReturnTypeAnalyzer<'s> {
         // null is compatible with nullable types
         if actual == "null" && expected.starts_with('?') {
             return true;
+        }
+
+        // Non-null value is compatible with nullable type (?string accepts string)
+        if expected.starts_with('?') {
+            let base_type = &expected[1..];
+            if actual == base_type {
+                return true;
+            }
         }
 
         // int is compatible with float

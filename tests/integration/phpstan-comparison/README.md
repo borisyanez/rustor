@@ -7,9 +7,12 @@ This directory contains integration tests that compare rustor-analyze output wit
 | Level | Match Rate | Status |
 |-------|------------|--------|
 | 0 | 100% (13/13) | ✅ Full compatibility |
-| 1 | 100% | ✅ Full compatibility |
-| 2 | 92% (12/13) | ⚠️ Minor differences (unused parameter check not implemented) |
-| 3+ | Varies | ⚠️ Some differences in type checking behavior |
+| 1 | 100% (13/13) | ✅ Full compatibility |
+| 2 | 100% (13/13) | ✅ Full compatibility |
+| 3 | 100% (13/13) | ✅ Full compatibility |
+| 4 | 92% (12/13) | ⚠️ Missing: `smallerOrEqual.alwaysTrue` (type range narrowing) |
+| 5 | 92% (12/13) | ⚠️ Missing: `smallerOrEqual.alwaysTrue` |
+| 6 | 85% (11/13) | ⚠️ Missing: `smallerOrEqual.alwaysTrue`, `missingType.iterableValue` |
 
 ## Running Tests
 
@@ -40,16 +43,21 @@ This directory contains integration tests that compare rustor-analyze output wit
 | Argument count (functions) | `arguments.count` | 0 | ✅ Implemented |
 | Argument count (methods) | `arguments.count` | 2 | ✅ Implemented |
 | Argument count (constructors) | `arguments.count` | 0 | ✅ Implemented |
+| Unused constructor parameter | `constructor.unusedParameter` | 1 | ✅ Implemented |
 | Possibly undefined variable | `variable.possiblyUndefined` | 1 | ✅ Implemented |
-| Missing return statement | `return.missing` | 3 | ✅ Implemented |
+| Missing return statement | `return.missing` | 0 | ✅ Implemented |
 | Property type mismatch | `property.type` | 3 | ✅ Implemented |
+| Return type mismatch | `return.type` | 3 | ✅ Implemented |
 | Dead code / unreachable | `deadCode.unreachable` | 4 | ✅ Implemented |
 | Always-false instanceof | `instanceof.alwaysFalse` | 4 | ✅ Implemented |
 | Redundant type narrowing | `function.alreadyNarrowedType` | 4 | ✅ Implemented |
+| Unused function result | `function.resultUnused` | 4 | ✅ Implemented |
 | Argument type mismatch | `argument.type` | 5 | ✅ Implemented |
 | Missing parameter type | `missingType.parameter` | 6 | ✅ Implemented |
 | Missing return type | `missingType.return` | 6 | ✅ Implemented |
 | Missing property type | `missingType.property` | 6 | ✅ Implemented |
+| Comparison always true/false | `smallerOrEqual.alwaysTrue` | 4 | ❌ Not implemented |
+| Iterable value type | `missingType.iterableValue` | 6 | ❌ Not implemented |
 
 ### Detailed Findings
 
