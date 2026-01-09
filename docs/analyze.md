@@ -289,38 +289,63 @@ rustor analyze src/ --level 1 --phpstan-compat
 | 1 | 100% (13/13) | Full compatibility |
 | 2 | 100% (13/13) | Full compatibility |
 | 3 | 100% (13/13) | Full compatibility |
-| 4 | 92% (12/13) | Missing: `smallerOrEqual.alwaysTrue` |
-| 5 | 92% (12/13) | Missing: `smallerOrEqual.alwaysTrue` |
-| 6 | 85% (11/13) | Missing: `smallerOrEqual.alwaysTrue`, `missingType.iterableValue` |
+| 4 | 100% (13/13) | Full compatibility |
+| 5 | 100% (13/13) | Full compatibility |
+| 6 | 100% (13/13) | Full compatibility |
 
 ---
 
 ## Output Formats
 
-### Raw (default)
+Rustor supports four output formats, all designed to match PHPStan's output exactly.
 
-Human-readable output with file paths and line numbers:
+### Table (default)
+
+PHPStan-style formatted table with line numbers, messages, and error identifiers:
+
+```bash
+rustor analyze src/ --level 3 --error-format table
+```
+
+Output:
 
 ```
- -- src/Controller.php --
-
- ERROR Line 45: Call to undefined function undefined_func()
- ERROR Line 67: Undefined variable $request
+ ------ -----------------------------------------------------------------------
+  Line   Controller.php
+ ------ -----------------------------------------------------------------------
+  45     Call to undefined function undefined_func()
+         🪪  function.notFound
+  67     Undefined variable $request
+         🪪  variable.undefined
+ ------ -----------------------------------------------------------------------
 
  [ERROR] Found 2 errors
 ```
 
-### Table
+When there are no errors:
 
-Formatted table output:
+```
+ [OK] No errors
+```
+
+### Raw
+
+Simple `file:line:message` format, one error per line. Matches PHPStan's raw format exactly:
 
 ```bash
-rustor analyze src/ --level 2 --error-format table
+rustor analyze src/ --level 3 --error-format raw
+```
+
+Output:
+
+```
+src/Controller.php:45:Call to undefined function undefined_func()
+src/Controller.php:67:Undefined variable $request
 ```
 
 ### JSON
 
-Machine-readable JSON for CI/CD integration:
+Machine-readable JSON for CI/CD integration. Matches PHPStan's JSON output structure:
 
 ```bash
 rustor analyze src/ --level 2 --error-format json
@@ -343,6 +368,12 @@ Output structure:
           "line": 45,
           "ignorable": true,
           "identifier": "function.notFound"
+        },
+        {
+          "message": "Undefined variable $request",
+          "line": 67,
+          "ignorable": true,
+          "identifier": "variable.undefined"
         }
       ]
     }
@@ -365,6 +396,15 @@ Output:
 ::error file=src/Controller.php,line=45::Call to undefined function undefined_func()
 ::error file=src/Controller.php,line=67::Undefined variable $request
 ```
+
+### Format Comparison
+
+| Format | Use Case | PHPStan Compatible |
+|--------|----------|-------------------|
+| `table` | Terminal output, human review | Yes |
+| `raw` | Simple parsing, logs | Yes |
+| `json` | CI/CD, automation, scripts | Yes |
+| `github` | GitHub Actions annotations | Yes |
 
 ---
 
@@ -624,6 +664,7 @@ fi
 | Always-false instanceof | `instanceof.alwaysFalse` | Instanceof between string and stdClass will always evaluate to false |
 | Redundant type check | `function.alreadyNarrowedType` | Call to function is_string() with string will always evaluate to true |
 | Unused result | `function.resultUnused` | Call to function strlen() on a separate line has no effect |
+| Always-true comparison | `smallerOrEqual.alwaysTrue` | Comparison operation "<=" between int<min, 0> and 0 is always true |
 
 ### Level 5
 
@@ -638,6 +679,7 @@ fi
 | Missing parameter type | `missingType.parameter` | Method Foo::bar() has parameter $x with no type specified |
 | Missing return type | `missingType.return` | Method Foo::bar() has no return type specified |
 | Missing property type | `missingType.property` | Property Foo::$bar has no type specified |
+| Missing iterable value type | `missingType.iterableValue` | Method Foo::bar() has parameter $arr with no value type specified in iterable type array |
 
 ---
 
