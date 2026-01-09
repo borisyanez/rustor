@@ -1,0 +1,525 @@
+includes:
+  - phpstan-baseline.neon
+parameters:
+  level: 6
+  reportUnmatchedIgnoredErrors: false
+  tmpDir: test-results/phpstan
+  paths:
+    - activation-method
+    - api
+    - bank-account
+    - cash-partner
+    - config
+    - credit-line
+    - creditline-consumer
+    - datadog
+    - enroll_device
+    - finance-engine
+    - finance-platform
+    - hooks
+    - knox-guard
+    - kyc-validations
+    - Merchant
+    - Money
+    - partner
+    - payment-options
+    - payments
+    - paynearme
+    - privacy_resources
+    - protection-plan
+    - risk
+    - score
+    - scripts
+    - slim
+    - src
+    - test
+    - tools
+    - trustonic
+    - util
+    - www
+  excludePaths:
+    - api/paynearme-authorize.php
+    - creditline-consumer/common/mocks/IdsapiServiceDummy.php
+    - finance-engine/CreditCard/PomeloSFTPClient.php
+    - risk/data/CreditScoreByUserIdData.php
+    - risk/dataVendor
+    - scripts/2022-06-09-password-reset.php
+    - scripts/2022-06-13-password-reset.php
+    - scripts/2022-06-15-password-reset.php
+    - test/php7unit
+    - test/finance-platform-disabled
+    - scripts/2022-06-16-password-reset.php
+    - scripts/2022-06-bulk-password-reset.php
+    - scripts/2022-09-06-password-reset.php
+    - scripts/citycell-guerreromobile-password-reset.php
+    - test/bootstrap.php
+    - test/php7unit/src/Tests/golden-files/golden_file.php
+    - tools/convert_tests_to_database_testcase.php
+    - tools/productConfiguratorTest.php
+    - tools/rector.php
+    - scripts/consumer/cl-limit-increase-eligibility-constants.php
+    - scripts/consumer/dev/backfill-card-eligible-dates.php
+    - scripts/consumer/limit-increases.php
+    - scripts/one-time
+    - src/Logger/PayjoyLoggerWrapper.php
+    - src/Services/Rector
+    - src/proxies
+    - test/MoneyAutomation
+    - test/bootstrap.php
+    - test/cypress
+    - tools/adminer
+    - tools/auth/vendor (?)
+    - tools/secure/credit-line/credit-card-simulator.php
+    - tools/secure/credit-line/credit-line-simulator.php
+    - tools/secure/sync-db-utils.php
+    - tools/secure/update-device-identifiers.php
+    - tools/secure/validate-mx-cash-curp.php
+    - tools/auth.php
+    - www/dashboard/api/auth/google.php
+    - www/help.php
+    - www/tcpdf
+    - creditline-consumer/common/mocks/CreditPullServiceDummy.php
+    - creditline-consumer/common/mocks/PersonRegServiceDummy.php
+    - creditline-consumer/common/di-configs/tests-config.php
+    - tools/secure/credit-line/mark-codi-paid.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseDbalManager.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseDebugger.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseDoctrineIntegrationTest.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseDoctrineManager.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseLockManager.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseRetryHandler.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseSessionConfigurator.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseTransactionManager.php
+    - test/php7unit/payjoy/DatabaseComponents/DatabaseUnifiedConnectionManager.php
+    - test/php7unit/payjoy/DatabaseComponents/TestEntityManagerWrapper.php (?)
+    - test/php7unit/payjoy/DatabaseComponents/TransactionalMysqliWrapper.php (?)
+    - test/php7unit/payjoy/database-test-case.php (?)
+    - test/php7unit/AcceptPaymentTest.php (?)
+    - test/php7unit/AccountDetailsTest.php (?)
+    - test/php7unit/AccountInfoUtilTest.php (?)
+    - test/php7unit/AccountingUtilTest.php (?)
+    - test/php7unit/ActionLogTest.php (?)
+    - test/php7unit/ActivateFinanceOrderTest.php (?)
+    - test/php7unit/ActivateUtilTest.php (?)
+    - test/php7unit/ActivationMethodTest.php (?)
+    - test/php7unit/AddMissingCodiPaymentsTest.php (?)
+    - test/php7unit/AddressVerifyTest.php (?)
+    - test/php7unit/AdminAccountOrmTest.php (?)
+    - test/php7unit/AdminReportsTest.php (?)
+    - test/php7unit/ApiUtilTest.php (?)
+    - test/php7unit/AuthenticatorTest.php (?)
+    - test/php7unit/AuthenticatorV2Test.php (?)
+    - test/php7unit/AutoApkDownloadTest.php (?)
+    - test/php7unit/BankAccountServiceTest.php (?)
+    - test/php7unit/BrazilEligibilityTest.php (?)
+    - test/php7unit/BrazilOnLineDownPaymentsTest.php (?)
+    - test/php7unit/BulkUploadVoucherCodesTest.php (?)
+    - test/php7unit/CancelFinanceOrderTest.php (?)
+    - test/php7unit/CancelInStorePaymentTest.php (?)
+    - test/php7unit/CartGeolocationTest.php (?)
+    - test/php7unit/CartValidatorServiceTest.php (?)
+    - test/php7unit/ChatBotCustomerServiceTest.php (?)
+    - test/php7unit/ChatBotSalesClerkServiceTest.php (?)
+    - test/php7unit/ChatBotSalesClerkValidatorTest.php (?)
+    - test/php7unit/ChatBotValidatorTest.php (?)
+    - test/php7unit/ChatbotTest.php (?)
+    - test/php7unit/CheckImageForFaceUtilTest.php (?)
+    - test/php7unit/CirculoTest.php (?)
+    - test/php7unit/ClabeUtilTest.php (?)
+    - test/php7unit/CoPaymentTest.php (?)
+    - test/php7unit/CodiPaymentTest.php (?)
+    - test/php7unit/CompanyTest.php (?)
+    - test/php7unit/CompatibilityCodesCheckSamsungCompatibilityTest.php (?)
+    - test/php7unit/CompatibilityTest.php (?)
+    - test/php7unit/ComputePeriodicPaymentsTest.php (?)
+    - test/php7unit/ConektaPaymentsTest.php (?)
+    - test/php7unit/ConektaUtilTest.php (?)
+    - test/php7unit/ContractTest.php (?)
+    - test/php7unit/ContractsAllocationTest.php (?)
+    - test/php7unit/ContractsTest.php (?)
+    - test/php7unit/CreateSalesclerkTest.php (?)
+    - test/php7unit/CreditLineInterfaceTest.php (?)
+    - test/php7unit/CustomerCartServiceTest.php (?)
+    - test/php7unit/CustomerUtilTest.php (?)
+    - test/php7unit/DataDogApiTest.php (?)
+    - test/php7unit/DataDogServiceTest.php (?)
+    - test/php7unit/DbSqlTest.php (?)
+    - test/php7unit/DbUserTest.php (?)
+    - test/php7unit/DebtAcknowledgementServiceTest.php (?)
+    - test/php7unit/DefaultPricingTest.php (?)
+    - test/php7unit/DeviceApiTest.php (?)
+    - test/php7unit/DeviceConfigTest.php (?)
+    - test/php7unit/DeviceFamilyMergeTest.php (?)
+    - test/php7unit/DeviceLockTest.php (?)
+    - test/php7unit/DeviceManagerUtilTest.php (?)
+    - test/php7unit/DeviceModelTest.php (?)
+    - test/php7unit/DeviceNotificationTest.php (?)
+    - test/php7unit/DeviceProxyTest.php (?)
+    - test/php7unit/DeviceTest.php (?)
+    - test/php7unit/DeviceVariantTest.php (?)
+    - test/php7unit/DevicesSearchWithoutContractUtilTest.php (?)
+    - test/php7unit/DictSelectorTest.php (?)
+    - test/php7unit/DoctrineExtensionsTest.php (?)
+    - test/php7unit/EcRedActivaPaymentTest.php (?)
+    - test/php7unit/EcuadorEligibilityTest.php (?)
+    - test/php7unit/EligibilityBaseTest.php (?)
+    - test/php7unit/EmergencyPhoneNumbersTest.php (?)
+    - test/php7unit/EquifaxCreditTest.php (?)
+    - test/php7unit/ExecuteSqlWithRetryTest.php (?)
+    - test/php7unit/ExistingCreditLineOrderProcessorTest.php (?)
+    - test/php7unit/ExperimentTest.php (?)
+    - test/php7unit/FaceMatchTest.php (?)
+    - test/php7unit/FacturaTest.php (?)
+    - test/php7unit/FcmTest.php (?)
+    - test/php7unit/FeesAndTaxesCoOverrideTest.php (?)
+    - test/php7unit/FeesAndTaxesPETest.php (?)
+    - test/php7unit/FeesAndTaxesPeOverrideTest.php (?)
+    - test/php7unit/FileManagerTest.php (?)
+    - test/php7unit/FinancePartnerPaymentApiTest.php (?)
+    - test/php7unit/FinancePartnerTest.php (?)
+    - test/php7unit/FinanceProviderOrmTest.php (?)
+    - test/php7unit/FormatAsMoneyTest.php (?)
+    - test/php7unit/GeneralFormattingTest.php (?)
+    - test/php7unit/GenerateUnlockCodeForExpirationChangeTest.php (?)
+    - test/php7unit/GetAccessConfigTest.php (?)
+    - test/php7unit/GetDataUtilsTest.php (?)
+    - test/php7unit/GetDeviceManagerDataByIdTest.php (?)
+    - test/php7unit/GetPaymentProgressTest.php (?)
+    - test/php7unit/GetPhotoTest.php (?)
+    - test/php7unit/GetStatusUtilTest.php (?)
+    - test/php7unit/H2HEndpointTest.php (?)
+    - test/php7unit/H2HPaymentTest.php (?)
+    - test/php7unit/H2HRetryServiceTest.php (?)
+    - test/php7unit/IdVerifyTest.php (?)
+    - test/php7unit/InstalledAppsTest.php (?)
+    - test/php7unit/KnoxCheckoutUtilTest.php (?)
+    - test/php7unit/KnoxConfigureTest.php (?)
+    - test/php7unit/KnoxGuardApiTest.php (?)
+    - test/php7unit/KnoxGuardEnrollTest.php (?)
+    - test/php7unit/KnoxGuardServiceTest.php (?)
+    - test/php7unit/KushkiPaymentTest.php (?)
+    - test/php7unit/LoansQeqTest.php (?)
+    - test/php7unit/LocationTrackingTest.php (?)
+    - test/php7unit/LockApiTest.php (?)
+    - test/php7unit/LockApiToCsvTest.php (?)
+    - test/php7unit/LoggingHandlersTest.php (?)
+    - test/php7unit/MarketingUtilTest.php (?)
+    - test/php7unit/MerchantFlagTest.php (?)
+    - test/php7unit/MerchantOrmTest.php (?)
+    - test/php7unit/MerchantSessionTest.php (?)
+    - test/php7unit/MerchantTest.php (?)
+    - test/php7unit/MerchantsInEdomexAndCdmxTest.php (?)
+    - test/php7unit/MessageBirdSmsProviderTest.php (?)
+    - test/php7unit/MetabaseUtilTest.php (?)
+    - test/php7unit/MexicoEligibilityTest.php (?)
+    - test/php7unit/MockCompareFacesTest.php (?)
+    - test/php7unit/MoneyTest.php (?)
+    - test/php7unit/MxStpPaymentTest.php (?)
+    - test/php7unit/NexmoSmsProviderTest.php (?)
+    - test/php7unit/NotSupportedTest.php (?)
+    - test/php7unit/NotifyWebhookTest.php (?)
+    - test/php7unit/OpenPayTest.php (?)
+    - test/php7unit/OpenpayDownPaymentsTest.php (?)
+    - test/php7unit/OrderDetailsApiTest.php (?)
+    - test/php7unit/PaInStorePaymentTest.php (?)
+    - test/php7unit/PaPaymentTest.php (?)
+    - test/php7unit/PartnerDeviceNotificationsTest.php (?)
+    - test/php7unit/PartnerSlackNotificationTest.php (?)
+    - test/php7unit/PayAtDownPaymentUtilTest.php (?)
+    - test/php7unit/PayAtPaymentTest.php (?)
+    - test/php7unit/PayWebviewsTest.php (?)
+    - test/php7unit/PayjoyInternalUpdateDeviceManagerTest.php (?)
+    - test/php7unit/PaymentsCommonTest.php (?)
+    - test/php7unit/PeInStorePaymentTest.php (?)
+    - test/php7unit/PePaymentTest.php (?)
+    - test/php7unit/PespayDownPaymentsTest.php (?)
+    - test/php7unit/PhDlocalPaymentTest.php (?)
+    - test/php7unit/PhilippinesEligibilityTest.php (?)
+    - test/php7unit/PhinxTest.php (?)
+    - test/php7unit/PhoneFinanceIncodeServiceTest.php (?)
+    - test/php7unit/PhotoIdUploadsTest.php (?)
+    - test/php7unit/PreclaimDeviceRepositoryTest.php (?)
+    - test/php7unit/PreclaimToolTest.php (?)
+    - test/php7unit/PromoCampaignTest.php (?)
+    - test/php7unit/PurchaseAllowedByFinanceHistoryTest.php (?)
+    - test/php7unit/ReachcoreTest.php (?)
+    - test/php7unit/RecommendedOffersTest.php (?)
+    - test/php7unit/RegisterUtilTest.php (?)
+    - test/php7unit/RemovabilityCheckTest.php (?)
+    - test/php7unit/RemovabilityHelperTest.php (?)
+    - test/php7unit/SaveFacebookDataTest.php (?)
+    - test/php7unit/SaveUserActivityTest.php (?)
+    - test/php7unit/SelfieUploadTest.php (?)
+    - test/php7unit/SendPaymentReceivedEmailTest.php (?)
+    - test/php7unit/SendWelcomeEmailTest.php (?)
+    - test/php7unit/ServerRequestedActionsTest.php (?)
+    - test/php7unit/SetPartnerSuppliedImeiTest.php (?)
+    - test/php7unit/SetUserPhoneSmsTest.php (?)
+    - test/php7unit/SmsProviderTest.php (?)
+    - test/php7unit/SmsProviderUtilTest.php (?)
+    - test/php7unit/SmsReminderTest.php (?)
+    - test/php7unit/SmsUtilTest.php (?)
+    - test/php7unit/SouthAfricaEligibilityTest.php (?)
+    - test/php7unit/StripeMxTest.php (?)
+    - test/php7unit/StripeRefundTest.php (?)
+    - test/php7unit/SupportedOffersListsTest.php (?)
+    - test/php7unit/SystemStatusCheckTest.php (?)
+    - test/php7unit/TagTest.php (?)
+    - test/php7unit/TemplateSubstitutionTest.php (?)
+    - test/php7unit/TestName.php (?)
+    - test/php7unit/TimeTest.php (?)
+    - test/php7unit/TranslatorTest.php (?)
+    - test/php7unit/TwilioSmsProviderTest.php (?)
+    - test/php7unit/UpdateDeviceManagerTest.php (?)
+    - test/php7unit/UpdateExpirationDeviceCodeTest.php (?)
+    - test/php7unit/UpdatePreferencesTest.php (?)
+    - test/php7unit/UpdateSalesclerkTest.php (?)
+    - test/php7unit/UserCompareEdgeCasesTest.php (?)
+    - test/php7unit/UserCompareMergeTest.php (?)
+    - test/php7unit/UserCompareTest.php (?)
+    - test/php7unit/UserQueryTest.php (?)
+    - test/php7unit/ZeroTouchServiceTest.php (?)
+    - test/php7unit/ZipCodeTaxTest.php (?)
+    - test/php7unit/ZohoV2Test.php (?)
+    - test/php7unit/ZoralApiTest.php (?)
+    - test/php7unit/api/Chatbot/Validator/ExtendValidThroughChatbotValidatorTest.php (?)
+    - test/php7unit/api/partner/CancelVoucherTest.php (?)
+    - test/php7unit/api/partner/ListTransactionsTest.php (?)
+    - test/php7unit/api/partner/RedeemVoucherTest.php (?)
+    - test/php7unit/api/partner/UpdateDeviceIdentifiersTest.php (?)
+    - test/php7unit/asaas/AsaasWebhookTest.php (?)
+    - test/php7unit/contracts-allocation-test/BulkAllocationToolTest.php (?)
+    - test/php7unit/contracts-allocation-test/ContractExportTest.php (?)
+    - test/php7unit/contracts-allocation-test/CreditLineContractsAllocationTest.php (?)
+    - test/php7unit/contracts-allocation-test/DebitLineContractsAllocationTest.php (?)
+    - test/php7unit/contracts-allocation-test/FinanceOrderContractsAllocationTest.php (?)
+    - test/php7unit/contracts-allocation-test/OwnerEntityFinanceOrderServiceTest.php (?)
+    - test/php7unit/core-app-onboarding/OnboardingTest.php (?)
+    - test/php7unit/coreapp/CreditLineContractUtilTest.php (?)
+    - test/php7unit/credit-line/CreditLineH2HHandlerTest.php (?)
+    - test/php7unit/credit-line/CreditLineUtil2Test.php (?)
+    - test/php7unit/credit-line/CreditLineUtil3Test.php (?)
+    - test/php7unit/credit-line/CreditLineUtilTest.php (?)
+    - test/php7unit/credit-line/RcDebitTest.php (?)
+    - test/php7unit/credit-line/RcLineTest.php (?)
+    - test/php7unit/credit-line/RcWindowPickupH2hPaymentTest.php (?)
+    - test/php7unit/creditline-consumer/ConsumerDeviceCountryTest.php (?)
+    - test/php7unit/creditline-consumer/CreditLineSummaryHandlerTest.php (?)
+    - test/php7unit/creditline-consumer/CreditLineUtilServiceTest.php (?)
+    - test/php7unit/creditline-consumer/MxCreditLineUtilServiceTest.php (?)
+    - test/php7unit/creditline-instore/InstoreDeviceCompatibilityTest.php (?)
+    - test/php7unit/dashboard/Services/FuturePaymentScheduleServiceTest.php (?)
+    - test/php7unit/direct-customer-search/DirectCustomerSearchUtilTest.php (?)
+    - test/php7unit/direct-customer-search/search-modalities/DirectCustomerSearchByCartTest.php (?)
+    - test/php7unit/direct-customer-search/search-modalities/DirectCustomerSearchByContractTest.php (?)
+    - test/php7unit/direct-customer-search/search-modalities/DirectCustomerSearchByDeviceTest.php (?)
+    - test/php7unit/direct-customer-search/search-modalities/DirectCustomerSearchTest.php (?)
+    - test/php7unit/emailage/EmailRiskTest.php (?)
+    - test/php7unit/emailage/EmailageClientTest.php (?)
+    - test/php7unit/emailage/EmailageIntegrationTest.php (?)
+    - test/php7unit/emailage/EmailageTest.php (?)
+    - test/php7unit/emailage/OAuth1Test.php (?)
+    - test/php7unit/equifax-peru-credit-report-test/EquifaxPeruCreditReportTest.php (?)
+    - test/php7unit/finance-engine/CreditAdjustmentServiceTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/CreditCardOrchestratorTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/Pomelo/PomeloUserTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/PomeloApiServiceTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/PomeloClientTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/PomeloPresentmentsTransactionHandlerTest.php (?)
+    - test/php7unit/finance-engine/CreditCard/Services/CreditCardWithdrawalServiceTest.php (?)
+    - test/php7unit/finance-engine/CreditLineChargedOffTest.php (?)
+    - test/php7unit/finance-engine/CreditLineOrchestratorTest.php (?)
+    - test/php7unit/finance-engine/CreditLineServiceTest.php (?)
+    - test/php7unit/finance-engine/CreditLineSummaryServiceTest.php (?)
+    - test/php7unit/finance-engine/DI/ContainerTest.php (?)
+    - test/php7unit/finance-engine/DebitDisbursementTest.php (?)
+    - test/php7unit/finance-engine/DebitTest.php (?)
+    - test/php7unit/finance-engine/FinanceEngineDoctrineTest.php (?)
+    - test/php7unit/finance-engine/FraudLabelingUtilTest.php (?)
+    - test/php7unit/finance-engine/PaymentAllocationTest.php (?)
+    - test/php7unit/finance-engine/Payments/SuperPacmanIntegrationMexicoTestCase.php (?)
+    - test/php7unit/finance-engine/credit-line/FeesAndTaxes/Services/CoDebitFeesAndTaxesServiceTest.php (?)
+    - test/php7unit/finance-engine/credit-line/FeesAndTaxes/Services/DebitFeesAndTaxesServiceFactoryTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/CoOperationServiceTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/CreditLineWithdrawalServiceTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/EfectyDebitDisbursementServiceTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/H2hBridgeTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/MxOperationServiceTest.php (?)
+    - test/php7unit/finance-engine/credit-line/services/OperationServiceFactoryTest.php (?)
+    - test/php7unit/finance-engine/events/FinanceEngineEventPublisherTest.php (?)
+    - test/php7unit/finance-engine/events/PaymentCompletedEventTest.php (?)
+    - test/php7unit/finance-engine/fev2-api/FeV2AuthTest.php (?)
+    - test/php7unit/finance-engine/fev2-api/FeV2CreditCardUtilsTest.php (?)
+    - test/php7unit/finance-engine/fev2-api/FeV2CreditLineTest.php (?)
+    - test/php7unit/finance-engine/fev2-api/FeV2FeesAndTaxesUtilsTest.php (?)
+    - test/php7unit/finance-engine/fev2-api/FeV2UtilsTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineManagerServiceTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineOrderServiceTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLinePhonePurchaseServiceTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineServiceCloseCreditLineTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineServiceCreateCreditLineForPhonePurchaseTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineServiceGetPaymentReferenceTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineServiceIntegrationTest.php (?)
+    - test/php7unit/finance-engine/services/CreditLineServiceV2Test.php (?)
+    - test/php7unit/finance-engine/services/DebitDisbursementServiceFactoryTest.php (?)
+    - test/php7unit/finance-engine/services/DebitDisbursementServiceTest.php (?)
+    - test/php7unit/finance-engine/services/DebitServiceTest.php (?)
+    - test/php7unit/finance-engine/services/DeviceUpdater/DatabaseDeviceUpdaterTest.php (?)
+    - test/php7unit/finance-engine/services/FinancialProductCancelation/JointLoanLineCancelationServiceE2ETest.php (?)
+    - test/php7unit/finance-engine/services/FinancialProductCreator/JointLoanLineCreatorTest.php (?)
+    - test/php7unit/finance-engine/services/PaymentAllocationServiceTest.php (?)
+    - test/php7unit/finance-engine/services/RewardServiceTest.php (?)
+    - test/php7unit/finance-engine/services/SuperPacmanSummaryServiceE2ETest.php (?)
+    - test/php7unit/finance-engine/taxes/CoTaxRuleServiceTest.php (?)
+    - test/php7unit/finance-engine/taxes/MxTaxRuleServiceTest.php (?)
+    - test/php7unit/finance-engine/taxes/NoTaxRuleServiceTest.php (?)
+    - test/php7unit/finance-engine/taxes/TaxRuleServiceFactoryTest.php (?)
+    - test/php7unit/finance-platform/DashboardNotificationRequestsTest.php (?)
+    - test/php7unit/merchant-v3/EsignPendingBmpContractsTest.php (?)
+    - test/php7unit/merchant-v3/FinanceOrderRepositoryTest.php (?)
+    - test/php7unit/merchant-v3/MerchantTranslatorTest.php (?)
+    - test/php7unit/merchant-v3/SupportedOffersDoctrineTest.php (?)
+    - test/php7unit/merchant-v3/services/CacheDeviceDetailProviderTest.php (?)
+    - test/php7unit/merchant-v3/services/CartServiceTest.php (?)
+    - test/php7unit/merchant-v3/services/Finance/NewCreditLineOrderProcessorTest.php (?)
+    - test/php7unit/merchant-v3/services/FinishCartReminderServiceTest.php (?)
+    - test/php7unit/partner/lenovo/LenovoApiTest.php (?)
+    - test/php7unit/payjoy-finance/BrStepwiseServiceTest.php (?)
+    - test/php7unit/payjoy-finance/CoEarlyPayoffFixerTest.php (?)
+    - test/php7unit/payjoy-finance/CoStepwiseServiceTest.php (?)
+    - test/php7unit/payjoy-finance/FeePaymentServiceTest.php (?)
+    - test/php7unit/payjoy-finance/FeesCalculatorTest.php (?)
+    - test/php7unit/payjoy-finance/FeesConfiguratorTest.php (?)
+    - test/php7unit/payjoy-finance/IdsapiFeesConfigOverrideTest.php (?)
+    - test/php7unit/payjoy-finance/MxFeesCalculatorTest.php (?)
+    - test/php7unit/payjoy-finance/PaFeesCalculatorTest.php (?)
+    - test/php7unit/payjoy-finance/PaStepwiseServiceTest.php (?)
+    - test/php7unit/payjoy-finance/PeEarlyPayoffFixerTest.php (?)
+    - test/php7unit/payjoy-finance/PeFeesCalculatorTest.php (?)
+    - test/php7unit/payjoy-finance/PeStepwiseServiceTest.php (?)
+    - test/php7unit/payjoy-finance/StepwiseServiceTest.php (?)
+    - test/php7unit/payjoy-finance/helpers/BrPaymentScheduleHelperTrait.php (?)
+    - test/php7unit/payjoy/dashboard-test-case.php (?)
+    - test/php7unit/payjoy/finance-partner-test-case.php (?)
+    - test/php7unit/payjoy/helpers/DatabaseTestHelpers.php (?)
+    - test/php7unit/payjoy/risk-test-case.php (?)
+    - test/php7unit/payjoy/slim-test-case.php (?)
+    - test/php7unit/payment-api/ClavePaymentApiClientTest.php (?)
+    - test/php7unit/payment-api/MxOxxoDirectPaymentApiClientTest.php (?)
+    - test/php7unit/payment-api/PaymentApiServiceSuperPacmanTest.php (?)
+    - test/php7unit/payment-api/PaymentApiServiceTest.php (?)
+    - test/php7unit/payment-api/PespayPaymentApiClientTest.php (?)
+    - test/php7unit/payment-options/Bridges/MxFeV1PaymentsBridgeTest.php (?)
+    - test/php7unit/payment-options/Bridges/ZaPaymentsBridgeTest.php (?)
+    - test/php7unit/payment-options/DI/PaymentOptionsContainerTest.php (?)
+    - test/php7unit/payments/PartialPaymentCalculatorTest.php (?)
+    - test/php7unit/payments/PartialPaymentTest.php (?)
+    - test/php7unit/payments/PayloadFormatterTest.php (?)
+    - test/php7unit/payments/StpPayments/AssignedFinancialProductClabeServiceTest.php (?)
+    - test/php7unit/persons-api-provider/BulkClerkRegistrationInvitationServiceTest.php (?)
+    - test/php7unit/persons-api-provider/PersonRegistrationServiceTest.php (?)
+    - test/php7unit/persons-api-provider/PersonServiceTest.php (?)
+    - test/php7unit/persons-api-provider/PersonsSalesClerkServiceTest.php (?)
+    - test/php7unit/risk/RiskServiceTest.php (?)
+    - test/php7unit/scripts/H2HEntriesTest.php (?)
+    - test/php7unit/scripts/M3PeruClientsReportTest.php (?)
+    - test/php7unit/src/Offers/SupportedOffersServiceTest.php (?)
+    - test/php7unit/src/Repositories/ActiveRegistrationQueueItemRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/AdminDefaultPricingRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/CartPersonRegistrationTagRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/CartRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/CreditLineManagementActionRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/DeviceFamilyRatingRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/EventPublishingDlqRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/ExperimentRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/FinanceConsentRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/FraudopsEntityActionRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/FraudopsEntityQueueRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/LoginAttemptImageRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/MerchantDocumentRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/NoteRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/PersonRegistrationConfigurationsRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/SalesClerkRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/TicketRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/UserRepositoryFindMatchingTest.php (?)
+    - test/php7unit/src/Repositories/UserRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/VirtualVoucherEvertecTransactionRepositoryTest.php (?)
+    - test/php7unit/src/Repositories/VirtualVoucherRepositoryTest.php (?)
+    - test/php7unit/src/Services/AdminAccount/AdminAccountRiskRatingServiceTest.php (?)
+    - test/php7unit/src/Services/AdminAccount/BankDetails/BankDetailsFactoryTest.php (?)
+    - test/php7unit/src/Services/AdminAccount/BankDetails/BrazilBankDetailsServiceTest.php (?)
+    - test/php7unit/src/Services/AdminAccount/CatalogAndPricing/Validators/CatalogAndPricingFileValidatorTest.php (?)
+    - test/php7unit/src/Services/AdminAccount/Services/AdminAccountBulkServiceTest.php (?)
+    - test/php7unit/src/Services/AutoApproval/UserFieldsUpdaterE2eTest.php (?)
+    - test/php7unit/src/Services/BankIntegrations/BmpMoneyPlus/MockMoneyPlusBankClientTest.php (?)
+    - test/php7unit/src/Services/BankIntegrations/BmpMoneyPlus/MoneyPlusBankClientTest.php (?)
+    - test/php7unit/src/Services/BankIntegrations/BmpMoneyPlus/MoneyPlusBankServiceTest.php (?)
+    - test/php7unit/src/Services/BankIntegrations/Services/DefaultCalculationServiceTest.php (?)
+    - test/php7unit/src/Services/CalculationServiceFactoryTest.php (?)
+    - test/php7unit/src/Services/Checkout/Services/CheckoutTicketingServiceTest.php (?)
+    - test/php7unit/src/Services/Clam/ActionRecorder/CreditLineActionRecorderTest.php (?)
+    - test/php7unit/src/Services/Clam/Actions/ActionHydratorTest.php (?)
+    - test/php7unit/src/Services/Clam/Actions/CreditLineSetAccountStatusTest.php (?)
+    - test/php7unit/src/Services/Clam/Actions/CreditLineSetWithdrawalStatusTest.php (?)
+    - test/php7unit/src/Services/Clam/Sources/ClamIdsapiClientTest.php (?)
+    - test/php7unit/src/Services/Common/Note/NoteManagementServiceTest.php (?)
+    - test/php7unit/src/Services/ContractSigner/Services/ContractPinSenderServiceTest.php (?)
+    - test/php7unit/src/Services/CreditCardShipment/CreditCardShipmentServiceTest.php (?)
+    - test/php7unit/src/Services/Documents/Contract/CreditLineContractsSignerServiceTest.php (?)
+    - test/php7unit/src/Services/Eventing/DlqWrappedProducerTest.php (?)
+    - test/php7unit/src/Services/Eventing/SendToDlqProducerTest.php (?)
+    - test/php7unit/src/Services/Finance/FinanceOrderProcessorTest.php (?)
+    - test/php7unit/src/Services/FraudOpsDashboard/Handlers/EntityQueueDataHandlerTest.php (?)
+    - test/php7unit/src/Services/FraudOpsDashboard/Services/DeviceRatingNotesServiceTest.php (?)
+    - test/php7unit/src/Services/FraudOpsDashboard/Services/EntityQueueServiceTest.php (?)
+    - test/php7unit/src/Services/InConsoleMessages/InConsoleMessageServiceTest.php (?)
+    - test/php7unit/src/Services/Merchant/Bulk/MerchantBulk.php (?)
+    - test/php7unit/src/Services/Merchant/Bulk/MerchantBulkCreateTest.php (?)
+    - test/php7unit/src/Services/Merchant/MerchantServiceTest.php (?)
+    - test/php7unit/src/Services/Merchant/SalesReportServiceTest.php (?)
+    - test/php7unit/src/Services/MerchantFlags/AdminDefaultMerchantFlagsTest.php (?)
+    - test/php7unit/src/Services/Offers/FeesAndTaxesServiceTest.php (?)
+    - test/php7unit/src/Services/Offers/OffersServiceTest.php (?)
+    - test/php7unit/src/Services/Offers/Transformers/OffersApiTransformerFactoryTest.php (?)
+    - test/php7unit/src/Services/Offers/Transformers/PhoneFinanceCreditLineTransformerTest.php (?)
+    - test/php7unit/src/Services/OneTimePassword/Services/OneTimePasswordServiceTest.php (?)
+    - test/php7unit/src/Services/Rewards/Bulk/RewardsBulkCreateServiceTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Actions/AssignAgentTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Actions/CloseTicketTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Actions/CreateTicketTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Actions/GetTicketsTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Actions/UnassignAgentTest.php (?)
+    - test/php7unit/src/Services/TicketingSystem/Scripts/TicketingRunnerServiceTest.php (?)
+    - test/php7unit/transunion-za-credit-report-test/TransUnionSeamlessOnboardingTestCase.php (?)
+    - test/php7unit/transunion-za-credit-report-test/TransUnionZaAccountVerificationTest.php (?)
+    - test/php7unit/transunion-za-credit-report-test/TransUnionZaCreditReportTest.php (?)
+    - test/php7unit/transunion-za-credit-report-test/TransUnionZaCustomerReportTest.php (?)
+    - test/php7unit/util/authServices/JwtAuthServiceTest.php (?)
+    - test/php7unit/util/creditServices/CreditReportingFactoryTest.php (?)
+    - test/php7unit/util/creditServices/apc-intelidat-pa/ApcIntelidatPanamaCreditReporterTest.php (?)
+    - test/php7unit/util/creditServices/apc-intelidat-pa/ApcIntelidatPanamaServicesTest.php (?)
+    - test/php7unit/util/creditServices/apc-intelidat-pa/CreditReportingPaTest.php (?)
+    - test/php7unit/util/creditServices/boavista-br/BoaVistaBrCreditReportTest.php (?)
+    - test/php7unit/util/creditServices/circulo-lae-mx/CirculoLoanAmountEstimatorReportTest.php (?)
+    - test/php7unit/util/creditServices/experian-co/ExperianCoCreditReportTest.php (?)
+    - test/php7unit/util/experimentFrameworkTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/CreditNoteDocumentDataTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/SovosCoCreditLineInvoiceTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/SovosCoInvoiceGenerationTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/SovosPeInvoiceGenerationTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/SovosPeV2CreditNoteGenerationTest.php (?)
+    - test/php7unit/util/invoiceServices/sovos/SovosPeV2InvoiceGenerationTest.php (?)
+    - test/php7unit/util/payments/OpenpayCustomerPaymentWebhookTest.php (?)
+  scanFiles:
+    - tools/auth.php
+  scanDirectories:
+    - www/tcpdf
+  bootstrapFiles:
+    - hooks/auto-prepend-file.php
+  ignoreErrors:
+    - # Ignore cases where Doctrine objects have primary keys with no generated setter.
+     message: "#^Property .* is never written, only read\\.$#"
+     identifier: property.onlyRead
+     path: src/*.php
+  parallel:
+    maximumNumberOfProcesses: 6
