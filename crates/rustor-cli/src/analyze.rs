@@ -183,6 +183,8 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             if i < args.len() {
                 error_format = args[i].clone();
             }
+        } else if let Some(format) = arg.strip_prefix("--error-format=") {
+            error_format = format.to_string();
         } else if arg == "--generate-baseline" {
             i += 1;
             if i < args.len() {
