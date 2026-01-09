@@ -101,7 +101,7 @@ pub const PSR12_RULES: &[&str] = &[
 
     // Comments
     "no_trailing_whitespace_in_comment",
-    "single_line_comment_style",
+    // Note: single_line_comment_style is NOT in PHP-CS-Fixer's @PSR12 preset
 ];
 
 /// PER-CS preset rules (PHP Evolved Recommendations - extends PSR-12)
