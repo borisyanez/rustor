@@ -1,11 +1,23 @@
 //! Check for calls to undefined methods on known types (Level 2)
+//! Also validates method argument counts.
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+/// Method signature information
+#[derive(Debug, Clone)]
+struct MethodInfo {
+    /// Original method name (preserving case)
+    name: String,
+    /// Minimum required parameters
+    min_params: usize,
+    /// Maximum parameters (None if variadic)
+    max_params: Option<usize>,
+}
 
 /// Checks for method calls on objects where we know the type
 pub struct CallMethodsCheck;
@@ -32,6 +44,7 @@ impl Check for CallMethodsCheck {
             variable_types: HashMap::new(),
             builtin_classes: ctx.builtin_classes,
             issues: Vec::new(),
+            check_arg_counts: true,
         };
 
         // First pass: collect class methods
@@ -47,11 +60,12 @@ impl Check for CallMethodsCheck {
 struct MethodCallVisitor<'s> {
     source: &'s str,
     file_path: std::path::PathBuf,
-    class_methods: HashMap<String, HashSet<String>>, // class name (lowercase) -> method names
-    class_names: HashMap<String, String>,             // class name (lowercase) -> original name
-    variable_types: HashMap<String, String>,          // variable name -> class name (original)
+    class_methods: HashMap<String, HashMap<String, MethodInfo>>, // class name (lowercase) -> method name (lowercase) -> info
+    class_names: HashMap<String, String>,                         // class name (lowercase) -> original name
+    variable_types: HashMap<String, String>,                      // variable name -> class name (original)
     builtin_classes: &'s [&'static str],
     issues: Vec<Issue>,
+    check_arg_counts: bool,
 }
 
 impl<'s> MethodCallVisitor<'s> {
@@ -70,12 +84,40 @@ impl<'s> MethodCallVisitor<'s> {
             Statement::Class(class) => {
                 let original_name = self.get_span_text(&class.name.span).to_string();
                 let class_lower = original_name.to_lowercase();
-                let mut methods = HashSet::new();
+                let mut methods = HashMap::new();
 
                 for member in class.members.iter() {
                     if let ClassLikeMember::Method(method) = member {
-                        let method_name = self.get_span_text(&method.name.span).to_lowercase();
-                        methods.insert(method_name);
+                        let method_name = self.get_span_text(&method.name.span).to_string();
+                        let method_lower = method_name.to_lowercase();
+
+                        // Count parameters
+                        let params = &method.parameter_list.parameters;
+                        let mut min_params = 0;
+                        let mut is_variadic = false;
+
+                        for param in params.iter() {
+                            if param.ellipsis.is_some() {
+                                is_variadic = true;
+                            } else if param.default_value.is_none() {
+                                min_params += 1;
+                            }
+                        }
+
+                        let max_params = if is_variadic {
+                            None
+                        } else {
+                            Some(params.len())
+                        };
+
+                        methods.insert(
+                            method_lower,
+                            MethodInfo {
+                                name: method_name,
+                                min_params,
+                                max_params,
+                            },
+                        );
                     }
                 }
 
@@ -165,6 +207,7 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
 
             if let Some((method, method_span)) = method_info {
                 let method_lower = method.to_lowercase();
+                let arg_count = call.argument_list.arguments.len();
 
                 // Case 1: (new ClassName())->method()
                 if let Some(class_name) = self.get_instantiation_class(&call.object) {
@@ -175,7 +218,17 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
 
                     let class_lower = class_name.to_lowercase();
                     if let Some(methods) = self.class_methods.get(&class_lower) {
-                        if !methods.contains(&method_lower) {
+                        if let Some(method_info) = methods.get(&method_lower) {
+                            // Method exists - check argument count
+                            let method_info = method_info.clone();
+                            self.check_method_args(
+                                &class_name,
+                                &method_info,
+                                arg_count,
+                                method_span.start.offset as usize,
+                            );
+                        } else {
+                            // Method not found
                             let (line, col) = self.get_line_col(method_span.start.offset as usize);
                             self.issues.push(
                                 Issue::error(
@@ -196,7 +249,7 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
                 // Case 2: $obj->method() where $obj was assigned from new ClassName()
                 else if let Expression::Variable(Variable::Direct(var)) = &*call.object {
                     let var_name = self.get_span_text(&var.span).to_string();
-                    if let Some(class_name) = self.variable_types.get(&var_name) {
+                    if let Some(class_name) = self.variable_types.get(&var_name).cloned() {
                         let class_lower = class_name.to_lowercase();
                         // Skip built-in classes
                         if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(&class_name)) {
@@ -204,7 +257,17 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
                         }
 
                         if let Some(methods) = self.class_methods.get(&class_lower) {
-                            if !methods.contains(&method_lower) {
+                            if let Some(method_info) = methods.get(&method_lower) {
+                                // Method exists - check argument count
+                                let method_info = method_info.clone();
+                                self.check_method_args(
+                                    &class_name,
+                                    &method_info,
+                                    arg_count,
+                                    method_span.start.offset as usize,
+                                );
+                            } else {
+                                // Method not found
                                 let (line, col) = self.get_line_col(method_span.start.offset as usize);
                                 self.issues.push(
                                     Issue::error(
@@ -226,6 +289,67 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
             }
         }
         true
+    }
+}
+
+impl<'s> MethodCallVisitor<'s> {
+    fn check_method_args(
+        &mut self,
+        class_name: &str,
+        method_info: &MethodInfo,
+        arg_count: usize,
+        offset: usize,
+    ) {
+        if !self.check_arg_counts {
+            return;
+        }
+
+        let (line, col) = self.get_line_col(offset);
+
+        // Check for too few arguments
+        if arg_count < method_info.min_params {
+            self.issues.push(
+                Issue::error(
+                    "arguments.count",
+                    format!(
+                        "Method {}::{}() invoked with {} {}, {} required.",
+                        class_name,
+                        method_info.name,
+                        arg_count,
+                        if arg_count == 1 { "parameter" } else { "parameters" },
+                        method_info.min_params
+                    ),
+                    self.file_path.clone(),
+                    line,
+                    col,
+                )
+                .with_identifier("arguments.count"),
+            );
+            return;
+        }
+
+        // Check for too many arguments
+        if let Some(max) = method_info.max_params {
+            if arg_count > max {
+                self.issues.push(
+                    Issue::error(
+                        "arguments.count",
+                        format!(
+                            "Method {}::{}() invoked with {} {}, {} required.",
+                            class_name,
+                            method_info.name,
+                            arg_count,
+                            if arg_count == 1 { "parameter" } else { "parameters" },
+                            max
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("arguments.count"),
+                );
+            }
+        }
     }
 }
 

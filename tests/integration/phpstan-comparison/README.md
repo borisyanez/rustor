@@ -23,12 +23,15 @@ This directory contains integration tests that compare rustor-analyze output wit
 |-------|-----------|-------|---------------|
 | Undefined function | `function.notFound` | 0 | ✅ Implemented |
 | Undefined class | `class.notFound` | 0 | ✅ Implemented |
-| Undefined variable | `variable.undefined` | 1 | ⚠️ Partial (misses conditional) |
+| Undefined variable | `variable.undefined` | 1 | ✅ Implemented |
 | Undefined method | `method.notFound` | 2 | ✅ Implemented |
 | Undefined static method | `staticMethod.notFound` | 0 | ✅ Implemented |
 | Undefined property | `property.notFound` | 2 | ✅ Implemented |
 | Undefined class constant | `classConstant.notFound` | 0 | ✅ Implemented |
-| Argument count | `arguments.count` | 0 | ✅ Implemented (functions only) |
+| Argument count (functions) | `arguments.count` | 0 | ✅ Implemented |
+| Argument count (methods) | `arguments.count` | 2 | ✅ Implemented |
+| Argument count (constructors) | `arguments.count` | 0 | ✅ Implemented |
+| Possibly undefined variable | `variable.possiblyUndefined` | 1 | ✅ Implemented |
 
 ### Detailed Findings
 
@@ -57,14 +60,14 @@ This directory contains integration tests that compare rustor-analyze output wit
 5. **Argument Count** ✅
    - PHPStan: `Function requiresTwo invoked with 1 parameter, 2 required.`
    - Rustor: `Function requiresTwo invoked with 1 parameter, 2 required.`
-   - Status: **MATCH** (functions only, method argument count not yet implemented)
+   - Status: **MATCH** (functions, methods, and constructors)
 
 #### Level 1 Checks
 
-1. **Undefined Variable** ⚠️
+1. **Undefined Variable** ✅
    - Simple case: Rustor finds `$undefined`
-   - Conditional case: Rustor misses `$conditionalVar` (defined only in if branch)
-   - Status: **PARTIAL** - Control flow analysis needed
+   - Conditional case: Rustor finds `$conditionalVar` with "might not be defined"
+   - Status: **MATCH** - Control flow analysis implemented
 
 #### Level 2 Checks
 
@@ -84,15 +87,14 @@ This directory contains integration tests that compare rustor-analyze output wit
 - Symbol table integration for class methods, properties, and constants
 - `CallStaticMethodsCheck` using symbol table
 - `ClassConstantCheck` using symbol table
-- `ArgumentCountCheck` for functions
+- `ArgumentCountCheck` for functions, methods, and constructors
 - Type tracking for variable assignments (`$obj = new TestClass()`)
-- `CallMethodsCheck` with type-aware checking
+- `CallMethodsCheck` with type-aware checking and argument count validation
 - `PropertyAccessCheck` with type-aware checking
+- Control flow analysis for possibly-undefined variables (conditional branches)
 
-### Remaining Work
-1. **Control Flow Analysis** - Track variable definitions through branches for possibly-undefined variables
-2. **Method Argument Count** - Validate argument counts for method calls
-3. **Constructor Argument Count** - Validate argument counts for `new ClassName()` calls
+### All Level 0-2 Checks Implemented
+The analyzer now has full coverage for PHPStan levels 0-2.
 
 ## Test Fixtures
 
@@ -104,8 +106,9 @@ This directory contains integration tests that compare rustor-analyze output wit
 | `level0_undefined_static_method.php` | Undefined static method calls |
 | `level0_undefined_property.php` | Undefined property access |
 | `level0_undefined_constant.php` | Undefined class constant access |
+| `level0_constructor_args.php` | Constructor argument count validation |
 | `level1_undefined_variable.php` | Undefined and possibly-undefined variables |
-| `level2_argument_count.php` | Wrong argument counts |
+| `level2_argument_count.php` | Function and method argument counts |
 
 ## PHPStan Level Reference
 

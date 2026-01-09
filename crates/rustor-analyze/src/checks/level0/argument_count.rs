@@ -1,4 +1,4 @@
-//! Check for wrong argument counts in function calls (Level 0)
+//! Check for wrong argument counts in function and constructor calls (Level 0)
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
@@ -7,7 +7,7 @@ use mago_syntax::ast::*;
 use rustor_core::Visitor;
 use std::collections::HashMap;
 
-/// Checks for function calls with wrong number of arguments
+/// Checks for function and constructor calls with wrong number of arguments
 pub struct ArgumentCountCheck;
 
 impl Check for ArgumentCountCheck {
@@ -28,6 +28,9 @@ impl Check for ArgumentCountCheck {
             source: ctx.source,
             file_path: ctx.file_path.to_path_buf(),
             function_signatures: HashMap::new(),
+            class_constructors: HashMap::new(),
+            class_names: HashMap::new(), // lowercase -> original
+            builtin_classes: ctx.builtin_classes,
             issues: Vec::new(),
         };
 
@@ -52,6 +55,9 @@ struct ArgumentCountVisitor<'s> {
     source: &'s str,
     file_path: std::path::PathBuf,
     function_signatures: HashMap<String, FunctionSignature>,
+    class_constructors: HashMap<String, FunctionSignature>, // class name (lowercase) -> constructor signature
+    class_names: HashMap<String, String>,                    // class name (lowercase) -> original name
+    builtin_classes: &'s [&'static str],
     issues: Vec<Issue>,
 }
 
@@ -72,6 +78,24 @@ impl<'s> ArgumentCountVisitor<'s> {
                 let name = self.get_span_text(&func.name.span).to_lowercase();
                 let sig = self.analyze_parameters(&func.parameter_list);
                 self.function_signatures.insert(name, sig);
+            }
+            Statement::Class(class) => {
+                let original_name = self.get_span_text(&class.name.span).to_string();
+                let class_lower = original_name.to_lowercase();
+
+                // Find the __construct method
+                for member in class.members.iter() {
+                    if let ClassLikeMember::Method(method) = member {
+                        let method_name = self.get_span_text(&method.name.span).to_lowercase();
+                        if method_name == "__construct" {
+                            let sig = self.analyze_parameters(&method.parameter_list);
+                            self.class_constructors.insert(class_lower.clone(), sig);
+                            break;
+                        }
+                    }
+                }
+
+                self.class_names.insert(class_lower, original_name);
             }
             Statement::Namespace(ns) => match &ns.body {
                 NamespaceBody::Implicit(body) => {
@@ -135,41 +159,23 @@ impl<'s> ArgumentCountVisitor<'s> {
 
 impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
     fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
-        if let Expression::Call(Call::Function(call)) = expr {
-            // Get function name
-            let name_span = call.function.span();
-            let name = self.get_span_text(&name_span);
+        match expr {
+            Expression::Call(Call::Function(call)) => {
+                // Get function name
+                let name_span = call.function.span();
+                let name = self.get_span_text(&name_span);
 
-            // Skip dynamic calls and namespaced calls
-            if name.starts_with('$') || name.contains('\\') {
-                return true;
-            }
+                // Skip dynamic calls and namespaced calls
+                if name.starts_with('$') || name.contains('\\') {
+                    return true;
+                }
 
-            let name_lower = name.to_lowercase();
-            let arg_count = call.argument_list.arguments.len();
+                let name_lower = name.to_lowercase();
+                let arg_count = call.argument_list.arguments.len();
 
-            // Check if we have a signature for this function
-            if let Some(sig) = self.function_signatures.get(&name_lower) {
-                if arg_count < sig.min_args {
-                    let (line, col) = self.get_line_col(name_span.start.offset as usize);
-                    self.issues.push(
-                        Issue::error(
-                            "arguments.count",
-                            format!(
-                                "Function {} invoked with {} parameter{}, {} required.",
-                                name,
-                                arg_count,
-                                if arg_count == 1 { "" } else { "s" },
-                                sig.min_args
-                            ),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("arguments.count"),
-                    );
-                } else if let Some(max) = sig.max_args {
-                    if arg_count > max {
+                // Check if we have a signature for this function
+                if let Some(sig) = self.function_signatures.get(&name_lower) {
+                    if arg_count < sig.min_args {
                         let (line, col) = self.get_line_col(name_span.start.offset as usize);
                         self.issues.push(
                             Issue::error(
@@ -179,7 +185,7 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                                     name,
                                     arg_count,
                                     if arg_count == 1 { "" } else { "s" },
-                                    max
+                                    sig.min_args
                                 ),
                                 self.file_path.clone(),
                                 line,
@@ -187,9 +193,103 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                             )
                             .with_identifier("arguments.count"),
                         );
+                    } else if let Some(max) = sig.max_args {
+                        if arg_count > max {
+                            let (line, col) = self.get_line_col(name_span.start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "arguments.count",
+                                    format!(
+                                        "Function {} invoked with {} parameter{}, {} required.",
+                                        name,
+                                        arg_count,
+                                        if arg_count == 1 { "" } else { "s" },
+                                        max
+                                    ),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("arguments.count"),
+                            );
+                        }
                     }
                 }
             }
+            Expression::Instantiation(inst) => {
+                // Get class name
+                let class_name = match &*inst.class {
+                    Expression::Identifier(ident) => {
+                        Some(self.get_span_text(&ident.span()).to_string())
+                    }
+                    _ => None,
+                };
+
+                if let Some(name) = class_name {
+                    // Skip built-in classes
+                    if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(&name)) {
+                        return true;
+                    }
+
+                    let name_lower = name.to_lowercase();
+                    let arg_count = inst
+                        .argument_list
+                        .as_ref()
+                        .map(|al| al.arguments.len())
+                        .unwrap_or(0);
+
+                    // Check if we have a constructor signature for this class
+                    if let Some(sig) = self.class_constructors.get(&name_lower).cloned() {
+                        let class_span = inst.class.span();
+                        let display_name = self
+                            .class_names
+                            .get(&name_lower)
+                            .cloned()
+                            .unwrap_or(name.clone());
+
+                        if arg_count < sig.min_args {
+                            let (line, col) = self.get_line_col(class_span.start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "arguments.count",
+                                    format!(
+                                        "Class {} constructor invoked with {} parameter{}, {} required.",
+                                        display_name,
+                                        arg_count,
+                                        if arg_count == 1 { "" } else { "s" },
+                                        sig.min_args
+                                    ),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("arguments.count"),
+                            );
+                        } else if let Some(max) = sig.max_args {
+                            if arg_count > max {
+                                let (line, col) = self.get_line_col(class_span.start.offset as usize);
+                                self.issues.push(
+                                    Issue::error(
+                                        "arguments.count",
+                                        format!(
+                                            "Class {} constructor invoked with {} parameter{}, {} required.",
+                                            display_name,
+                                            arg_count,
+                                            if arg_count == 1 { "" } else { "s" },
+                                            max
+                                        ),
+                                        self.file_path.clone(),
+                                        line,
+                                        col,
+                                    )
+                                    .with_identifier("arguments.count"),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
         true
     }

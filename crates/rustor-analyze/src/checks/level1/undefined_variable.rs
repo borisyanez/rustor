@@ -41,7 +41,10 @@ impl Check for UndefinedVariableCheck {
 /// A scope containing defined variables
 #[derive(Debug, Clone)]
 struct Scope {
+    /// Variables that are definitely defined in all code paths
     defined: HashSet<String>,
+    /// Variables that are possibly defined (in some but not all code paths)
+    possibly_defined: HashSet<String>,
     /// Whether this is a closure scope (closures don't inherit parent scope unless via `use`)
     is_closure: bool,
     /// Variables inherited via closure `use` clause
@@ -54,6 +57,7 @@ impl Scope {
     fn new() -> Self {
         Self {
             defined: HashSet::new(),
+            possibly_defined: HashSet::new(),
             is_closure: false,
             inherited: HashSet::new(),
             has_this: false,
@@ -63,6 +67,7 @@ impl Scope {
     fn closure() -> Self {
         Self {
             defined: HashSet::new(),
+            possibly_defined: HashSet::new(),
             is_closure: true,
             inherited: HashSet::new(),
             has_this: false,
@@ -70,11 +75,29 @@ impl Scope {
     }
 
     fn define(&mut self, name: String) {
+        // If we define a variable, it moves from possibly_defined to defined
+        self.possibly_defined.remove(&name);
         self.defined.insert(name);
+    }
+
+    fn define_possibly(&mut self, name: String) {
+        // Only add to possibly_defined if not already definitely defined
+        if !self.defined.contains(&name) {
+            self.possibly_defined.insert(name);
+        }
     }
 
     fn is_defined(&self, name: &str) -> bool {
         self.defined.contains(name) || self.inherited.contains(name)
+    }
+
+    fn is_possibly_defined(&self, name: &str) -> bool {
+        self.possibly_defined.contains(name)
+    }
+
+    /// Get snapshot of currently defined variables (for branch analysis)
+    fn snapshot(&self) -> HashSet<String> {
+        self.defined.clone()
     }
 }
 
@@ -160,8 +183,64 @@ impl<'s> VariableAnalyzer<'s> {
         false
     }
 
+    fn is_possibly_defined(&self, name: &str) -> bool {
+        // For closure scopes, only check the closure scope itself
+        if self.current_scope().is_closure {
+            return self.current_scope().is_possibly_defined(name);
+        }
+
+        // Check all scopes from current to global
+        for scope in self.scopes.iter().rev() {
+            if scope.is_possibly_defined(name) {
+                return true;
+            }
+            // Stop at closure boundary
+            if scope.is_closure {
+                break;
+            }
+        }
+        false
+    }
+
     fn define(&mut self, name: String) {
         self.current_scope_mut().define(name);
+    }
+
+    fn define_possibly(&mut self, name: String) {
+        self.current_scope_mut().define_possibly(name);
+    }
+
+    /// Merge branch results: variables defined in all branches become definitely defined,
+    /// variables defined in some branches become possibly defined.
+    fn merge_branches(&mut self, before_snapshot: &HashSet<String>, branch_snapshots: Vec<HashSet<String>>) {
+        if branch_snapshots.is_empty() {
+            return;
+        }
+
+        // Find variables that were newly defined in each branch
+        let mut branch_new_vars: Vec<HashSet<String>> = branch_snapshots
+            .iter()
+            .map(|snap| snap.difference(before_snapshot).cloned().collect())
+            .collect();
+
+        // Variables defined in ALL branches become definitely defined
+        if !branch_new_vars.is_empty() {
+            let mut intersection: HashSet<String> = branch_new_vars[0].clone();
+            for branch in branch_new_vars.iter().skip(1) {
+                intersection = intersection.intersection(branch).cloned().collect();
+            }
+            for var in intersection {
+                self.define(var);
+            }
+        }
+
+        // Variables defined in SOME (but not all) branches become possibly defined
+        let all_new_vars: HashSet<String> = branch_new_vars.drain(..).flatten().collect();
+        for var in all_new_vars {
+            if !self.is_defined(&var) {
+                self.define_possibly(var);
+            }
+        }
     }
 
     fn get_line_col(&self, offset: usize) -> (usize, usize) {
@@ -199,7 +278,12 @@ impl<'s> VariableAnalyzer<'s> {
             }
             Statement::If(if_stmt) => {
                 self.analyze_expression(&if_stmt.condition, false);
-                self.analyze_if_body(&if_stmt.body);
+                // Check if there's an else clause
+                let has_else = match &if_stmt.body {
+                    IfBody::Statement(stmt_body) => stmt_body.else_clause.is_some(),
+                    IfBody::ColonDelimited(block) => block.else_clause.is_some(),
+                };
+                self.analyze_if_body(&if_stmt.body, has_else);
             }
             Statement::Foreach(foreach) => {
                 self.analyze_expression(&foreach.expression, false);
@@ -349,35 +433,75 @@ impl<'s> VariableAnalyzer<'s> {
         }
     }
 
-    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>) {
+    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>, has_else: bool) {
+        let before_snapshot = self.current_scope().snapshot();
+        let mut branch_snapshots = Vec::new();
+
         match body {
             IfBody::Statement(stmt_body) => {
+                // Analyze 'if' branch
                 self.analyze_statement(stmt_body.statement);
+                branch_snapshots.push(self.current_scope().snapshot());
+
+                // Reset to before state for each subsequent branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches
                 for else_if in stmt_body.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition, false);
                     self.analyze_statement(else_if.statement);
+                    branch_snapshots.push(self.current_scope().snapshot());
+                    self.current_scope_mut().defined = before_snapshot.clone();
                 }
+
+                // Analyze 'else' branch
                 if let Some(else_clause) = &stmt_body.else_clause {
                     self.analyze_statement(else_clause.statement);
+                    branch_snapshots.push(self.current_scope().snapshot());
                 }
             }
             IfBody::ColonDelimited(block) => {
+                // Analyze 'if' branch
                 for inner in block.statements.iter() {
                     self.analyze_statement(inner);
                 }
+                branch_snapshots.push(self.current_scope().snapshot());
+
+                // Reset to before state for each subsequent branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches
                 for else_if in block.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition, false);
                     for inner in else_if.statements.iter() {
                         self.analyze_statement(inner);
                     }
+                    branch_snapshots.push(self.current_scope().snapshot());
+                    self.current_scope_mut().defined = before_snapshot.clone();
                 }
+
+                // Analyze 'else' branch
                 if let Some(else_clause) = &block.else_clause {
                     for inner in else_clause.statements.iter() {
                         self.analyze_statement(inner);
                     }
+                    branch_snapshots.push(self.current_scope().snapshot());
                 }
             }
         }
+
+        // Reset to original state before merging
+        self.current_scope_mut().defined = before_snapshot.clone();
+
+        // Merge branch results
+        // If there's no else clause, we need to consider the "fall-through" path
+        // where the if condition was false and no branch was taken
+        if !has_else {
+            // Add the "no branch taken" snapshot (same as before_snapshot)
+            branch_snapshots.push(before_snapshot.clone());
+        }
+
+        self.merge_branches(&before_snapshot, branch_snapshots);
     }
 
     fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
@@ -454,9 +578,23 @@ impl<'s> VariableAnalyzer<'s> {
                 // If this is the left side of an assignment, it defines the variable
                 if is_assignment_lhs {
                     self.define(name.to_string());
-                } else {
-                    // Otherwise, check if it's defined
-                    if !self.is_defined(name) && !name.starts_with("$$") {
+                } else if !name.starts_with("$$") {
+                    // Check if it's defined or possibly defined
+                    if self.is_possibly_defined(name) {
+                        // Variable is defined in some branches but not all
+                        let (line, col) = self.get_line_col(var.span().start.offset as usize);
+                        self.issues.push(
+                            Issue::error(
+                                "undefined.variable",
+                                format!("Variable {} might not be defined.", name),
+                                self.file_path.clone(),
+                                line,
+                                col,
+                            )
+                            .with_identifier("variable.possiblyUndefined"),
+                        );
+                    } else if !self.is_defined(name) {
+                        // Variable is completely undefined
                         let (line, col) = self.get_line_col(var.span().start.offset as usize);
                         self.issues.push(
                             Issue::error(
