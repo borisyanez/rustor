@@ -81,8 +81,8 @@ impl Formatter for JsonFormatter {
 
         let output = JsonOutput {
             totals: Totals {
-                errors: total_errors,
-                file_errors: file_errors.len(),
+                errors: 0, // General errors (not file-specific)
+                file_errors: total_errors, // Total errors in files (PHPStan compatible)
             },
             files: file_errors,
             errors: vec![],

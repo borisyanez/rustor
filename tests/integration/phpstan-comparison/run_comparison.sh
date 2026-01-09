@@ -32,15 +32,15 @@ compare_file() {
 
     echo ""
 
-    # Run Rustor
+    # Run Rustor with --phpstan-compat flag for exact output matching
     echo -e "${YELLOW}Rustor output:${NC}"
-    (cd "$RUSTOR_ROOT" && cargo run -q -p rustor-cli -- analyze "$file" --level "$level" 2>/dev/null) || true
+    (cd "$RUSTOR_ROOT" && cargo run -q -p rustor-cli -- analyze "$file" --level "$level" --phpstan-compat 2>/dev/null) || true
 
     echo ""
 
     # Get error counts
     local phpstan_count=$($PHPSTAN analyze "$file" --level "$level" --error-format=json --no-progress 2>/dev/null | jq '.totals.file_errors // 0' 2>/dev/null || echo "0")
-    local rustor_count=$((cd "$RUSTOR_ROOT" && cargo run -q -p rustor-cli -- analyze "$file" --level "$level" --format json 2>/dev/null) | jq '.total_errors // 0' 2>/dev/null || echo "0")
+    local rustor_count=$((cd "$RUSTOR_ROOT" && cargo run -q -p rustor-cli -- analyze "$file" --level "$level" --error-format json --phpstan-compat 2>/dev/null) | jq '.totals.file_errors // 0' 2>/dev/null || echo "0")
 
     if [ "$phpstan_count" = "$rustor_count" ]; then
         echo -e "${GREEN}✓ Match: Both found $phpstan_count error(s)${NC}"

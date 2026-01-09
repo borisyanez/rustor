@@ -481,6 +481,9 @@ impl<'a> NodeScopeResolver<'a> {
                         config: self.config,
                         builtin_functions: &[],
                         builtin_classes: &[],
+                        symbol_table: None,
+                        scope: None,
+                        analysis_level: self.config.level.as_u8(),
                     }, _issues);
                 }
             }

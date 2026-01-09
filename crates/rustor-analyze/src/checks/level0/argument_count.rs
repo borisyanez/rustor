@@ -31,6 +31,7 @@ impl Check for ArgumentCountCheck {
             class_constructors: HashMap::new(),
             class_names: HashMap::new(), // lowercase -> original
             builtin_classes: ctx.builtin_classes,
+            analysis_level: ctx.analysis_level,
             issues: Vec::new(),
         };
 
@@ -58,6 +59,7 @@ struct ArgumentCountVisitor<'s> {
     class_constructors: HashMap<String, FunctionSignature>, // class name (lowercase) -> constructor signature
     class_names: HashMap<String, String>,                    // class name (lowercase) -> original name
     builtin_classes: &'s [&'static str],
+    analysis_level: u8, // Analysis level - "too many args" only reported at level 2+
     issues: Vec<Issue>,
 }
 
@@ -194,7 +196,8 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                             .with_identifier("arguments.count"),
                         );
                     } else if let Some(max) = sig.max_args {
-                        if arg_count > max {
+                        // PHPStan only reports "too many arguments" at level 2+
+                        if arg_count > max && self.analysis_level >= 2 {
                             let (line, col) = self.get_line_col(name_span.start.offset as usize);
                             self.issues.push(
                                 Issue::error(
@@ -266,7 +269,8 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                                 .with_identifier("arguments.count"),
                             );
                         } else if let Some(max) = sig.max_args {
-                            if arg_count > max {
+                            // PHPStan only reports "too many arguments" at level 2+
+                            if arg_count > max && self.analysis_level >= 2 {
                                 let (line, col) = self.get_line_col(class_span.start.offset as usize);
                                 self.issues.push(
                                     Issue::error(

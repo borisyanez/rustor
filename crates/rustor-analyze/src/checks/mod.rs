@@ -31,6 +31,8 @@ pub struct CheckContext<'a> {
     pub symbol_table: Option<&'a SymbolTable>,
     /// Current scope for variable tracking (optional)
     pub scope: Option<&'a Scope>,
+    /// The analysis level (0-9) - affects some check behaviors
+    pub analysis_level: u8,
 }
 
 /// Trait for static analysis checks
@@ -69,6 +71,7 @@ impl CheckRegistry {
         registry.register(Box::new(level0::CallStaticMethodsCheck));
         registry.register(Box::new(level0::ClassConstantCheck));
         registry.register(Box::new(level0::ArgumentCountCheck));
+        registry.register(Box::new(level0::MissingReturnCheck));
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));

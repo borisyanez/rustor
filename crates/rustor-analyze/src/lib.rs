@@ -110,6 +110,7 @@ impl Analyzer {
             builtin_classes: PHP_BUILTIN_CLASSES,
             symbol_table: None, // TODO: Pass symbol table for cross-file analysis
             scope: None,        // TODO: Pass scope for variable tracking
+            analysis_level: self.config.level.as_u8(),
         };
 
         // Run checks for the configured level
