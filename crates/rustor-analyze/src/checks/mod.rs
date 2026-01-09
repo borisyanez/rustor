@@ -2,9 +2,12 @@
 
 pub mod level0;
 pub mod level1;
+pub mod level2;
 
 use crate::config::PhpStanConfig;
 use crate::issue::Issue;
+use crate::scope::Scope;
+use crate::symbols::SymbolTable;
 use mago_syntax::ast::Program;
 use std::path::Path;
 
@@ -20,6 +23,10 @@ pub struct CheckContext<'a> {
     pub builtin_functions: &'a [&'static str],
     /// PHP built-in classes
     pub builtin_classes: &'a [&'static str],
+    /// Symbol table for cross-file analysis (optional)
+    pub symbol_table: Option<&'a SymbolTable>,
+    /// Current scope for variable tracking (optional)
+    pub scope: Option<&'a Scope>,
 }
 
 /// Trait for static analysis checks
@@ -55,9 +62,16 @@ impl CheckRegistry {
         // Level 0 checks
         registry.register(Box::new(level0::UndefinedFunctionCheck));
         registry.register(Box::new(level0::UndefinedClassCheck));
+        registry.register(Box::new(level0::CallMethodsCheck));
+        registry.register(Box::new(level0::CallStaticMethodsCheck));
+        registry.register(Box::new(level0::PropertyAccessCheck));
+        registry.register(Box::new(level0::ClassConstantCheck));
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
+
+        // Level 2 checks
+        registry.register(Box::new(level2::ArgumentCountCheck));
 
         registry
     }

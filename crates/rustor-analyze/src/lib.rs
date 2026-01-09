@@ -33,6 +33,10 @@ pub mod checks;
 pub mod config;
 pub mod issue;
 pub mod output;
+pub mod resolver;
+pub mod scope;
+pub mod symbols;
+pub mod types;
 
 use checks::{CheckContext, CheckRegistry, PHP_BUILTIN_CLASSES, PHP_BUILTIN_FUNCTIONS};
 use config::PhpStanConfig;
@@ -104,6 +108,8 @@ impl Analyzer {
             config: &self.config,
             builtin_functions: PHP_BUILTIN_FUNCTIONS,
             builtin_classes: PHP_BUILTIN_CLASSES,
+            symbol_table: None, // TODO: Pass symbol table for cross-file analysis
+            scope: None,        // TODO: Pass scope for variable tracking
         };
 
         // Run checks for the configured level

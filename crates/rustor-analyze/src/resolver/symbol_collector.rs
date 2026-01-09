@@ -1,0 +1,252 @@
+//! Symbol collector for building symbol table from AST
+//!
+//! Collects class, function, and constant definitions from PHP files.
+//! This is a simplified version that extracts basic symbol information.
+
+use crate::symbols::{ClassInfo, FunctionInfo, SymbolTable};
+use crate::symbols::class_info::ClassKind;
+use crate::types::Type;
+use mago_span::HasSpan;
+use mago_syntax::ast::*;
+use rustor_core::Visitor;
+use std::path::{Path, PathBuf};
+
+/// Collects symbols from PHP AST using the Visitor pattern
+pub struct SymbolCollector<'s> {
+    source: &'s str,
+    file: PathBuf,
+    current_namespace: Option<String>,
+    symbols: CollectedSymbols,
+}
+
+impl<'s> SymbolCollector<'s> {
+    /// Create a new symbol collector
+    pub fn new(source: &'s str, file: &Path) -> Self {
+        Self {
+            source,
+            file: file.to_path_buf(),
+            current_namespace: None,
+            symbols: CollectedSymbols::default(),
+        }
+    }
+
+    /// Collect all symbols from a program
+    pub fn collect(mut self, program: &Program<'_>) -> CollectedSymbols {
+        self.visit_program(program, self.source);
+        self.symbols
+    }
+
+    /// Build a symbol table from collected symbols
+    pub fn build_symbol_table_from_symbols(collected: Vec<CollectedSymbols>) -> SymbolTable {
+        let mut table = SymbolTable::with_builtins();
+
+        for symbols in collected {
+            for class in symbols.classes {
+                table.register_class(class);
+            }
+            for func in symbols.functions {
+                table.register_function(func);
+            }
+            for (name, ty) in symbols.constants {
+                table.register_constant(name, ty);
+            }
+        }
+
+        table
+    }
+
+    /// Get text for a span
+    fn get_span_text(&self, span: &mago_span::Span) -> &str {
+        &self.source[span.start.offset as usize..span.end.offset as usize]
+    }
+
+    /// Qualify a name with the current namespace
+    fn qualify_name(&self, name: &str) -> String {
+        if name.starts_with('\\') {
+            name[1..].to_string()
+        } else if let Some(ns) = &self.current_namespace {
+            format!("{}\\{}", ns, name)
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Get line number from offset
+    fn get_line(&self, offset: usize) -> usize {
+        let mut line = 1;
+        for (i, ch) in self.source.char_indices() {
+            if i >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+            }
+        }
+        line
+    }
+}
+
+impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
+    fn visit_statement(&mut self, stmt: &Statement<'a>, _source: &str) -> bool {
+        match stmt {
+            Statement::Namespace(ns) => {
+                // Extract namespace from the namespace statement span
+                let ns_span = ns.span();
+                let ns_text = self.get_span_text(&ns_span);
+                // Try to extract namespace name from the text
+                if let Some(name_start) = ns_text.find("namespace") {
+                    let after_keyword = &ns_text[name_start + 9..];
+                    let name_end = after_keyword.find(|c: char| c == '{' || c == ';')
+                        .unwrap_or(after_keyword.len());
+                    let name = after_keyword[..name_end].trim();
+                    if !name.is_empty() {
+                        self.current_namespace = Some(name.to_string());
+                    }
+                }
+                true
+            }
+            Statement::Function(func) => {
+                let span = func.name.span;
+                let name = self.get_span_text(&span);
+                let full_name = self.qualify_name(name);
+
+                let mut info = FunctionInfo::new(name, &full_name);
+                info.file = Some(self.file.clone());
+                info.line = Some(self.get_line(span.start.offset as usize));
+
+                self.symbols.functions.push(info);
+                true
+            }
+            Statement::Class(class) => {
+                let span = class.name.span;
+                let name = self.get_span_text(&span);
+                let full_name = self.qualify_name(name);
+
+                let mut info = ClassInfo::new(name, &full_name);
+                info.kind = ClassKind::Class;
+                info.file = Some(self.file.clone());
+                info.line = Some(self.get_line(span.start.offset as usize));
+
+                self.symbols.classes.push(info);
+                true
+            }
+            Statement::Interface(interface) => {
+                let span = interface.name.span;
+                let name = self.get_span_text(&span);
+                let full_name = self.qualify_name(name);
+
+                let mut info = ClassInfo::new(name, &full_name);
+                info.kind = ClassKind::Interface;
+                info.file = Some(self.file.clone());
+                info.line = Some(self.get_line(span.start.offset as usize));
+
+                self.symbols.classes.push(info);
+                true
+            }
+            Statement::Trait(trait_def) => {
+                let span = trait_def.name.span;
+                let name = self.get_span_text(&span);
+                let full_name = self.qualify_name(name);
+
+                let mut info = ClassInfo::new(name, &full_name);
+                info.kind = ClassKind::Trait;
+                info.file = Some(self.file.clone());
+                info.line = Some(self.get_line(span.start.offset as usize));
+
+                self.symbols.classes.push(info);
+                true
+            }
+            Statement::Enum(enum_def) => {
+                let span = enum_def.name.span;
+                let name = self.get_span_text(&span);
+                let full_name = self.qualify_name(name);
+
+                let mut info = ClassInfo::new(name, &full_name);
+                info.kind = ClassKind::Enum;
+                info.file = Some(self.file.clone());
+                info.line = Some(self.get_line(span.start.offset as usize));
+
+                self.symbols.classes.push(info);
+                true
+            }
+            Statement::Constant(const_def) => {
+                for entry in const_def.items.iter() {
+                    let name = self.get_span_text(&entry.name.span);
+                    let full_name = self.qualify_name(name);
+                    self.symbols.constants.push((full_name, Type::Mixed));
+                }
+                true
+            }
+            _ => true,
+        }
+    }
+}
+
+/// Symbols collected from a file
+#[derive(Debug, Default)]
+pub struct CollectedSymbols {
+    pub classes: Vec<ClassInfo>,
+    pub functions: Vec<FunctionInfo>,
+    pub constants: Vec<(String, Type)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mago_database::file::FileId;
+
+    fn parse_and_collect(source: &str) -> CollectedSymbols {
+        let arena = Box::leak(Box::new(bumpalo::Bump::new()));
+        let file_id = FileId::new("test.php");
+        let (program, _) = mago_syntax::parser::parse_file_content(arena, file_id, source);
+        let collector = SymbolCollector::new(source, Path::new("test.php"));
+        collector.collect(&program)
+    }
+
+    #[test]
+    fn test_collect_function() {
+        let source = r#"<?php
+function my_function() {
+}
+"#;
+        let symbols = parse_and_collect(source);
+        assert_eq!(symbols.functions.len(), 1);
+        assert_eq!(symbols.functions[0].name, "my_function");
+    }
+
+    #[test]
+    fn test_collect_class() {
+        let source = r#"<?php
+class User {
+}
+"#;
+        let symbols = parse_and_collect(source);
+        assert_eq!(symbols.classes.len(), 1);
+        assert_eq!(symbols.classes[0].name, "User");
+    }
+
+    #[test]
+    fn test_collect_interface() {
+        let source = r#"<?php
+interface Nameable {
+}
+"#;
+        let symbols = parse_and_collect(source);
+        assert_eq!(symbols.classes.len(), 1);
+        assert_eq!(symbols.classes[0].name, "Nameable");
+        assert_eq!(symbols.classes[0].kind, ClassKind::Interface);
+    }
+
+    #[test]
+    fn test_collect_with_namespace() {
+        let source = r#"<?php
+namespace App\Models;
+
+class User {
+}
+"#;
+        let symbols = parse_and_collect(source);
+        assert_eq!(symbols.classes.len(), 1);
+        assert_eq!(symbols.classes[0].full_name, "App\\Models\\User");
+    }
+}
