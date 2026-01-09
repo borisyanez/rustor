@@ -42,6 +42,7 @@ impl Check for CallMethodsCheck {
             class_methods: HashMap::new(),
             class_names: HashMap::new(),
             variable_types: HashMap::new(),
+            param_type_stack: Vec::new(),
             builtin_classes: ctx.builtin_classes,
             issues: Vec::new(),
             check_arg_counts: true,
@@ -50,8 +51,8 @@ impl Check for CallMethodsCheck {
         // First pass: collect class methods
         visitor.collect_definitions(program);
 
-        // Second pass: check method calls
-        visitor.visit_program(program, ctx.source);
+        // Second pass: check method calls (with function scope tracking)
+        visitor.analyze_program(program);
 
         visitor.issues
     }
@@ -63,6 +64,8 @@ struct MethodCallVisitor<'s> {
     class_methods: HashMap<String, HashMap<String, MethodInfo>>, // class name (lowercase) -> method name (lowercase) -> info
     class_names: HashMap<String, String>,                         // class name (lowercase) -> original name
     variable_types: HashMap<String, String>,                      // variable name -> class name (original)
+    /// Stack of parameter types for nested function scopes
+    param_type_stack: Vec<HashMap<String, String>>,
     builtin_classes: &'s [&'static str],
     issues: Vec<Issue>,
     check_arg_counts: bool,
@@ -174,8 +177,370 @@ impl<'s> MethodCallVisitor<'s> {
             _ => None,
         }
     }
+
+    /// Get variable type from parameter stack or variable_types map
+    fn get_variable_type(&self, var_name: &str) -> Option<String> {
+        // First check parameter stack (innermost scope first)
+        for scope in self.param_type_stack.iter().rev() {
+            if let Some(type_name) = scope.get(var_name) {
+                return Some(type_name.clone());
+            }
+        }
+        // Then check variable assignments
+        self.variable_types.get(var_name).cloned()
+    }
+
+    /// Extract typed parameters from a parameter list
+    fn extract_typed_params(&self, params: &FunctionLikeParameterList<'_>) -> HashMap<String, String> {
+        let mut result = HashMap::new();
+        for param in params.parameters.iter() {
+            if let Some(hint) = &param.hint {
+                // Get the type name from the hint
+                if let Some(type_name) = self.extract_type_name(hint) {
+                    let var_name = self.get_span_text(&param.variable.span).to_string();
+                    result.insert(var_name, type_name);
+                }
+            }
+        }
+        result
+    }
+
+    /// Extract type name from a Hint
+    fn extract_type_name(&self, hint: &Hint<'_>) -> Option<String> {
+        match hint {
+            Hint::Identifier(ident) => Some(self.get_span_text(&ident.span()).to_string()),
+            Hint::Nullable(nullable) => self.extract_type_name(&nullable.hint),
+            Hint::Parenthesized(p) => self.extract_type_name(&p.hint),
+            _ => None, // Skip union types, intersection types, etc. for now
+        }
+    }
+
+    /// Analyze program with scope tracking for typed parameters
+    fn analyze_program<'a>(&mut self, program: &Program<'a>) {
+        for stmt in program.statements.iter() {
+            self.analyze_statement(stmt);
+        }
+    }
+
+    fn analyze_statement<'a>(&mut self, stmt: &Statement<'a>) {
+        match stmt {
+            Statement::Function(func) => {
+                // Push parameter types onto stack
+                let params = self.extract_typed_params(&func.parameter_list);
+                self.param_type_stack.push(params);
+
+                // Analyze function body
+                for inner in func.body.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+
+                // Pop parameter types
+                self.param_type_stack.pop();
+            }
+            Statement::Class(class) => {
+                for member in class.members.iter() {
+                    if let ClassLikeMember::Method(method) = member {
+                        if let MethodBody::Concrete(body) = &method.body {
+                            // Push parameter types onto stack
+                            let params = self.extract_typed_params(&method.parameter_list);
+                            self.param_type_stack.push(params);
+
+                            // Analyze method body
+                            for inner in body.statements.iter() {
+                                self.analyze_statement(inner);
+                            }
+
+                            // Pop parameter types
+                            self.param_type_stack.pop();
+                        }
+                    }
+                }
+            }
+            Statement::Expression(expr_stmt) => {
+                // Track variable assignments
+                if let Expression::Assignment(assign) = &expr_stmt.expression {
+                    if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
+                        let var_name = self.get_span_text(&var.span).to_string();
+                        if let Some(class_name) = self.get_instantiation_class(assign.rhs) {
+                            self.variable_types.insert(var_name, class_name);
+                        }
+                    }
+                }
+                self.analyze_expression(&expr_stmt.expression);
+            }
+            Statement::If(if_stmt) => {
+                self.analyze_expression(&if_stmt.condition);
+                self.analyze_if_body(&if_stmt.body);
+            }
+            Statement::While(while_stmt) => {
+                self.analyze_expression(&while_stmt.condition);
+                self.analyze_while_body(&while_stmt.body);
+            }
+            Statement::For(for_stmt) => {
+                self.analyze_for_body(&for_stmt.body);
+            }
+            Statement::Foreach(foreach) => {
+                self.analyze_expression(&foreach.expression);
+                self.analyze_foreach_body(&foreach.body);
+            }
+            Statement::Try(try_stmt) => {
+                for inner in try_stmt.block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+                for catch in try_stmt.catch_clauses.iter() {
+                    for inner in catch.block.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+                if let Some(finally) = &try_stmt.finally_clause {
+                    for inner in finally.block.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+            }
+            Statement::Block(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+            }
+            Statement::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.analyze_expression(value);
+                }
+            }
+            Statement::Echo(echo) => {
+                for value in echo.values.iter() {
+                    self.analyze_expression(value);
+                }
+            }
+            Statement::Namespace(ns) => match &ns.body {
+                NamespaceBody::Implicit(body) => {
+                    for inner in body.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+                NamespaceBody::BraceDelimited(body) => {
+                    for inner in body.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>) {
+        match body {
+            IfBody::Statement(stmt_body) => {
+                self.analyze_statement(stmt_body.statement);
+                for else_if in stmt_body.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition);
+                    self.analyze_statement(else_if.statement);
+                }
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    self.analyze_statement(else_clause.statement);
+                }
+            }
+            IfBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+                for else_if in block.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition);
+                    for inner in else_if.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+                if let Some(else_clause) = &block.else_clause {
+                    for inner in else_clause.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+            }
+        }
+    }
+
+    fn analyze_while_body<'a>(&mut self, body: &WhileBody<'a>) {
+        match body {
+            WhileBody::Statement(stmt) => self.analyze_statement(stmt),
+            WhileBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+            }
+        }
+    }
+
+    fn analyze_for_body<'a>(&mut self, body: &ForBody<'a>) {
+        match body {
+            ForBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+            }
+        }
+    }
+
+    fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
+        match body {
+            ForeachBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForeachBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+            }
+        }
+    }
+
+    fn analyze_expression<'a>(&mut self, expr: &Expression<'a>) {
+        // Check for $obj->method() calls
+        if let Expression::Call(Call::Method(call)) = expr {
+            self.check_method_call(call);
+        }
+
+        // Recurse into nested expressions
+        match expr {
+            Expression::Call(call) => match call {
+                Call::Method(m) => {
+                    self.analyze_expression(&m.object);
+                    for arg in m.argument_list.arguments.iter() {
+                        self.analyze_argument_value(arg);
+                    }
+                }
+                Call::Function(f) => {
+                    for arg in f.argument_list.arguments.iter() {
+                        self.analyze_argument_value(arg);
+                    }
+                }
+                Call::StaticMethod(s) => {
+                    for arg in s.argument_list.arguments.iter() {
+                        self.analyze_argument_value(arg);
+                    }
+                }
+                Call::NullSafeMethod(n) => {
+                    self.analyze_expression(&n.object);
+                    for arg in n.argument_list.arguments.iter() {
+                        self.analyze_argument_value(arg);
+                    }
+                }
+            },
+            Expression::Access(access) => match access {
+                Access::Property(p) => self.analyze_expression(&p.object),
+                Access::NullSafeProperty(p) => self.analyze_expression(&p.object),
+                Access::StaticProperty(_) => {}
+                Access::ClassConstant(_) => {}
+            },
+            Expression::Binary(binary) => {
+                self.analyze_expression(&binary.lhs);
+                self.analyze_expression(&binary.rhs);
+            }
+            Expression::UnaryPrefix(p) => self.analyze_expression(&p.operand),
+            Expression::UnaryPostfix(p) => self.analyze_expression(&p.operand),
+            Expression::Parenthesized(p) => self.analyze_expression(&p.expression),
+            Expression::Conditional(t) => {
+                self.analyze_expression(&t.condition);
+                if let Some(then_expr) = &t.then {
+                    self.analyze_expression(then_expr);
+                }
+                self.analyze_expression(&t.r#else);
+            }
+            Expression::Assignment(a) => {
+                self.analyze_expression(&a.rhs);
+            }
+            Expression::Array(arr) => {
+                for elem in arr.elements.iter() {
+                    if let ArrayElement::KeyValue(kv) = elem {
+                        self.analyze_expression(&kv.value);
+                    } else if let ArrayElement::Value(v) = elem {
+                        self.analyze_expression(&v.value);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn analyze_argument_value<'a>(&mut self, arg: &Argument<'a>) {
+        match arg {
+            Argument::Positional(p) => self.analyze_expression(&p.value),
+            Argument::Named(n) => self.analyze_expression(&n.value),
+        }
+    }
+
+    fn check_method_call<'a>(&mut self, call: &MethodCall<'a>) {
+        // Get method name
+        let method_info = match &call.method {
+            ClassLikeMemberSelector::Identifier(ident) => {
+                Some((self.get_span_text(&ident.span).to_string(), ident.span))
+            }
+            _ => None,
+        };
+
+        if let Some((method, method_span)) = method_info {
+            let method_lower = method.to_lowercase();
+            let arg_count = call.argument_list.arguments.len();
+
+            // Case 1: (new ClassName())->method()
+            if let Some(class_name) = self.get_instantiation_class(&call.object) {
+                self.check_method_on_class(&class_name, &method, &method_lower, arg_count, method_span);
+            }
+            // Case 2: $obj->method() where $obj has a known type
+            else if let Expression::Variable(Variable::Direct(var)) = &*call.object {
+                let var_name = self.get_span_text(&var.span).to_string();
+                if let Some(class_name) = self.get_variable_type(&var_name) {
+                    self.check_method_on_class(&class_name, &method, &method_lower, arg_count, method_span);
+                }
+            }
+        }
+    }
+
+    fn check_method_on_class(
+        &mut self,
+        class_name: &str,
+        method: &str,
+        method_lower: &str,
+        arg_count: usize,
+        method_span: mago_span::Span,
+    ) {
+        // Skip built-in classes
+        if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(class_name)) {
+            return;
+        }
+
+        let class_lower = class_name.to_lowercase();
+        if let Some(methods) = self.class_methods.get(&class_lower) {
+            if let Some(method_info) = methods.get(method_lower) {
+                // Method exists - check argument count
+                let method_info = method_info.clone();
+                self.check_method_args(
+                    class_name,
+                    &method_info,
+                    arg_count,
+                    method_span.start.offset as usize,
+                );
+            } else {
+                // Method not found
+                let (line, col) = self.get_line_col(method_span.start.offset as usize);
+                self.issues.push(
+                    Issue::error(
+                        "method.notFound",
+                        format!(
+                            "Call to an undefined method {}::{}().",
+                            class_name, method
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("method.notFound"),
+                );
+            }
+        }
+    }
 }
 
+// Keep the old Visitor impl for backwards compatibility but it's not used anymore
 impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
     fn visit_statement(&mut self, stmt: &Statement<'a>, _source: &str) -> bool {
         // Track variable assignments: $obj = new ClassName()

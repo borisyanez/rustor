@@ -3,6 +3,7 @@
 pub mod level0;
 pub mod level1;
 pub mod level2;
+pub mod level3;
 
 use crate::config::PhpStanConfig;
 use crate::issue::Issue;
@@ -68,10 +69,15 @@ impl CheckRegistry {
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
+        registry.register(Box::new(level1::MagicMethodsCheck));
 
         // Level 2 checks
         registry.register(Box::new(level2::CallMethodsCheck));
         registry.register(Box::new(level2::PropertyAccessCheck));
+
+        // Level 3 checks
+        registry.register(Box::new(level3::ReturnTypeCheck));
+        registry.register(Box::new(level3::PropertyTypeCheck));
 
         registry
     }

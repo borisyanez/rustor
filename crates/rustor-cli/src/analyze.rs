@@ -27,12 +27,19 @@ pub struct AnalyzeArgs {
     pub baseline: Option<PathBuf>,
     /// Verbose output
     pub verbose: bool,
+    /// PHPStan compatibility mode - exactly matches PHPStan behavior
+    pub phpstan_compat: bool,
 }
 
 /// Run the analyze subcommand
 pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
     // Load PHPStan configuration
-    let config = load_config(&args)?;
+    let mut config = load_config(&args)?;
+
+    // Apply phpstan-compat mode if requested
+    if args.phpstan_compat {
+        config.phpstan_compat = true;
+    }
 
     if args.verbose {
         println!("{}: {}", "Analysis level".bold(), config.level);
@@ -155,6 +162,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
     let mut generate_baseline = None;
     let mut baseline = None;
     let mut verbose = false;
+    let mut phpstan_compat = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -189,6 +197,8 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             }
         } else if arg == "-v" || arg == "--verbose" {
             verbose = true;
+        } else if arg == "--phpstan-compat" {
+            phpstan_compat = true;
         } else if arg == "-h" || arg == "--help" {
             print_analyze_help();
             std::process::exit(0);
@@ -207,6 +217,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
         generate_baseline,
         baseline,
         verbose,
+        phpstan_compat,
     })
 }
 
@@ -226,6 +237,7 @@ pub fn print_analyze_help() {
     println!("        --error-format <FORMAT>   Output format: raw, json, table, github");
     println!("        --generate-baseline <FILE>  Generate baseline file");
     println!("        --baseline <FILE>         Use baseline file to filter issues");
+    println!("        --phpstan-compat          PHPStan exact compatibility mode");
     println!("    -v, --verbose                 Verbose output");
     println!("    -h, --help                    Print help");
     println!();
@@ -234,6 +246,7 @@ pub fn print_analyze_help() {
     println!("    rustor analyze src/ tests/ --level 5");
     println!("    rustor analyze -c phpstan.neon --error-format json");
     println!("    rustor analyze --generate-baseline baseline.neon");
+    println!("    rustor analyze --phpstan-compat --level 1");
 }
 
 /// Check if we should run the analyze subcommand

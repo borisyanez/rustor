@@ -63,6 +63,8 @@ pub struct PhpStanConfig {
     pub stub_files: Vec<PathBuf>,
     /// Bootstrap files
     pub bootstrap_files: Vec<PathBuf>,
+    /// PHPStan exact compatibility mode
+    pub phpstan_compat: bool,
 }
 
 impl Default for PhpStanConfig {
@@ -82,6 +84,7 @@ impl Default for PhpStanConfig {
             custom_rule_paths: Vec::new(),
             stub_files: Vec::new(),
             bootstrap_files: Vec::new(),
+            phpstan_compat: false,
         }
     }
 }

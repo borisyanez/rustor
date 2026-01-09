@@ -472,6 +472,78 @@ Rustor respects the following environment variables:
 | `NO_COLOR` | Disable colored output |
 | `CLICOLOR_FORCE` | Force colored output |
 
+## Subcommands
+
+### `analyze` - PHPStan-compatible Static Analysis
+
+Run PHPStan-compatible static analysis on PHP files.
+
+```bash
+rustor analyze [OPTIONS] [PATHS]...
+```
+
+#### Options
+
+| Option | Description |
+|--------|-------------|
+| `-c, --configuration <FILE>` | PHPStan config file (phpstan.neon) |
+| `-l, --level <LEVEL>` | Analysis level (0-9, max) |
+| `--error-format <FORMAT>` | Output format: raw, json, table, github |
+| `--generate-baseline <FILE>` | Generate baseline file |
+| `--baseline <FILE>` | Use baseline file to filter issues |
+| `--phpstan-compat` | PHPStan exact compatibility mode |
+| `-v, --verbose` | Verbose output |
+| `-h, --help` | Print help |
+
+#### PHPStan Compatibility Mode
+
+By default, rustor's analyzer has some lenient behaviors that differ from PHPStan:
+
+- Classes with `__get` magic method: rustor issues **warnings** for undefined property access (since `__get` handles it), while PHPStan issues **errors**
+
+Use `--phpstan-compat` to enable strict PHPStan compatibility mode, which ensures rustor produces identical results to PHPStan:
+
+```bash
+# Default mode (lenient)
+rustor analyze src/ --level 1
+
+# PHPStan exact compatibility mode
+rustor analyze src/ --level 1 --phpstan-compat
+```
+
+#### Analysis Levels
+
+Rustor supports PHPStan analysis levels 0-3:
+
+| Level | Description |
+|-------|-------------|
+| 0 | Undefined functions, classes, static methods, class constants |
+| 1 | Undefined variables, possibly undefined variables |
+| 2 | Type-aware method/property checks on typed parameters |
+| 3 | Return type validation, void purity checks |
+
+#### Examples
+
+```bash
+# Basic analysis at level 2
+rustor analyze src/ --level 2
+
+# Use PHPStan config file
+rustor analyze -c phpstan.neon
+
+# Generate baseline for gradual adoption
+rustor analyze src/ --level 3 --generate-baseline baseline.neon
+
+# Filter results using baseline
+rustor analyze src/ --level 3 --baseline baseline.neon
+
+# JSON output for CI
+rustor analyze src/ --level 3 --error-format json
+
+# GitHub Actions annotations
+rustor analyze src/ --level 3 --error-format github
+```
+
 ## See Also
 
 - [Rules Reference](rules.md) - Complete list of all rules
