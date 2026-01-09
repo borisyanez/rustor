@@ -143,6 +143,25 @@ impl<'s> MissingTypehintVisitor<'s> {
                     )
                     .with_identifier("missingType.parameter"),
                 );
+            } else if let Some(hint) = &param.hint {
+                // Check for plain array type without value type (missingType.iterableValue)
+                if self.is_plain_iterable_type(hint) {
+                    let param_name = self.get_span_text(&param.variable.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.iterableValue",
+                            format!(
+                                "Function {}() has parameter {} with no value type specified in iterable type array.",
+                                func_name, param_name
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.iterableValue"),
+                    );
+                }
             }
         }
 
@@ -187,6 +206,25 @@ impl<'s> MissingTypehintVisitor<'s> {
                     )
                     .with_identifier("missingType.parameter"),
                 );
+            } else if let Some(hint) = &param.hint {
+                // Check for plain array type without value type (missingType.iterableValue)
+                if self.is_plain_iterable_type(hint) {
+                    let param_name = self.get_span_text(&param.variable.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.iterableValue",
+                            format!(
+                                "Method {}() has parameter {} with no value type specified in iterable type array.",
+                                method_name, param_name
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.iterableValue"),
+                    );
+                }
             }
         }
 
@@ -203,6 +241,17 @@ impl<'s> MissingTypehintVisitor<'s> {
                 )
                 .with_identifier("missingType.return"),
             );
+        }
+    }
+
+    /// Check if a type hint is a plain array/iterable without value type specification
+    fn is_plain_iterable_type(&self, hint: &Hint<'_>) -> bool {
+        match hint {
+            Hint::Array(_) => true,
+            Hint::Iterable(_) => true,
+            Hint::Nullable(nullable) => self.is_plain_iterable_type(&nullable.hint),
+            Hint::Parenthesized(p) => self.is_plain_iterable_type(&p.hint),
+            _ => false,
         }
     }
 

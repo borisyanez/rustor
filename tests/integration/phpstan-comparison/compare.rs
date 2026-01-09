@@ -116,6 +116,7 @@ fn run_rustor(file: &Path, level: u8) -> Result<Vec<AnalyzerError>, String> {
             &level.to_string(),
             "--format",
             "json",
+            "--phpstan-compat",
         ])
         .output()
         .map_err(|e| format!("Failed to run rustor: {}", e))?;
@@ -248,5 +249,29 @@ mod tests {
     #[ignore]
     fn test_level2_argument_count() {
         test_fixture("level2_argument_count.php", 2);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_level3_return_type() {
+        test_fixture("level3_return_type.php", 3);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_level4_dead_code() {
+        test_fixture("level4_dead_code.php", 4);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_level5_argument_type() {
+        test_fixture("level5_argument_type.php", 5);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_level6_missing_typehints() {
+        test_fixture("level6_missing_typehints.php", 6);
     }
 }

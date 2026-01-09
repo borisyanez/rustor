@@ -13,6 +13,13 @@ use mago_syntax::ast::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Represents an integer comparison like `$x > 0` or `$x <= 0`
+struct IntComparison {
+    var_name: String,
+    op: String,
+    value: i64,
+}
+
 /// Check for dead/unreachable code
 pub struct DeadCodeCheck;
 
@@ -136,7 +143,7 @@ impl<'s> DeadCodeVisitor<'s> {
             }
             Statement::If(if_stmt) => {
                 self.check_expression(&if_stmt.condition);
-                self.analyze_if_body(&if_stmt.body);
+                self.analyze_if_body(&if_stmt.body, &if_stmt.condition);
             }
             Statement::While(while_stmt) => {
                 self.check_expression(&while_stmt.condition);
@@ -269,7 +276,7 @@ impl<'s> DeadCodeVisitor<'s> {
         }
     }
 
-    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>) {
+    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>, if_condition: &Expression<'a>) {
         match body {
             IfBody::Statement(stmt_body) => {
                 if let Statement::Block(block) = &*stmt_body.statement {
@@ -277,12 +284,122 @@ impl<'s> DeadCodeVisitor<'s> {
                 }
                 for else_if in stmt_body.else_if_clauses.iter() {
                     self.check_expression(&else_if.condition);
+                    // Check if elseif condition is inverse of if condition (always true)
+                    self.check_elseif_always_true(if_condition, &else_if.condition);
                 }
             }
             IfBody::ColonDelimited(block) => {
                 self.check_statements_for_unreachable(&block.statements);
+                for else_if in block.else_if_clauses.iter() {
+                    self.check_expression(&else_if.condition);
+                    // Check if elseif condition is inverse of if condition (always true)
+                    self.check_elseif_always_true(if_condition, &else_if.condition);
+                }
             }
         }
+    }
+
+    /// Check if an elseif condition is always true because it's the inverse of the if condition
+    fn check_elseif_always_true<'a>(&mut self, if_cond: &Expression<'a>, elseif_cond: &Expression<'a>) {
+        // Extract comparison info from both conditions
+        if let (Some(if_cmp), Some(elseif_cmp)) = (
+            self.extract_int_comparison(if_cond),
+            self.extract_int_comparison(elseif_cond),
+        ) {
+            // Check if they're comparing the same variable and are inverses
+            if if_cmp.var_name == elseif_cmp.var_name && if_cmp.value == elseif_cmp.value {
+                // Check if operators are inverses
+                let is_inverse = match (&if_cmp.op[..], &elseif_cmp.op[..]) {
+                    (">", "<=") | ("<=", ">") => true,
+                    ("<", ">=") | (">=", "<") => true,
+                    ("==", "!=") | ("!=", "==") => true,
+                    ("===", "!==") | ("!==", "===") => true,
+                    _ => false,
+                };
+
+                if is_inverse {
+                    let (line, col) = self.get_line_col(elseif_cond.span().start.offset as usize);
+                    let op_name = match &elseif_cmp.op[..] {
+                        "<=" => "smallerOrEqual",
+                        ">=" => "greaterOrEqual",
+                        "<" => "smaller",
+                        ">" => "greater",
+                        "==" | "===" => "identical",
+                        "!=" | "!==" => "notIdentical",
+                        _ => "comparison",
+                    };
+                    self.issues.push(
+                        Issue::error(
+                            &format!("{}.alwaysTrue", op_name),
+                            format!(
+                                "Comparison operation \"{}\" between int<min, {}> and {} is always true.",
+                                elseif_cmp.op, if_cmp.value, if_cmp.value
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier(&format!("{}.alwaysTrue", op_name)),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Extract comparison info from an expression like `$x > 0` or `$x <= 0`
+    fn extract_int_comparison<'a>(&self, expr: &Expression<'a>) -> Option<IntComparison> {
+        if let Expression::Binary(binary) = expr {
+            let op = match &binary.operator {
+                BinaryOperator::GreaterThan(_) => ">",
+                BinaryOperator::GreaterThanOrEqual(_) => ">=",
+                BinaryOperator::LessThan(_) => "<",
+                BinaryOperator::LessThanOrEqual(_) => "<=",
+                BinaryOperator::Equal(_) => "==",
+                BinaryOperator::NotEqual(_) => "!=",
+                BinaryOperator::Identical(_) => "===",
+                BinaryOperator::NotIdentical(_) => "!==",
+                _ => return None,
+            };
+
+            // Check for $var op literal pattern
+            if let Expression::Variable(var) = &*binary.lhs {
+                if let Expression::Literal(lit) = &*binary.rhs {
+                    if let Literal::Integer(int_lit) = lit {
+                        let var_name = self.get_span_text(&var.span()).to_string();
+                        let value = self.get_span_text(&int_lit.span()).parse::<i64>().unwrap_or(0);
+                        return Some(IntComparison {
+                            var_name,
+                            op: op.to_string(),
+                            value,
+                        });
+                    }
+                }
+            }
+
+            // Check for literal op $var pattern
+            if let Expression::Literal(lit) = &*binary.lhs {
+                if let Expression::Variable(var) = &*binary.rhs {
+                    if let Literal::Integer(int_lit) = lit {
+                        let var_name = self.get_span_text(&var.span()).to_string();
+                        let value = self.get_span_text(&int_lit.span()).parse::<i64>().unwrap_or(0);
+                        // Flip the operator since the operands are reversed
+                        let flipped_op = match op {
+                            ">" => "<",
+                            ">=" => "<=",
+                            "<" => ">",
+                            "<=" => ">=",
+                            other => other,
+                        };
+                        return Some(IntComparison {
+                            var_name,
+                            op: flipped_op.to_string(),
+                            value,
+                        });
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn analyze_while_body<'a>(&mut self, body: &WhileBody<'a>) {
