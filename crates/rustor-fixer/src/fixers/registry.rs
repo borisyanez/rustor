@@ -657,4 +657,53 @@ mod tests {
             "Expected for loop to have brace on same line, got: {}", fixed_source
         );
     }
+
+    #[test]
+    fn test_single_quote_in_symfony_preset() {
+        let registry = FixerRegistry::new();
+        let config = FixerConfig::default();
+
+        // single_quote is in Symfony preset, not PSR-12 (PSR-12 doesn't mandate quote style)
+        let symfony_fixers = registry.get_preset_fixers("symfony");
+        assert!(
+            symfony_fixers.contains(&"single_quote"),
+            "Expected single_quote in symfony preset, got: {:?}", symfony_fixers
+        );
+
+        // Test that single_quote fixer is actually applied via symfony preset
+        let source = r#"<?php
+$a = "simple string";
+"#;
+        let (fixed, edits) = registry.check_preset(source, "symfony", &config);
+
+        assert!(
+            edits.iter().any(|e| e.rule.as_deref() == Some("single_quote")),
+            "Expected single_quote edit, got edits: {:?}", edits.iter().map(|e| e.rule.as_deref()).collect::<Vec<_>>()
+        );
+        assert!(
+            fixed.contains("'simple string'"),
+            "Expected single quotes in output, got: {}", fixed
+        );
+    }
+
+    #[test]
+    fn test_single_quote_direct() {
+        let registry = FixerRegistry::new();
+        let config = FixerConfig::default();
+
+        // Test calling single_quote directly
+        let source = r#"<?php
+$a = "simple string";
+"#;
+        let (fixed, edits) = registry.check(source, &["single_quote"], &config);
+
+        assert!(
+            !edits.is_empty(),
+            "Expected single_quote edits"
+        );
+        assert!(
+            fixed.contains("'simple string'"),
+            "Expected single quotes in output, got: {}", fixed
+        );
+    }
 }

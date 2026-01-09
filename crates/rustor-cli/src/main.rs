@@ -857,16 +857,19 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
     // Get fixer preset or use all fixers
     let fixer_preset = cli.fixer_preset.as_deref().unwrap_or("psr12");
 
-    // Create fixer config - load from PHP config file if provided
-    let fixer_config = if let Some(config_path) = &cli.fixer_config {
+    // Create fixer config and get enabled rules from PHP config file if provided
+    let (fixer_config, enabled_rules): (FixerConfig, Option<Vec<String>>) = if let Some(config_path) = &cli.fixer_config {
         let php_config = PhpCsFixerConfig::from_file(config_path)
             .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", config_path.display(), e))?;
-        fixer::config_from_php_cs_fixer(&php_config)
+        let config = fixer::config_from_php_cs_fixer(&php_config);
+        // Get enabled rules from the PHP config
+        let rules: Vec<String> = php_config.rules.keys().cloned().collect();
+        (config, if rules.is_empty() { None } else { Some(rules) })
     } else {
-        FixerConfig {
+        (FixerConfig {
             line_ending: LineEnding::Lf,
             ..Default::default()
-        }
+        }, None)
     };
 
     // Collect PHP files
@@ -904,7 +907,13 @@ fn run_fixer_mode(cli: &Cli, output_format: OutputFormat) -> Result<ExitCode> {
                 Err(_) => return None,
             };
 
-            let (fixed_source, edits) = fixer_registry.check_preset(&source, fixer_preset, &fixer_config);
+            // Use enabled rules from config if available, otherwise use preset
+            let (fixed_source, edits) = if let Some(ref rules) = enabled_rules {
+                let rule_refs: Vec<&str> = rules.iter().map(|s| s.as_str()).collect();
+                fixer_registry.check(&source, &rule_refs, &fixer_config)
+            } else {
+                fixer_registry.check_preset(&source, fixer_preset, &fixer_config)
+            };
 
             if edits.is_empty() {
                 None
