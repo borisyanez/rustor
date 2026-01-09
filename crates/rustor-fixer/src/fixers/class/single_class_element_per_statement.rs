@@ -31,8 +31,9 @@ impl Fixer for SingleClassElementPerStatementFixer {
         // Match property declarations with multiple variables
         // public $a, $b; -> public $a; public $b;
         // private int $a, $b; -> private int $a; private int $b;
+        // Note: Use [ \t] instead of \s in modifiers to avoid matching newlines
         let prop_re = Regex::new(
-            r"(?m)^([ \t]*)((?:public|protected|private|static|readonly|\s)+)(?:(\??\w+)\s+)?(\$\w+(?:\s*=\s*[^,;]+)?(?:\s*,\s*\$\w+(?:\s*=\s*[^,;]+)?)+)\s*;"
+            r"(?m)^([ \t]*)((?:public|protected|private|static|readonly|[ \t])+)(?:(\??\w+)[ \t]+)?(\$\w+(?:[ \t]*=[ \t]*[^,;]+)?(?:[ \t]*,[ \t]*\$\w+(?:[ \t]*=[ \t]*[^,;]+)?)+)[ \t]*;"
         ).unwrap();
 
         for cap in prop_re.captures_iter(source) {
@@ -191,6 +192,61 @@ mod tests {
         assert_eq!(edits.len(), 1);
         assert!(edits[0].replacement.contains("public $a;"));
         assert!(edits[0].replacement.contains("public $b;"));
+    }
+
+    #[test]
+    fn test_multiple_property_lines() {
+        // Test case that reproduces the indentation issue
+        let source = "<?php\nclass A {\n    public $a,$b,$c;\n    protected $d = 1, $e = 2;\n}\n";
+        let edits = check(source);
+
+        // Should have 2 edits, one for each line
+        assert_eq!(edits.len(), 2);
+
+        // First edit should split public $a,$b,$c
+        assert!(edits[0].replacement.contains("    public $a;"));
+        assert!(edits[0].replacement.contains("    public $b;"));
+        assert!(edits[0].replacement.contains("    public $c;"));
+
+        // All lines should have correct indentation
+        for line in edits[0].replacement.lines() {
+            assert!(line.starts_with("    "), "Missing indent: '{}'", line);
+        }
+
+        // Second edit should split protected $d, $e
+        assert!(edits[1].replacement.contains("    protected $d = 1;"));
+        assert!(edits[1].replacement.contains("    protected $e = 2;"));
+
+        for line in edits[1].replacement.lines() {
+            assert!(line.starts_with("    "), "Missing indent: '{}'", line);
+        }
+    }
+
+    #[test]
+    fn test_three_properties_debug() {
+        // Debug test to see what the replacement looks like
+        let source = "<?php\nclass A\n{\n    use TraitA;\n    use TraitB;\n\n    public $a,$b,$c;\n}\n";
+        let edits = check(source);
+
+        println!("\nSource:\n{}", source);
+        println!("\nNumber of edits: {}", edits.len());
+        for (i, edit) in edits.iter().enumerate() {
+            let start = edit.span.start.offset as usize;
+            let end = edit.span.end.offset as usize;
+            println!("\nEdit {}:", i);
+            println!("  Start: {}, End: {}", start, end);
+            println!("  Original: {:?}", &source[start..end]);
+            println!("  Replacement: {:?}", edit.replacement);
+        }
+
+        // Verify indentation
+        assert_eq!(edits.len(), 1);
+        let replacement = &edits[0].replacement;
+        println!("\nReplacement lines:");
+        for (i, line) in replacement.lines().enumerate() {
+            println!("  Line {}: {:?}", i, line);
+            assert!(line.starts_with("    "), "Line {} missing indent: {:?}", i, line);
+        }
     }
 
     #[test]

@@ -108,8 +108,10 @@ impl Fixer for BracesPositionFixer {
         // Functions/methods
         if function_style == "next_line_unless_newline_at_signature_end" {
             // Fix brace on same line -> next line
+            // Pattern supports: simple types, nullable types (?int), union types (int|string),
+            // intersection types (A&B), and DNF types ((A&B)|C)
             let func_same_line = Regex::new(
-                r"(?m)(function\s+\w+\s*\([^)]*\)(?:\s*:\s*\??\w+)?)\s*\{"
+                r"(?m)(function\s+\w+\s*\([^)]*\)(?:\s*:\s*\??[\w|&\\()]+)?)\s*\{"
             ).unwrap();
 
             for cap in func_same_line.captures_iter(source) {
@@ -143,8 +145,10 @@ impl Fixer for BracesPositionFixer {
             }
         } else if function_style == "same_line" {
             // Fix brace on next line -> same line
+            // Pattern supports: simple types, nullable types (?int), union types (int|string),
+            // intersection types (A&B), and DNF types ((A&B)|C)
             let func_next_line = Regex::new(
-                r"(?m)(function\s+\w+\s*\([^)]*\)(?:\s*:\s*\??\w+)?)\s*\n\s*\{"
+                r"(?m)(function\s+\w+\s*\([^)]*\)(?:\s*:\s*\??[\w|&\\()]+)?)\s*\n\s*\{"
             ).unwrap();
 
             for cap in func_next_line.captures_iter(source) {

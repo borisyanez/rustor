@@ -153,7 +153,8 @@ impl Fixer for TernaryOperatorSpacesFixer {
         // Look for ? ... : patterns where : needs spacing
         // Pattern: find `? anything :something` where : has no space before or after
         // Skip if it's actually a ?: (Elvis operator) which we already handled
-        let ternary_colon = Regex::new(r"\?\s+[^:?]+:([^\s:])").unwrap();
+        // Also handle compact case `?$var:$var` where there's no space after ?
+        let ternary_colon = Regex::new(r"\?\s*[^:?\s][^:?]*:([^\s:])").unwrap();
         for cap in ternary_colon.captures_iter(source) {
             let full_match = cap.get(0).unwrap();
             let match_str = full_match.as_str();
@@ -299,5 +300,30 @@ mod tests {
         let source = "<?php\n$a = $b ?: $c;";
         let edits = check(source);
         assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn test_colon_without_space() {
+        let source = "<?php\n$a = $b ? $c:$d;";
+        let edits = check(source);
+        eprintln!("Edits: {:?}", edits);
+        assert!(!edits.is_empty(), "Expected edits for missing space around colon");
+        // Should fix the colon to have spaces
+        assert!(edits.iter().any(|e| e.replacement.contains(" : ")),
+                "Expected ' : ' in replacement, got: {:?}", edits);
+    }
+
+    #[test]
+    fn test_compact_ternary_both_fixes() {
+        // Compact ternary with no spaces anywhere
+        let source = "<?php\n$a=$b?$c:$d;";
+        let edits = check(source);
+        eprintln!("Edits: {:?}", edits);
+        // Should have edits for both ? and :
+        assert!(edits.len() >= 2, "Expected at least 2 edits, got: {}", edits.len());
+        assert!(edits.iter().any(|e| e.replacement.contains(" ? ")),
+                "Expected ' ? ' in replacement");
+        assert!(edits.iter().any(|e| e.replacement.contains(" : ")),
+                "Expected ' : ' in replacement");
     }
 }
