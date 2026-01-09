@@ -2,7 +2,7 @@
 
 use rustor_core::Edit;
 use regex::Regex;
-use crate::fixers::{Fixer, FixerConfig, edit_with_rule};
+use crate::fixers::{Fixer, FixerConfig, FixerOption, OptionType, ConfigValue, edit_with_rule};
 
 /// Splits grouped use statements into individual statements
 pub struct SingleImportPerStatementFixer;
@@ -24,59 +24,81 @@ impl Fixer for SingleImportPerStatementFixer {
         20
     }
 
+    fn options(&self) -> Vec<FixerOption> {
+        vec![
+            FixerOption {
+                name: "group_to_single_imports",
+                description: "Whether to split grouped imports (use Foo\\{A, B}) into single imports. PSR-12 sets this to false.",
+                option_type: OptionType::Bool,
+                default: Some(ConfigValue::Bool(true)),
+            },
+        ]
+    }
+
     fn check(&self, source: &str, config: &FixerConfig) -> Vec<Edit> {
         let mut edits = Vec::new();
         let line_ending = config.line_ending.as_str();
 
+        // Check if we should split grouped imports
+        let group_to_single = config.options.get("group_to_single_imports")
+            .and_then(|v| match v {
+                ConfigValue::Bool(b) => Some(*b),
+                _ => None,
+            })
+            .unwrap_or(true);
+
         // Match grouped imports: use Namespace\{Class1, Class2};
-        let grouped_re = Regex::new(r"(?m)^([ \t]*)(use\s+(?:function\s+|const\s+)?)([\w\\]+)\s*\{([^}]+)\}\s*;").unwrap();
+        // Only process if group_to_single_imports is true
+        if group_to_single {
+            let grouped_re = Regex::new(r"(?m)^([ \t]*)(use\s+(?:function\s+|const\s+)?)([\w\\]+)\s*\{([^}]+)\}\s*;").unwrap();
 
-        for cap in grouped_re.captures_iter(source) {
-            let full_match = cap.get(0).unwrap();
-            let indent = cap.get(1).unwrap().as_str();
-            let use_prefix = cap.get(2).unwrap().as_str();
-            // Trim trailing backslash from namespace (PHP syntax: use App\{Foo, Bar})
-            let namespace = cap.get(3).unwrap().as_str().trim_end_matches('\\');
-            let items = cap.get(4).unwrap().as_str();
+            for cap in grouped_re.captures_iter(source) {
+                let full_match = cap.get(0).unwrap();
+                let indent = cap.get(1).unwrap().as_str();
+                let use_prefix = cap.get(2).unwrap().as_str();
+                // Trim trailing backslash from namespace (PHP syntax: use App\{Foo, Bar})
+                let namespace = cap.get(3).unwrap().as_str().trim_end_matches('\\');
+                let items = cap.get(4).unwrap().as_str();
 
-            // Check not in string
-            if is_in_string(&source[..full_match.start()]) {
-                continue;
+                // Check not in string
+                if is_in_string(&source[..full_match.start()]) {
+                    continue;
+                }
+
+                // Parse the items
+                let item_list: Vec<&str> = items
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if item_list.len() <= 1 {
+                    continue;
+                }
+
+                // Generate individual use statements
+                let mut statements = Vec::new();
+                for item in item_list {
+                    // Handle aliases: Class as Alias
+                    let full_name = if item.contains(" as ") {
+                        let parts: Vec<&str> = item.splitn(2, " as ").collect();
+                        format!("{}\\{} as {}", namespace, parts[0].trim(), parts[1].trim())
+                    } else {
+                        format!("{}\\{}", namespace, item)
+                    };
+                    statements.push(format!("{}{}{};", indent, use_prefix, full_name));
+                }
+
+                let replacement = statements.join(line_ending);
+
+                edits.push(edit_with_rule(
+                    full_match.start(),
+                    full_match.end(),
+                    replacement,
+                    "Split grouped import into separate statements".to_string(),
+                    "single_import_per_statement",
+                ));
             }
-
-            // Parse the items
-            let item_list: Vec<&str> = items
-                .split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            if item_list.len() <= 1 {
-                continue;
-            }
-
-            // Generate individual use statements
-            let mut statements = Vec::new();
-            for item in item_list {
-                // Handle aliases: Class as Alias
-                let full_name = if item.contains(" as ") {
-                    let parts: Vec<&str> = item.splitn(2, " as ").collect();
-                    format!("{}\\{} as {}", namespace, parts[0].trim(), parts[1].trim())
-                } else {
-                    format!("{}\\{}", namespace, item)
-                };
-                statements.push(format!("{}{}{};", indent, use_prefix, full_name));
-            }
-
-            let replacement = statements.join(line_ending);
-
-            edits.push(edit_with_rule(
-                full_match.start(),
-                full_match.end(),
-                replacement,
-                "Split grouped import into separate statements".to_string(),
-                "single_import_per_statement",
-            ));
         }
 
         // Also match comma-separated imports: use Foo, Bar, Baz;
@@ -225,5 +247,41 @@ mod tests {
         for line in edits[0].replacement.lines() {
             assert!(line.starts_with("    use "));
         }
+    }
+
+    #[test]
+    fn test_group_to_single_imports_false() {
+        // When group_to_single_imports is false (PSR-12), grouped imports should NOT be split
+        let source = "<?php\n\nuse App\\{Model, Controller, View};\n";
+        let mut options = std::collections::HashMap::new();
+        options.insert("group_to_single_imports".to_string(), ConfigValue::Bool(false));
+
+        let edits = SingleImportPerStatementFixer.check(source, &FixerConfig {
+            line_ending: LineEnding::Lf,
+            options,
+            ..Default::default()
+        });
+
+        // No edits - grouped imports should remain grouped
+        assert!(edits.is_empty(), "Expected no edits when group_to_single_imports is false");
+    }
+
+    #[test]
+    fn test_comma_separated_always_split() {
+        // Comma-separated imports (use A, B;) should ALWAYS be split, regardless of option
+        let source = "<?php\n\nuse App\\Model, App\\View;\n";
+        let mut options = std::collections::HashMap::new();
+        options.insert("group_to_single_imports".to_string(), ConfigValue::Bool(false));
+
+        let edits = SingleImportPerStatementFixer.check(source, &FixerConfig {
+            line_ending: LineEnding::Lf,
+            options,
+            ..Default::default()
+        });
+
+        // Comma-separated imports should still be split
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("use App\\Model;"));
+        assert!(edits[0].replacement.contains("use App\\View;"));
     }
 }

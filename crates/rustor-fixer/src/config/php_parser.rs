@@ -190,6 +190,21 @@ fn parse_rules(content: &str) -> Result<HashMap<String, RuleConfig>, ParseError>
                         options: HashMap::new(),
                     });
                 }
+
+                // Apply preset-specific options
+                let preset_options = super::presets::get_preset_options(preset_name);
+                for (rule_name, rule_opts) in preset_options {
+                    if let Some(rule_config) = rules.get_mut(rule_name) {
+                        for (opt_name, opt_value) in rule_opts {
+                            let config_value = match opt_value {
+                                super::presets::PresetOptionValue::Bool(b) => ConfigValue::Bool(b),
+                                super::presets::PresetOptionValue::String(s) => ConfigValue::String(s.to_string()),
+                                super::presets::PresetOptionValue::Number(n) => ConfigValue::Number(n),
+                            };
+                            rule_config.options.insert(opt_name.to_string(), config_value);
+                        }
+                    }
+                }
             }
         }
 

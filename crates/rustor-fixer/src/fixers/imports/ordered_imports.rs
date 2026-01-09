@@ -57,10 +57,6 @@ impl Fixer for OrderedImportsFixer {
             })
             .unwrap_or("alpha");
 
-        if sort_algo == "none" {
-            return edits;
-        }
-
         // Find all use statement blocks
         let use_re = Regex::new(r"(?m)^([ \t]*)(use\s+(?:function\s+|const\s+)?[^;]+;)[ \t]*$").unwrap();
 
@@ -118,15 +114,17 @@ impl Fixer for OrderedImportsFixer {
         for block in blocks {
             let mut sorted = block.statements.clone();
 
+            // Helper to get type ordering
+            let type_order = |t: &UseType| match t {
+                UseType::Class => 0,
+                UseType::Function => 1,
+                UseType::Const => 2,
+            };
+
             match sort_algo {
                 "alpha" => {
                     sorted.sort_by(|a, b| {
                         // Sort by type first (class < function < const), then alphabetically
-                        let type_order = |t: &UseType| match t {
-                            UseType::Class => 0,
-                            UseType::Function => 1,
-                            UseType::Const => 2,
-                        };
                         let type_cmp = type_order(&a.use_type).cmp(&type_order(&b.use_type));
                         if type_cmp != std::cmp::Ordering::Equal {
                             return type_cmp;
@@ -137,6 +135,12 @@ impl Fixer for OrderedImportsFixer {
                 "length" => {
                     sorted.sort_by(|a, b| {
                         a.full_statement.len().cmp(&b.full_statement.len())
+                    });
+                }
+                "none" => {
+                    // Group by type but preserve original order within each group
+                    sorted.sort_by(|a, b| {
+                        type_order(&a.use_type).cmp(&type_order(&b.use_type))
                     });
                 }
                 _ => {}
@@ -151,10 +155,22 @@ impl Fixer for OrderedImportsFixer {
                 .collect();
 
             if original_order != sorted_order {
-                let new_text = sorted.iter()
-                    .map(|s| format!("{}{}", s.indent, s.full_statement))
-                    .collect::<Vec<_>>()
-                    .join(line_ending);
+                // Generate new text with blank lines between type groups
+                let mut new_lines: Vec<String> = Vec::new();
+                let mut prev_type: Option<UseType> = None;
+
+                for stmt in &sorted {
+                    // Add blank line when type changes
+                    if let Some(ref prev) = prev_type {
+                        if *prev != stmt.use_type {
+                            new_lines.push(String::new());
+                        }
+                    }
+                    new_lines.push(format!("{}{}", stmt.indent, stmt.full_statement));
+                    prev_type = Some(stmt.use_type.clone());
+                }
+
+                let new_text = new_lines.join(line_ending);
 
                 edits.push(edit_with_rule(
                     block.start,

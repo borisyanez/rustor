@@ -34,6 +34,47 @@ pub fn get_preset_rules(preset_name: &str) -> &'static [&'static str] {
     }
 }
 
+/// Get preset-specific rule options
+///
+/// Returns a map of rule_name -> option_name -> option_value for the preset.
+/// These override the default options for each rule.
+pub fn get_preset_options(preset_name: &str) -> std::collections::HashMap<&'static str, std::collections::HashMap<&'static str, PresetOptionValue>> {
+    use std::collections::HashMap;
+
+    let mut options = HashMap::new();
+
+    match preset_name.to_uppercase().replace("-", "").as_str() {
+        "PSR12" | "@PSR12" => {
+            // PSR-12 does NOT split grouped imports (use Foo\{A, B}) into separate statements
+            // See: https://cs.symfony.com/doc/rules/import/single_import_per_statement.html
+            let mut single_import_opts = HashMap::new();
+            single_import_opts.insert("group_to_single_imports", PresetOptionValue::Bool(false));
+            options.insert("single_import_per_statement", single_import_opts);
+
+            // PSR-12 does NOT sort imports alphabetically - only groups by type
+            // sort_algorithm => 'none', imports_order => ['class', 'function', 'const']
+            let mut ordered_imports_opts = HashMap::new();
+            ordered_imports_opts.insert("sort_algorithm", PresetOptionValue::String("none"));
+            options.insert("ordered_imports", ordered_imports_opts);
+        }
+        "SYMFONY" | "@SYMFONY" | "PHPCSFIXER" | "@PHPCSFIXER" => {
+            // Symfony and PhpCsFixer presets DO split grouped imports (default behavior)
+            // No need to set options as true is the default
+        }
+        _ => {}
+    }
+
+    options
+}
+
+/// Value types for preset options
+#[derive(Debug, Clone)]
+pub enum PresetOptionValue {
+    Bool(bool),
+    String(&'static str),
+    Number(i64),
+}
+
 /// PSR-12 preset rules
 pub const PSR12_RULES: &[&str] = &[
     // Whitespace

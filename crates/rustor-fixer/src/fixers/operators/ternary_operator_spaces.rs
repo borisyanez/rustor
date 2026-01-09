@@ -100,6 +100,48 @@ impl Fixer for TernaryOperatorSpacesFixer {
             ));
         }
 
+        // Handle short ternary (Elvis operator) ?:
+        // Pattern: $var?: or $var ?:$value - needs space around ?:
+        // Elvis operator: $a ?: $b means $a ? $a : $b
+        let elvis_no_space = Regex::new(r"(\$\w+|\))\s*\?:(\S)").unwrap();
+        for cap in elvis_no_space.captures_iter(source) {
+            let full_match = cap.get(0).unwrap();
+
+            if is_in_string(&source[..full_match.start()]) {
+                continue;
+            }
+
+            // Find the ?: position
+            let match_str = full_match.as_str();
+            if let Some(qc_pos) = match_str.find("?:") {
+                let abs_pos = full_match.start() + qc_pos;
+
+                // Check if there's space before ?:
+                let prev_char = source.chars().nth(abs_pos.saturating_sub(1));
+                let has_space_before = prev_char.map(|c| c.is_whitespace()).unwrap_or(false);
+
+                if has_space_before {
+                    // Only need space after
+                    edits.push(edit_with_rule(
+                        abs_pos,
+                        abs_pos + 2,
+                        "?: ".to_string(),
+                        "Add space after short ternary ?:".to_string(),
+                        "ternary_operator_spaces",
+                    ));
+                } else {
+                    // Need space before and after
+                    edits.push(edit_with_rule(
+                        abs_pos,
+                        abs_pos + 2,
+                        " ?: ".to_string(),
+                        "Add space around short ternary ?:".to_string(),
+                        "ternary_operator_spaces",
+                    ));
+                }
+            }
+        }
+
         // Handle ternary colon :
         // Pattern: `? expr:expr` or `? expr :expr` - colon without proper spacing
         // We look for `?` followed by stuff then `:` without spaces around it
@@ -110,7 +152,8 @@ impl Fixer for TernaryOperatorSpacesFixer {
 
         // Look for ? ... : patterns where : needs spacing
         // Pattern: find `? anything :something` where : has no space before or after
-        let ternary_colon = Regex::new(r"\?\s*[^:?]+:([^\s:])").unwrap();
+        // Skip if it's actually a ?: (Elvis operator) which we already handled
+        let ternary_colon = Regex::new(r"\?\s+[^:?]+:([^\s:])").unwrap();
         for cap in ternary_colon.captures_iter(source) {
             let full_match = cap.get(0).unwrap();
             let match_str = full_match.as_str();
@@ -233,5 +276,28 @@ mod tests {
         let source = "<?php\n$a = true?1 : 0;";
         let edits = check(source);
         assert!(!edits.is_empty());
+    }
+
+    #[test]
+    fn test_elvis_operator_no_spaces() {
+        let source = "<?php\n$a = $b?:$c;";
+        let edits = check(source);
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains(" ?: "));
+    }
+
+    #[test]
+    fn test_elvis_operator_space_before() {
+        let source = "<?php\n$a = $b ?:$c;";
+        let edits = check(source);
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("?: "));
+    }
+
+    #[test]
+    fn test_elvis_operator_correct() {
+        let source = "<?php\n$a = $b ?: $c;";
+        let edits = check(source);
+        assert!(edits.is_empty());
     }
 }

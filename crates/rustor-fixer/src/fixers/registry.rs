@@ -539,9 +539,31 @@ impl FixerRegistry {
     }
 
     /// Check source with a preset
+    ///
+    /// Applies preset-specific options to the config before running fixers.
     pub fn check_preset(&self, source: &str, preset: &str, config: &FixerConfig) -> (String, Vec<Edit>) {
         let names = self.get_preset_fixers(preset);
-        self.check(source, &names, config)
+
+        // Apply preset-specific options to the config
+        let mut config = config.clone();
+        let preset_options = crate::config::get_preset_options(preset);
+        for (_rule_name, rule_opts) in preset_options {
+            for (opt_name, opt_value) in rule_opts {
+                match opt_value {
+                    crate::config::PresetOptionValue::Bool(b) => {
+                        config.options.insert(opt_name.to_string(), super::ConfigValue::Bool(b));
+                    }
+                    crate::config::PresetOptionValue::String(s) => {
+                        config.options.insert(opt_name.to_string(), super::ConfigValue::String(s.to_string()));
+                    }
+                    crate::config::PresetOptionValue::Number(n) => {
+                        config.options.insert(opt_name.to_string(), super::ConfigValue::Number(n));
+                    }
+                }
+            }
+        }
+
+        self.check(source, &names, &config)
     }
 
     /// Number of registered fixers
