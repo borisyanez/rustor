@@ -26,9 +26,72 @@ rustor src/ --fixer --preset psr12
 |--------|-------------|
 | `--fixer` | Run formatting fixers only (no refactoring rules) |
 | `--fixer-config FILE` | Load PHP-CS-Fixer config file |
-| `--preset psr12` | Use PSR-12 fixer preset |
+| `--fixer-preset PRESET` | Use a fixer preset (psr12, symfony, phpcsfixer) |
 
-### Configuration File
+### Using PHP-CS-Fixer Config Files
+
+Rustor can parse and use your existing `.php-cs-fixer.php` or `.php-cs-fixer.dist.php` configuration files:
+
+```bash
+# Use existing PHP-CS-Fixer config
+rustor src/ --fixer --fixer-config .php-cs-fixer.php
+
+# Check what rules would be applied
+rustor src/ --fixer --fixer-config .php-cs-fixer.dist.php --check
+```
+
+#### Supported Configuration Options
+
+| PHP-CS-Fixer Method | Rustor Support |
+|---------------------|----------------|
+| `->setRules([...])` | ✅ Full support for rule arrays |
+| `->setLineEnding("\n")` | ✅ LF or CRLF |
+| `->setIndent("    ")` | ✅ Spaces or tabs |
+| `->setRiskyAllowed(true)` | ✅ Enable risky fixers |
+| `@PSR12`, `@Symfony` presets | ✅ Preset expansion |
+
+#### Finder Configuration
+
+| PHP-CS-Fixer Method | Rustor Support |
+|---------------------|----------------|
+| `->in('src/')` | ✅ Include paths |
+| `->in(getcwd())` | ✅ Current working directory |
+| `->in(__DIR__.'/src')` | ✅ Relative to config file |
+| `->exclude(['vendor/'])` | ✅ Exclude directories |
+| `->name('*.php')` | ✅ File name patterns |
+| `->notName('*.blade.php')` | ✅ Exclude file patterns |
+| `->notPath('bootstrap/cache')` | ✅ Exclude specific paths |
+| `->ignoreVCSIgnored(true)` | ✅ Respect .gitignore |
+
+#### Example PHP-CS-Fixer Config
+
+```php
+<?php
+$finder = PhpCsFixer\Finder::create()
+    ->in(getcwd())
+    ->ignoreVCSIgnored(true)
+    ->exclude(['vendor', 'storage'])
+    ->notName('*.blade.php')
+    ->notPath('bootstrap/cache');
+
+return (new PhpCsFixer\Config())
+    ->setLineEnding("\n")
+    ->setFinder($finder)
+    ->setRules([
+        '@PSR12' => true,
+        'array_syntax' => ['syntax' => 'short'],
+        'single_quote' => true,
+        'ordered_imports' => ['sort_algorithm' => 'alpha'],
+        'braces_position' => [
+            'classes_opening_brace' => 'same_line',
+            'functions_opening_brace' => 'same_line',
+        ],
+    ]);
+```
+
+Rustor will parse this file and apply the equivalent fixers with the same configuration.
+
+### Native Configuration File
 
 Add fixer settings to `.rustor.toml`:
 

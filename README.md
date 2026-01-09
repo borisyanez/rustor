@@ -76,9 +76,15 @@ rustor src/ --fixer
 # Apply formatting fixes
 rustor src/ --fixer --fix
 
-# Use PHP-CS-Fixer config
+# Use your existing PHP-CS-Fixer config
 rustor src/ --fixer --fixer-config .php-cs-fixer.php
 ```
+
+Rustor fully parses PHP-CS-Fixer configuration files including:
+- Rule definitions with options (`'single_quote' => true`)
+- Presets (`@PSR12`, `@Symfony`)
+- Finder configuration (`->in()`, `->exclude()`, `->notName()`, `->notPath()`)
+- Whitespace settings (`->setLineEnding()`, `->setIndent()`)
 
 ```php
 // Before

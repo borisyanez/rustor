@@ -77,10 +77,38 @@ rustor src/ --fixer --rule no_trailing_whitespace
 
 #### `--fixer-config <PATH>`
 
-Load a PHP-CS-Fixer configuration file (`.php-cs-fixer.php`).
+Load a PHP-CS-Fixer configuration file (`.php-cs-fixer.php` or `.php-cs-fixer.dist.php`).
 
 ```bash
+# Use project's PHP-CS-Fixer config
 rustor src/ --fixer --fixer-config .php-cs-fixer.php
+
+# Use dist config
+rustor src/ --fixer --fixer-config .php-cs-fixer.dist.php
+```
+
+Rustor parses the PHP config file and extracts:
+- Rules and their options (`->setRules([...])`)
+- Line ending preference (`->setLineEnding("\n")`)
+- Indentation style (`->setIndent("    ")`)
+- Risky rules allowance (`->setRiskyAllowed(true)`)
+- Finder configuration (`->in()`, `->exclude()`, `->notName()`, `->notPath()`)
+- Preset expansion (`@PSR12`, `@Symfony`, `@PhpCsFixer`)
+
+See [Fixers Reference](fixers.md#using-php-cs-fixer-config-files) for full details.
+
+#### `--fixer-preset <PRESET>`
+
+Use a fixer preset. Available presets:
+
+| Preset | Description |
+|--------|-------------|
+| `psr12` | PSR-12 coding standard (default) |
+| `symfony` | Symfony coding standard (extends PSR-12) |
+| `phpcsfixer` | PHP-CS-Fixer preset (extends Symfony) |
+
+```bash
+rustor src/ --fixer --fixer-preset symfony
 ```
 
 ### Rule Selection
