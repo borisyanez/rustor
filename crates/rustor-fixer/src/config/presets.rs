@@ -67,7 +67,7 @@ pub const PSR12_RULES: &[&str] = &[
     "linebreak_after_opening_tag",
     "no_blank_lines_after_class_opening",
     "single_class_element_per_statement",
-    "single_line_empty_body",
+    // Note: single_line_empty_body is NOT in PHP-CS-Fixer's @PSR12 preset
     "single_trait_insert_per_statement",
     "visibility_required",
 

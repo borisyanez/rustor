@@ -225,6 +225,37 @@ impl Fixer for BracesPositionFixer {
             }
         }
 
+        // Expand single-line empty bodies to multi-line
+        // Pattern: `{ }` or `{}` on same line as control structure should become multi-line
+        // Use [^\S\n] to match horizontal whitespace only (not newlines)
+        let single_line_empty = Regex::new(
+            r"(?m)((?:if|elseif|else|for|foreach|while|do|switch|try|catch|finally)\s*(?:\([^)]*\))?)\s*\{[^\S\n]*\}"
+        ).unwrap();
+
+        for cap in single_line_empty.captures_iter(source) {
+            let full_match = cap.get(0).unwrap();
+            let prefix = cap.get(1).unwrap().as_str();
+
+            if is_in_string(&source[..full_match.start()]) {
+                continue;
+            }
+
+            // Get indent of current line
+            let line_start = source[..full_match.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let indent: String = source[line_start..full_match.start()]
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .collect();
+
+            edits.push(edit_with_rule(
+                full_match.start(),
+                full_match.end(),
+                format!("{} {{{}{}}}", prefix, line_ending, indent),
+                "Expand single-line empty body to multi-line".to_string(),
+                "braces_position",
+            ));
+        }
+
         edits
     }
 }
@@ -404,5 +435,24 @@ mod tests {
 
         assert_eq!(edits.len(), 1);
         assert!(edits[0].replacement.contains("function foo(): string {"));
+    }
+
+    #[test]
+    fn test_single_line_empty_body_expanded() {
+        // Single-line empty body should be expanded to multi-line
+        let source = "<?php\nif (true) { }";
+        let edits = check(source);
+
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].replacement.contains("if (true) {\n}"));
+    }
+
+    #[test]
+    fn test_multi_line_empty_body_unchanged() {
+        // Multi-line empty body should NOT be changed
+        let source = "<?php\nif (true) {\n}\n";
+        let edits = check(source);
+
+        assert!(edits.is_empty());
     }
 }
