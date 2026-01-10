@@ -64,6 +64,10 @@ pub struct PhpStanConfig {
     pub stub_files: Vec<PathBuf>,
     /// Bootstrap files
     pub bootstrap_files: Vec<PathBuf>,
+    /// Scan files (for type information, not analyzed)
+    pub scan_files: Vec<PathBuf>,
+    /// Scan directories (for type information, not analyzed)
+    pub scan_directories: Vec<PathBuf>,
     /// PHPStan exact compatibility mode
     pub phpstan_compat: bool,
 }
@@ -85,6 +89,8 @@ impl Default for PhpStanConfig {
             custom_rule_paths: Vec::new(),
             stub_files: Vec::new(),
             bootstrap_files: Vec::new(),
+            scan_files: Vec::new(),
+            scan_directories: Vec::new(),
             phpstan_compat: false,
         }
     }
@@ -106,6 +112,9 @@ impl PhpStanConfig {
             config.exclude_paths.len(),
             config.ignore_errors.len(),
             config.includes.len(),
+            config.scan_files.len(),
+            config.scan_directories.len(),
+            config.bootstrap_files.len(),
         );
 
         Ok(config)
@@ -287,7 +296,37 @@ impl PhpStanConfig {
                 logging::log_parameters_merge(&source_name, "bootstrapFiles", &format!("{} files", arr.len()));
                 for file in arr {
                     if let Some(s) = file.as_str() {
-                        self.bootstrap_files.push(base_dir.join(s));
+                        let full_path = base_dir.join(s);
+                        logging::log(&format!("  [{}] bootstrap: {}", source_name, full_path.display()));
+                        self.bootstrap_files.push(full_path);
+                    }
+                }
+            }
+        }
+
+        // Scan files (for type information)
+        if let Some(scan) = obj.get("scanFiles") {
+            if let Some(arr) = scan.as_array() {
+                logging::log_parameters_merge(&source_name, "scanFiles", &format!("{} files", arr.len()));
+                for file in arr {
+                    if let Some(s) = file.as_str() {
+                        let full_path = base_dir.join(s);
+                        logging::log(&format!("  [{}] scanFile: {}", source_name, full_path.display()));
+                        self.scan_files.push(full_path);
+                    }
+                }
+            }
+        }
+
+        // Scan directories (for type information)
+        if let Some(scan) = obj.get("scanDirectories") {
+            if let Some(arr) = scan.as_array() {
+                logging::log_parameters_merge(&source_name, "scanDirectories", &format!("{} directories", arr.len()));
+                for dir in arr {
+                    if let Some(s) = dir.as_str() {
+                        let full_path = base_dir.join(s);
+                        logging::log(&format!("  [{}] scanDirectory: {}", source_name, full_path.display()));
+                        self.scan_directories.push(full_path);
                     }
                 }
             }
