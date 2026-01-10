@@ -4,3 +4,4 @@ Cargo.lock
 *.swo
 .DS_Store
 .rustor-cache
+.php-cs-fixer.cache
