@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Instantiated class UndefinedClass not found\.$#'
+			identifier: class.notFound
+			count: 1
+			path: ../fixtures/level0_undefined_class.php

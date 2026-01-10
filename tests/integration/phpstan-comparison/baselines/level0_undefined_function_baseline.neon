@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Function undefined_function not found\.$#'
+			identifier: function.notFound
+			count: 1
+			path: ../fixtures/level0_undefined_function.php

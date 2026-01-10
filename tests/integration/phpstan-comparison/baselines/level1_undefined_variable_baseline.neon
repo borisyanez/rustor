@@ -1,0 +1,13 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Variable \$conditionalVar might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: ../fixtures/level1_undefined_variable.php
+
+		-
+			message: '#^Variable \$undefined might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: ../fixtures/level1_undefined_variable.php

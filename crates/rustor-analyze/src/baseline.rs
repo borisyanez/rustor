@@ -86,8 +86,13 @@ impl BaselineEntry {
     /// Check if this entry matches a file path
     pub fn matches_path(&self, file_path: &str) -> bool {
         // Normalize path separators
-        let normalized_pattern = self.path.replace('\\', "/");
+        let mut normalized_pattern = self.path.replace('\\', "/");
         let normalized_path = file_path.replace('\\', "/");
+
+        // Strip leading ../ from pattern (relative path from baselines folder)
+        while normalized_pattern.starts_with("../") {
+            normalized_pattern = normalized_pattern[3..].to_string();
+        }
 
         // Check if the path ends with the pattern (relative path matching)
         normalized_path.ends_with(&normalized_pattern) ||
@@ -231,6 +236,7 @@ impl Baseline {
         for issue in issues.into_issues() {
             let file_path = issue.file.display().to_string();
             let mut matched = false;
+            let mut match_reason = "";
 
             // Try to match against baseline entries
             for (i, entry) in self.entries.iter().enumerate() {
@@ -243,26 +249,37 @@ impl Baseline {
                     continue;
                 }
 
-                // Check identifier match
-                if !entry.matches_identifier(issue.identifier.as_deref()) {
-                    continue;
+                // Strategy 1: Exact message match (with optional identifier)
+                if entry.matches_message(&issue.message) {
+                    if entry.matches_identifier(issue.identifier.as_deref()) {
+                        remaining_counts[i] -= 1;
+                        matched = true;
+                        match_reason = "message+identifier";
+                        break;
+                    }
                 }
 
-                // Check message match
-                if entry.matches_message(&issue.message) {
-                    remaining_counts[i] -= 1;
-                    matched = true;
-                    logging::log(&format!(
-                        "BASELINE FILTERED: {}:{} - {}",
-                        file_path,
-                        issue.line,
-                        &issue.message[..issue.message.len().min(60)]
-                    ));
-                    break;
+                // Strategy 2: Identifier-only match (for cross-tool compatibility)
+                // PHPStan and rustor may have different message wording but same identifiers
+                if let (Some(entry_id), Some(issue_id)) = (&entry.identifier, &issue.identifier) {
+                    if entry_id == issue_id {
+                        remaining_counts[i] -= 1;
+                        matched = true;
+                        match_reason = "identifier-only";
+                        break;
+                    }
                 }
             }
 
-            if !matched {
+            if matched {
+                logging::log(&format!(
+                    "BASELINE FILTERED ({}): {}:{} - {}",
+                    match_reason,
+                    file_path,
+                    issue.line,
+                    &issue.message[..issue.message.len().min(60)]
+                ));
+            } else {
                 filtered.add(issue);
             }
         }

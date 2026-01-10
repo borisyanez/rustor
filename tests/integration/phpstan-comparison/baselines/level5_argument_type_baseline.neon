@@ -1,0 +1,37 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Parameter \#1 \$arr of method Level5Test\:\:expectsArray\(\) expects array, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: ../fixtures/level5_argument_type.php
+
+		-
+			message: '#^Parameter \#1 \$cb of function takesCallback expects callable\(\)\: mixed, ''not_a_function'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: ../fixtures/level5_argument_type.php
+
+		-
+			message: '#^Parameter \#1 \$n of method Level5Test\:\:expectsInt\(\) expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: ../fixtures/level5_argument_type.php
+
+		-
+			message: '#^Parameter \#1 \$obj of function takesObject expects object, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: ../fixtures/level5_argument_type.php
+
+		-
+			message: '#^Parameter \#1 \$s of method Level5Test\:\:expectsString\(\) expects string, int given\.$#'
+			identifier: argument.type
+			count: 2
+			path: ../fixtures/level5_argument_type.php
+
+		-
+			message: '#^Parameter \#1 \$s of method Level5Test\:\:expectsString\(\) expects string, null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: ../fixtures/level5_argument_type.php
