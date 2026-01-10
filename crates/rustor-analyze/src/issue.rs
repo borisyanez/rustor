@@ -88,6 +88,28 @@ impl Issue {
         self
     }
 
+    /// Normalize identifier to PHPStan-compatible format
+    /// Maps rustor-specific identifiers to PHPStan equivalents
+    pub fn normalize_identifier(&mut self) {
+        if let Some(ref id) = self.identifier {
+            let normalized = match id.as_str() {
+                // Map possiblyUndefined to undefined (PHPStan doesn't distinguish)
+                "variable.possiblyUndefined" => "variable.undefined",
+                // Map typeMismatch to type
+                "return.typeMismatch" => "return.type",
+                // Map missing to empty
+                "return.missing" => "return.empty",
+                // Map property.typeMismatch to assign.propertyType
+                "property.typeMismatch" => "assign.propertyType",
+                // Keep all other identifiers as-is
+                _ => id.as_str(),
+            };
+            if normalized != id.as_str() {
+                self.identifier = Some(normalized.to_string());
+            }
+        }
+    }
+
     /// Add a tip for fixing
     pub fn with_tip(mut self, tip: impl Into<String>) -> Self {
         self.tip = Some(tip.into());
@@ -152,6 +174,14 @@ impl IssueCollection {
                 .then_with(|| a.line.cmp(&b.line))
                 .then_with(|| a.column.cmp(&b.column))
         });
+    }
+
+    /// Normalize all identifiers to PHPStan-compatible format
+    /// Should be called when phpstan_compat mode is enabled
+    pub fn normalize_identifiers(&mut self) {
+        for issue in &mut self.issues {
+            issue.normalize_identifier();
+        }
     }
 }
 

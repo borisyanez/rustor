@@ -103,6 +103,11 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
     // Run analysis
     let mut issues = analyzer.analyze_paths(&paths_to_analyze)?;
 
+    // Normalize identifiers for PHPStan compatibility
+    if analyzer.config().phpstan_compat {
+        issues.normalize_identifiers();
+    }
+
     // Apply baseline filtering if specified
     if let Some(baseline_path) = &args.baseline {
         if baseline_path.exists() {
