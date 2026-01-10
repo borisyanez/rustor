@@ -110,6 +110,36 @@ impl<'a> NeonParser<'a> {
         }
     }
 
+    /// Consume optional PHPStan (?) suffix after identifiers
+    /// This is PHPStan's notation for "report if not matched"
+    fn consume_optional_question_suffix(&mut self) {
+        // Check for pattern: LeftParen, Identifier("?"), RightParen
+        if let Some(token) = self.current() {
+            if matches!(token.kind, TokenKind::LeftParen) {
+                // Save position in case we need to backtrack
+                let saved_pos = self.position;
+                self.advance(); // consume (
+
+                let is_question = self.current()
+                    .map(|t| matches!(&t.kind, TokenKind::Identifier(s) if s == "?"))
+                    .unwrap_or(false);
+
+                if is_question {
+                    self.advance(); // consume ?
+
+                    if self.current().map(|t| matches!(t.kind, TokenKind::RightParen)).unwrap_or(false) {
+                        self.advance(); // consume )
+                        // Successfully consumed (?)
+                        return;
+                    }
+                }
+
+                // Not a (?) pattern, restore position
+                self.position = saved_pos;
+            }
+        }
+    }
+
     fn peek_kind(&self) -> Option<&TokenKind> {
         self.current().map(|t| &t.kind)
     }
@@ -241,6 +271,8 @@ impl<'a> NeonParser<'a> {
             TokenKind::Identifier(s) => {
                 let value = s.clone();
                 self.advance();
+                // Handle PHPStan's (?) suffix - consume it if present
+                self.consume_optional_question_suffix();
                 Ok(Value::String(value))
             }
             TokenKind::LeftBracket => self.parse_inline_array(),
