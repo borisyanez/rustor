@@ -1,0 +1,25 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: ../fixtures/level4_dead_code.php
+
+		-
+			message: '#^Comparison operation "\<\=" between int\<min, 0\> and 0 is always true\.$#'
+			identifier: smallerOrEqual.alwaysTrue
+			count: 1
+			path: ../fixtures/level4_dead_code.php
+
+		-
+			message: '#^Instanceof between string and stdClass will always evaluate to false\.$#'
+			identifier: instanceof.alwaysFalse
+			count: 1
+			path: ../fixtures/level4_dead_code.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 3
+			path: ../fixtures/level4_dead_code.php

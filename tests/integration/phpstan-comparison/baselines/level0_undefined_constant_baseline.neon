@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Access to undefined constant TestClass\:\:UNDEFINED_CONST\.$#'
+			identifier: classConstant.notFound
+			count: 1
+			path: ../fixtures/level0_undefined_constant.php

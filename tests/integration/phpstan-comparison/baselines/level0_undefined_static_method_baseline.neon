@@ -1,0 +1,7 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to an undefined static method TestClass\:\:undefinedStatic\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: ../fixtures/level0_undefined_static_method.php

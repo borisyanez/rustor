@@ -1,0 +1,67 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Function noParamType\(\) has parameter \$x with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Function noReturnType\(\) has no return type specified\.$#'
+			identifier: missingType.return
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Function noTypes\(\) has no return type specified\.$#'
+			identifier: missingType.return
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Function noTypes\(\) has parameter \$a with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Function noTypes\(\) has parameter \$b with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Method Level6Test\:\:missingBoth\(\) has no return type specified\.$#'
+			identifier: missingType.return
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Method Level6Test\:\:missingBoth\(\) has parameter \$a with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Method Level6Test\:\:missingBoth\(\) has parameter \$b with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Method Level6Test\:\:missingParamType\(\) has parameter \$param with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Method Level6Test\:\:missingReturnType\(\) has no return type specified\.$#'
+			identifier: missingType.return
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
+
+		-
+			message: '#^Property Level6Test\:\:\$untyped has no type specified\.$#'
+			identifier: missingType.property
+			count: 1
+			path: ../fixtures/level6_missing_typehints.php
