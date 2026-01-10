@@ -3,7 +3,7 @@
 //! Produces a table matching PHPStan's table format:
 //! ```text
 //!  ------ -----------------------------------------------------------------------
-//!   Line   filename.php
+//!   Line   src/path/to/filename.php
 //!  ------ -----------------------------------------------------------------------
 //!   10     Error message here.
 //!          🪪  error.identifier
@@ -86,11 +86,8 @@ impl Formatter for TableFormatter {
         for file_path in file_list {
             let file_issues = files.get(file_path).unwrap();
 
-            // Get just the filename for the header
-            let filename = std::path::Path::new(file_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| file_path.clone());
+            // Use the full relative path for the header
+            let filename = file_path.clone();
 
             // Table header
             output.push_str(&Self::separator());
@@ -203,7 +200,7 @@ mod tests {
         issues.add(Issue::error(
             "test",
             "Test error",
-            PathBuf::from("/path/to/file.php"),
+            PathBuf::from("src/path/to/file.php"),
             10,
             5,
         ));
@@ -211,7 +208,8 @@ mod tests {
         let formatter = TableFormatter;
         let output = formatter.format(&issues);
 
-        assert!(output.contains("file.php"));
+        // Should contain the full relative path
+        assert!(output.contains("src/path/to/file.php"));
         assert!(output.contains("10")); // Line number
         assert!(output.contains("Test error"));
         assert!(output.contains("[ERROR] Found 1 error"));
