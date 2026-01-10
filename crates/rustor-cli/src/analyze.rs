@@ -108,7 +108,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
         issues.normalize_identifiers();
     }
 
-    // Apply baseline filtering if specified
+    // Apply baseline filtering from explicit --baseline flag
     if let Some(baseline_path) = &args.baseline {
         if baseline_path.exists() {
             let baseline = Baseline::load(baseline_path)?;
@@ -118,6 +118,30 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
             }
         } else {
             eprintln!("{}: Baseline file not found: {}", "Warning".yellow(), baseline_path.display());
+        }
+    }
+    // Also apply baseline filtering from config's ignoreErrors (from includes)
+    else if !analyzer.config().ignore_errors.is_empty() {
+        // Convert config ignoreErrors to baseline entries
+        let mut baseline = Baseline::new();
+        for ignore_error in &analyzer.config().ignore_errors {
+            // Create a baseline entry from the ignore error
+            // If no path is specified, it applies to all files (use empty string)
+            let path = ignore_error.path.clone().unwrap_or_else(|| String::from(""));
+            let count = ignore_error.count.unwrap_or(usize::MAX);
+
+            let entry = rustor_analyze::baseline::BaselineEntry::new(
+                ignore_error.message.clone(),
+                count,
+                path,
+                ignore_error.identifier.clone(),
+            );
+            baseline.entries.push(entry);
+        }
+
+        issues = baseline.filter(issues);
+        if args.verbose {
+            println!("{}: Applied {} ignoreErrors from config", "Info".bold(), analyzer.config().ignore_errors.len());
         }
     }
 
