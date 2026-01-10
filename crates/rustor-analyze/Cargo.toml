@@ -24,6 +24,9 @@ thiserror = "2.0"
 # Path pattern matching for ignoreErrors
 fnmatch-regex = "0.2"
 
+# Regex for baseline pattern matching
+regex = "1.10"
+
 # Glob pattern matching
 glob = "0.3"
 
