@@ -447,4 +447,142 @@ parameters:
             None
         ));
     }
+
+    #[test]
+    fn test_includes_merge_parameters() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create baseline file
+        let baseline_content = r#"
+parameters:
+    ignoreErrors:
+        -
+            message: '#Error from baseline#'
+            identifier: baseline.error
+"#;
+        let baseline_path = temp_dir.path().join("baseline.neon");
+        std::fs::write(&baseline_path, baseline_content).unwrap();
+
+        // Create main config that includes baseline
+        let main_content = r#"
+includes:
+    - baseline.neon
+parameters:
+    level: 5
+    ignoreErrors:
+        - '#Error from main#'
+"#;
+        let main_path = temp_dir.path().join("phpstan.neon");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        // Load the config
+        let config = PhpStanConfig::load(&main_path).unwrap();
+
+        // Check that level is set from main config
+        assert_eq!(config.level, Level::Level5);
+
+        // Check that ignore errors from BOTH files are present
+        assert!(
+            config.ignore_errors.len() >= 2,
+            "Expected at least 2 ignore errors, got {}: {:?}",
+            config.ignore_errors.len(),
+            config.ignore_errors
+        );
+
+        // Check that baseline error is present
+        let has_baseline_error = config
+            .ignore_errors
+            .iter()
+            .any(|e| e.message.contains("Error from baseline"));
+        assert!(has_baseline_error, "Missing error from baseline file");
+
+        // Check that main config error is present
+        let has_main_error = config
+            .ignore_errors
+            .iter()
+            .any(|e| e.message.contains("Error from main"));
+        assert!(has_main_error, "Missing error from main config file");
+
+        // Check that includes were tracked
+        assert_eq!(config.includes.len(), 1);
+    }
+
+    #[test]
+    fn test_includes_with_tab_indentation() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create baseline file with tab indentation (like PHPStan generates)
+        let baseline_content = "parameters:\n\tignoreErrors:\n\t\t-\n\t\t\tmessage: '#Tab indented error#'\n\t\t\tidentifier: tab.error\n";
+        let baseline_path = temp_dir.path().join("baseline.neon");
+        std::fs::write(&baseline_path, baseline_content).unwrap();
+
+        // Create main config
+        let main_content = "includes:\n    - baseline.neon\nparameters:\n    level: 3\n";
+        let main_path = temp_dir.path().join("phpstan.neon");
+        std::fs::write(&main_path, main_content).unwrap();
+
+        // Load the config
+        let config = PhpStanConfig::load(&main_path).unwrap();
+
+        // Check that the tab-indented error was parsed
+        let has_tab_error = config
+            .ignore_errors
+            .iter()
+            .any(|e| e.message.contains("Tab indented error"));
+        assert!(
+            has_tab_error,
+            "Failed to parse tab-indented baseline. Errors: {:?}",
+            config.ignore_errors
+        );
+    }
+
+    #[test]
+    fn test_example_phpstan_config() {
+        // Test loading the actual example files if they exist
+        // Use workspace root relative path
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let example_path = workspace_root.join("examples/phpstan/phpstan.neon.dist");
+
+        if !example_path.exists() {
+            eprintln!("Skipping test - example not found at: {:?}", example_path);
+            return;
+        }
+
+        let config = PhpStanConfig::load(&example_path).unwrap();
+
+        // Should have level 6
+        assert_eq!(config.level, Level::Level6);
+
+        // Should have many paths configured
+        assert!(!config.paths.is_empty(), "Expected paths to be configured");
+
+        // Should have ignore errors from baseline
+        assert!(
+            !config.ignore_errors.is_empty(),
+            "Expected ignore errors from baseline file"
+        );
+
+        // Should have the baseline included
+        assert!(
+            !config.includes.is_empty(),
+            "Expected baseline to be included"
+        );
+
+        // Print some stats for debugging
+        eprintln!("Loaded config:");
+        eprintln!("  Level: {:?}", config.level);
+        eprintln!("  Paths: {}", config.paths.len());
+        eprintln!("  Exclude paths: {}", config.exclude_paths.len());
+        eprintln!("  Ignore errors: {}", config.ignore_errors.len());
+        eprintln!("  Includes: {:?}", config.includes);
+    }
 }
