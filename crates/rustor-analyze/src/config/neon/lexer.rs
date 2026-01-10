@@ -141,7 +141,16 @@ impl<'a> Lexer<'a> {
 
         while let Some(ch) = self.advance() {
             if ch == quote {
-                break;
+                // In NEON/YAML, single-quoted strings use '' to escape a single quote
+                // Check if this is an escaped quote (two consecutive quotes)
+                if quote == '\'' && self.peek() == Some(&'\'') {
+                    // Consume the second quote and add a single quote to result
+                    self.advance();
+                    result.push('\'');
+                } else {
+                    // End of string
+                    break;
+                }
             } else if ch == '\\' {
                 if let Some(escaped) = self.advance() {
                     match escaped {
@@ -156,6 +165,38 @@ impl<'a> Lexer<'a> {
                             result.push(escaped);
                         }
                     }
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
+    fn read_multiline_string(&mut self) -> String {
+        let mut result = String::new();
+        // Opening ''' was already consumed by next_token()
+
+        // Read until we find closing '''
+        while let Some(ch) = self.advance() {
+            if ch == '\'' {
+                // Check if this is the start of closing '''
+                if self.peek() == Some(&'\'') {
+                    // We have two quotes so far, consume the second one and check for third
+                    self.advance(); // consume second '
+                    if self.peek() == Some(&'\'') {
+                        // Found closing ''', consume the third ' and stop
+                        self.advance(); // consume third '
+                        break;
+                    } else {
+                        // Only two quotes, not three - add them to the result
+                        result.push('\'');
+                        result.push('\'');
+                    }
+                } else {
+                    // Just a single quote in the string, keep it
+                    result.push(ch);
                 }
             } else {
                 result.push(ch);
@@ -272,7 +313,24 @@ impl<'a> Lexer<'a> {
             '}' => TokenKind::RightBrace,
             '(' => TokenKind::LeftParen,
             ')' => TokenKind::RightParen,
-            '"' | '\'' => TokenKind::String(self.read_string(ch)),
+            '\'' => {
+                // Check for triple-quoted multi-line string (''')
+                // Peek ahead without consuming by cloning the iterator
+                let mut peek_iter = self.chars.clone();
+                let second = peek_iter.next();
+                let third = peek_iter.next();
+
+                if second == Some('\'') && third == Some('\'') {
+                    // It's a triple-quoted string - consume the second and third quotes
+                    self.advance();
+                    self.advance();
+                    TokenKind::String(self.read_multiline_string())
+                } else {
+                    // Regular single-quoted string (opening quote already consumed)
+                    TokenKind::String(self.read_string(ch))
+                }
+            }
+            '"' => TokenKind::String(self.read_string(ch)),
             _ if ch.is_ascii_digit() => self.read_number(ch),
             _ => {
                 // Read identifier and check for keywords
@@ -382,5 +440,41 @@ mod tests {
         let tokens = lexer.tokenize();
 
         assert!(matches!(tokens[2].kind, TokenKind::Integer(-42)));
+    }
+
+    #[test]
+    fn test_single_quote_with_escaped_quotes() {
+        // In NEON/YAML, '' inside single quotes represents a literal single quote
+        let input = "'Loose comparison between ''A515'' and false'";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::String(s) if s == "Loose comparison between 'A515' and false"));
+    }
+
+    #[test]
+    fn test_triple_quoted_multiline_string() {
+        // Triple-quoted strings allow multi-line content
+        let input = r#"message: '''
+First line
+Second line
+Third line
+'''"#;
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == "message"));
+        assert!(matches!(&tokens[1].kind, TokenKind::Colon));
+        assert!(matches!(&tokens[2].kind, TokenKind::String(s) if s.contains("First line") && s.contains("Second line") && s.contains("Third line")));
+    }
+
+    #[test]
+    fn test_triple_quoted_with_single_quotes_inside() {
+        // Triple-quoted strings can contain single quotes without escaping
+        let input = r#"'''It's a test with 'quotes' inside'''"#;
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::String(s) if s == "It's a test with 'quotes' inside"));
     }
 }

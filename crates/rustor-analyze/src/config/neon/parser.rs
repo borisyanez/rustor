@@ -151,6 +151,7 @@ impl<'a> NeonParser<'a> {
 
     fn parse_document(&mut self, base_indent: usize) -> Result<Value, ParseError> {
         let mut result = HashMap::new();
+        let mut has_parsed_any_key = false;
 
         loop {
             self.skip_newlines();
@@ -176,7 +177,6 @@ impl<'a> NeonParser<'a> {
 
             // If we're back to a lower indentation level, we're done with this block
             if current_indent < base_indent {
-                self.position -= 1; // Put the indent token back
                 break;
             }
 
@@ -186,8 +186,9 @@ impl<'a> NeonParser<'a> {
                 break;
             };
 
-            // Check for array item
-            if matches!(token.kind, TokenKind::Dash) {
+            // Check for array item - BUT only if we haven't parsed any keys yet
+            // Once we start parsing keys, we're in object mode and shouldn't switch to array mode
+            if matches!(token.kind, TokenKind::Dash) && !has_parsed_any_key {
                 // This is an array at the top level - parse as array
                 let array = self.parse_block_array(current_indent)?;
                 return Ok(Value::Array(array));
@@ -205,6 +206,7 @@ impl<'a> NeonParser<'a> {
                 _ => break,
             };
             self.advance();
+            has_parsed_any_key = true;
 
             // Expect colon or equals
             let Some(token) = self.current() else {
@@ -328,6 +330,10 @@ impl<'a> NeonParser<'a> {
             self.skip_newlines();
 
             let Some(token) = self.current() else {
+                // Debug: log array size when EOF
+                if result.len() > 600 && result.len() < 710 {
+                    eprintln!("DEBUG parse_block_array: EOF at {} items", result.len());
+                }
                 break;
             };
 
@@ -335,6 +341,11 @@ impl<'a> NeonParser<'a> {
             let current_indent = match &token.kind {
                 TokenKind::Indent(n) => {
                     if *n < base_indent {
+                        // Debug: log when breaking due to lower indent
+                        if result.len() > 600 && result.len() < 710 {
+                            eprintln!("DEBUG parse_block_array: Lower indent at {} items (base={}, current={})",
+                                result.len(), base_indent, *n);
+                        }
                         break;
                     }
                     let indent = *n;
@@ -342,23 +353,45 @@ impl<'a> NeonParser<'a> {
                     indent
                 }
                 TokenKind::Dash => base_indent, // First item might not have indent token
-                TokenKind::Eof => break,
+                TokenKind::Eof => {
+                    if result.len() > 600 && result.len() < 710 {
+                        eprintln!("DEBUG parse_block_array: EOF token at {} items", result.len());
+                    }
+                    break;
+                }
                 TokenKind::Newline => {
                     self.advance();
                     continue;
                 }
-                _ => break,
+                _ => {
+                    // Debug: log unexpected token
+                    if result.len() > 600 && result.len() < 710 {
+                        eprintln!("DEBUG parse_block_array: Unexpected token {:?} at {} items, line {}, col {}",
+                            token.kind, result.len(), token.line, token.column);
+                    }
+                    break;
+                }
             };
 
             if current_indent < base_indent {
+                if result.len() > 600 && result.len() < 710 {
+                    eprintln!("DEBUG parse_block_array: indent check failed at {} items", result.len());
+                }
                 break;
             }
 
             let Some(token) = self.current() else {
+                if result.len() > 600 && result.len() < 710 {
+                    eprintln!("DEBUG parse_block_array: No token after indent at {} items", result.len());
+                }
                 break;
             };
 
             if !matches!(token.kind, TokenKind::Dash) {
+                if result.len() > 600 && result.len() < 710 {
+                    eprintln!("DEBUG parse_block_array: Expected dash, got {:?} at {} items, line {}, col {}",
+                        token.kind, result.len(), token.line, token.column);
+                }
                 break;
             }
             self.advance();
@@ -526,6 +559,190 @@ paths:
             }
         } else {
             panic!("Expected object");
+        }
+    }
+
+    #[test]
+    fn test_parse_includes() {
+        let input = r#"
+includes:
+    - baseline.neon
+parameters:
+    level: 5
+"#;
+        let mut parser = NeonParser::new(input);
+        let result = parser.parse().unwrap();
+
+        if let Value::Object(map) = result {
+            // Check includes array
+            if let Some(Value::Array(arr)) = map.get("includes") {
+                assert_eq!(arr.len(), 1);
+                assert_eq!(arr[0], Value::String("baseline.neon".to_string()));
+            } else {
+                panic!("Expected array for includes, got {:?}", map.get("includes"));
+            }
+
+            // Check parameters object
+            if let Some(Value::Object(params)) = map.get("parameters") {
+                assert_eq!(params.get("level"), Some(&Value::Integer(5)));
+            } else {
+                panic!("Expected object for parameters");
+            }
+        } else {
+            panic!("Expected object");
+        }
+    }
+
+    #[test]
+    fn test_baseline_structure() {
+        let input = r#"
+parameters:
+    ignoreErrors:
+        -
+            message: '#^Test message$#'
+            identifier: test.identifier
+            path: test.php
+"#;
+        let mut parser = NeonParser::new(input);
+        let result = parser.parse().unwrap();
+
+        if let Value::Object(map) = result {
+            // Check parameters
+            if let Some(Value::Object(params)) = map.get("parameters") {
+                // Check ignoreErrors
+                if let Some(Value::Array(ignore_errors)) = params.get("ignoreErrors") {
+                    assert_eq!(ignore_errors.len(), 1);
+
+                    // Check first error entry
+                    if let Value::Object(first_error) = &ignore_errors[0] {
+                        assert_eq!(first_error.get("message"), Some(&Value::String("#^Test message$#".to_string())));
+                        assert_eq!(first_error.get("identifier"), Some(&Value::String("test.identifier".to_string())));
+                        assert_eq!(first_error.get("path"), Some(&Value::String("test.php".to_string())));
+                    } else {
+                        panic!("Expected object for first ignore error");
+                    }
+                } else {
+                    panic!("Expected array for ignoreErrors");
+                }
+            } else {
+                panic!("Expected object for parameters");
+            }
+        } else {
+            panic!("Expected object");
+        }
+    }
+
+    #[test]
+    fn test_baseline_with_tabs() {
+        // Use actual tabs like PHPStan baseline files do
+        let input = "parameters:\n\tignoreErrors:\n\t\t-\n\t\t\tmessage: '#^Test$#'\n\t\t\tidentifier: test.id\n\t\t\tpath: test.php\n";
+        let mut parser = NeonParser::new(input);
+        let result = parser.parse().unwrap();
+
+        if let Value::Object(map) = result {
+            eprintln!("DEBUG: Parsed keys: {:?}", map.keys().collect::<Vec<_>>());
+            // Check parameters
+            if let Some(Value::Object(params)) = map.get("parameters") {
+                eprintln!("DEBUG: Parameters keys: {:?}", params.keys().collect::<Vec<_>>());
+                // Check ignoreErrors
+                if let Some(Value::Array(ignore_errors)) = params.get("ignoreErrors") {
+                    assert_eq!(ignore_errors.len(), 1);
+                    eprintln!("DEBUG: Successfully parsed 1 ignore error");
+                } else {
+                    panic!("Expected array for ignoreErrors, got {:?}", params.get("ignoreErrors"));
+                }
+            } else {
+                panic!("Expected object for parameters, got {:?}", map.get("parameters"));
+            }
+        } else {
+            panic!("Expected object, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_real_baseline_first_100_lines() {
+        use std::fs;
+
+        let baseline_path = "/Users/borisyv/code/payjoy_www/phpstan-baseline.neon";
+        let content = fs::read_to_string(baseline_path).unwrap();
+
+        // Test with different line counts to find where it breaks
+        for line_count in [5000, 10000, 20000, 50000, 100000, 121828] {
+            let lines: Vec<&str> = content.lines().take(line_count).collect();
+            let partial_content = lines.join("\n");
+
+            eprintln!("\n=== Testing with {} lines ({} bytes) ===", lines.len(), partial_content.len());
+
+            let mut parser = NeonParser::new(&partial_content);
+            let result = parser.parse().unwrap();
+
+            match result {
+                Value::Object(ref map) => {
+                    eprintln!("Result is Object with {} keys", map.len());
+                    if map.len() == 1 && map.contains_key("parameters") {
+                        eprintln!("✓ Correct structure");
+                    } else {
+                        eprintln!("✗ Wrong structure! Keys: {:?}", map.keys().take(10).collect::<Vec<_>>());
+                        if line_count >= 500 {
+                            break; // Stop testing at first failure
+                        }
+                    }
+                }
+                Value::Array(ref arr) => {
+                    eprintln!("✗ Result is Array with {} entries", arr.len());
+                    break;
+                }
+                _ => {
+                    eprintln!("✗ Unexpected type");
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_real_baseline_full() {
+        use std::fs;
+
+        let baseline_path = "/Users/borisyv/code/payjoy_www/phpstan-baseline.neon";
+        let content = fs::read_to_string(baseline_path).unwrap();
+
+        eprintln!("DEBUG: Parsing full baseline ({} bytes)", content.len());
+
+        let mut parser = NeonParser::new(&content);
+        let result = parser.parse().unwrap();
+
+        match result {
+            Value::Object(ref map) => {
+                eprintln!("DEBUG: Result is Object with {} keys", map.len());
+                eprintln!("DEBUG: Keys (first 5): {:?}", map.keys().take(5).collect::<Vec<_>>());
+
+                // Check if we have the expected structure
+                assert_eq!(map.len(), 1, "Should have exactly 1 top-level key");
+                assert!(map.contains_key("parameters"), "Should have 'parameters' key");
+
+                // Check parameters structure
+                if let Some(Value::Object(params)) = map.get("parameters") {
+                    eprintln!("DEBUG: parameters has {} keys", params.len());
+                    assert!(params.contains_key("ignoreErrors"), "Should have 'ignoreErrors' key");
+
+                    // Check ignoreErrors is an array
+                    if let Some(Value::Array(errors)) = params.get("ignoreErrors") {
+                        eprintln!("DEBUG: ignoreErrors has {} entries", errors.len());
+                        assert!(errors.len() > 1000, "Should have many error entries");
+                    } else {
+                        panic!("ignoreErrors should be an array");
+                    }
+                } else {
+                    panic!("parameters should be an object");
+                }
+            }
+            Value::Array(ref arr) => {
+                panic!("Result is Array with {} entries (expected Object!)", arr.len());
+            }
+            _ => {
+                panic!("Result is unexpected type: {:?}", result);
+            }
         }
     }
 }
