@@ -182,6 +182,9 @@ pub fn log_config_summary(
     exclude_count: usize,
     ignore_errors_count: usize,
     includes_count: usize,
+    scan_files_count: usize,
+    scan_dirs_count: usize,
+    bootstrap_count: usize,
 ) {
     section("CONFIGURATION SUMMARY");
     log(&format!("Analysis level: {}", level));
@@ -189,6 +192,15 @@ pub fn log_config_summary(
     log(&format!("Exclude patterns: {}", exclude_count));
     log(&format!("Ignore error patterns: {}", ignore_errors_count));
     log(&format!("Included config files: {}", includes_count));
+    if scan_files_count > 0 {
+        log(&format!("Scan files: {}", scan_files_count));
+    }
+    if scan_dirs_count > 0 {
+        log(&format!("Scan directories: {}", scan_dirs_count));
+    }
+    if bootstrap_count > 0 {
+        log(&format!("Bootstrap files: {}", bootstrap_count));
+    }
 }
 
 /// Log analysis start
