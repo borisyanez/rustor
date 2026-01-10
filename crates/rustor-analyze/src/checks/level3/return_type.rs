@@ -34,6 +34,7 @@ impl Check for ReturnTypeCheck {
             source: ctx.source,
             file_path: ctx.file_path.to_path_buf(),
             issues: Vec::new(),
+            current_class: None,
         };
 
         analyzer.analyze_program(program);
@@ -45,6 +46,8 @@ struct ReturnTypeAnalyzer<'s> {
     source: &'s str,
     file_path: PathBuf,
     issues: Vec<Issue>,
+    /// Current class context for resolving 'self' and 'static'
+    current_class: Option<String>,
 }
 
 impl<'s> ReturnTypeAnalyzer<'s> {
@@ -84,6 +87,10 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             }
             Statement::Class(class) => {
                 let class_name = self.get_span_text(&class.name.span).to_string();
+                // Save the current class context and set new one
+                let prev_class = self.current_class.clone();
+                self.current_class = Some(class_name.clone());
+
                 for member in class.members.iter() {
                     if let ClassLikeMember::Method(method) = member {
                         if let MethodBody::Concrete(body) = &method.body {
@@ -94,6 +101,9 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                         }
                     }
                 }
+
+                // Restore previous class context
+                self.current_class = prev_class;
             }
             Statement::Namespace(ns) => match &ns.body {
                 NamespaceBody::Implicit(body) => {
@@ -152,6 +162,12 @@ impl<'s> ReturnTypeAnalyzer<'s> {
         func_name: &str,
         return_type: Option<&str>,
     ) -> bool {
+        // Check if this is a generator function (contains yield)
+        if self.block_contains_yield(block) {
+            // Generator functions don't need explicit return statements
+            return true;
+        }
+
         let mut has_return_with_value = false;
         for stmt in block.statements.iter() {
             if self.check_return_stmt(stmt, func_name, return_type) {
@@ -358,10 +374,25 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             },
             Expression::Array(_) | Expression::LegacyArray(_) => Some("array".to_string()),
             Expression::Instantiation(inst) => {
+                // Extract the class name from the instantiation
+                let class_text = self.get_span_text(&inst.class.span()).to_lowercase();
+
+                // Handle self, static, and parent keywords
+                if class_text == "self" || class_text == "static" {
+                    // Return the current class name if we're in a class context
+                    if let Some(ref current_class) = self.current_class {
+                        return Some(current_class.clone());
+                    }
+                }
+
+                // For regular class names, try to extract the identifier
                 if let Expression::Identifier(ident) = &*inst.class {
                     Some(self.get_span_text(&ident.span()).to_string())
                 } else {
-                    Some("object".to_string())
+                    // For other cases (like parent, variables, etc.), return the text as-is
+                    // but only if it looks like a class name (starts with uppercase or special keyword)
+                    let text = self.get_span_text(&inst.class.span());
+                    Some(text.to_string())
                 }
             }
             Expression::Closure(_) | Expression::ArrowFunction(_) => Some("Closure".to_string()),
@@ -491,6 +522,190 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                     return else_clause.statements.iter().any(|s| self.statement_returns(s));
                 }
 
+                false
+            }
+        }
+    }
+
+    /// Check if a block contains any yield expressions (generator function)
+    fn block_contains_yield<'a>(&self, block: &Block<'a>) -> bool {
+        for stmt in block.statements.iter() {
+            if self.statement_contains_yield(stmt) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a statement contains yield
+    fn statement_contains_yield<'a>(&self, stmt: &Statement<'a>) -> bool {
+        match stmt {
+            Statement::Expression(expr_stmt) => self.expression_contains_yield(&expr_stmt.expression),
+            Statement::Return(ret) => {
+                ret.value.as_ref().map_or(false, |v| self.expression_contains_yield(v))
+            }
+            Statement::Block(block) => self.block_contains_yield(block),
+            Statement::If(if_stmt) => {
+                if self.expression_contains_yield(&if_stmt.condition) {
+                    return true;
+                }
+                self.if_body_contains_yield(&if_stmt.body)
+            }
+            Statement::While(while_stmt) => {
+                if self.expression_contains_yield(&while_stmt.condition) {
+                    return true;
+                }
+                self.while_body_contains_yield(&while_stmt.body)
+            }
+            Statement::For(for_stmt) => {
+                for expr in for_stmt.initializations.iter() {
+                    if self.expression_contains_yield(expr) {
+                        return true;
+                    }
+                }
+                for expr in for_stmt.conditions.iter() {
+                    if self.expression_contains_yield(expr) {
+                        return true;
+                    }
+                }
+                for expr in for_stmt.increments.iter() {
+                    if self.expression_contains_yield(expr) {
+                        return true;
+                    }
+                }
+                self.for_body_contains_yield(&for_stmt.body)
+            }
+            Statement::Foreach(foreach) => {
+                if self.expression_contains_yield(&foreach.expression) {
+                    return true;
+                }
+                self.foreach_body_contains_yield(&foreach.body)
+            }
+            Statement::Try(try_stmt) => {
+                if self.block_contains_yield(&try_stmt.block) {
+                    return true;
+                }
+                for catch in try_stmt.catch_clauses.iter() {
+                    if self.block_contains_yield(&catch.block) {
+                        return true;
+                    }
+                }
+                if let Some(finally) = &try_stmt.finally_clause {
+                    if self.block_contains_yield(&finally.block) {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if an expression contains yield
+    fn expression_contains_yield<'a>(&self, expr: &Expression<'a>) -> bool {
+        match expr {
+            Expression::Yield(_) => true,
+            Expression::Binary(binary) => {
+                self.expression_contains_yield(&binary.lhs) ||
+                self.expression_contains_yield(&binary.rhs)
+            }
+            Expression::Conditional(cond) => {
+                self.expression_contains_yield(&cond.condition) ||
+                cond.then.as_ref().map_or(false, |t| self.expression_contains_yield(t)) ||
+                self.expression_contains_yield(&cond.r#else)
+            }
+            Expression::Parenthesized(p) => self.expression_contains_yield(&p.expression),
+            Expression::Assignment(assign) => self.expression_contains_yield(assign.rhs),
+            _ => false,
+        }
+    }
+
+    fn if_body_contains_yield<'a>(&self, body: &IfBody<'a>) -> bool {
+        match body {
+            IfBody::Statement(stmt_body) => {
+                if self.statement_contains_yield(stmt_body.statement) {
+                    return true;
+                }
+                for else_if in stmt_body.else_if_clauses.iter() {
+                    if self.expression_contains_yield(&else_if.condition) {
+                        return true;
+                    }
+                    if self.statement_contains_yield(else_if.statement) {
+                        return true;
+                    }
+                }
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    if self.statement_contains_yield(else_clause.statement) {
+                        return true;
+                    }
+                }
+                false
+            }
+            IfBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    if self.statement_contains_yield(inner) {
+                        return true;
+                    }
+                }
+                for else_if in block.else_if_clauses.iter() {
+                    if self.expression_contains_yield(&else_if.condition) {
+                        return true;
+                    }
+                    for inner in else_if.statements.iter() {
+                        if self.statement_contains_yield(inner) {
+                            return true;
+                        }
+                    }
+                }
+                if let Some(else_clause) = &block.else_clause {
+                    for inner in else_clause.statements.iter() {
+                        if self.statement_contains_yield(inner) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    fn while_body_contains_yield<'a>(&self, body: &WhileBody<'a>) -> bool {
+        match body {
+            WhileBody::Statement(stmt) => self.statement_contains_yield(stmt),
+            WhileBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    if self.statement_contains_yield(inner) {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    fn for_body_contains_yield<'a>(&self, body: &ForBody<'a>) -> bool {
+        match body {
+            ForBody::Statement(stmt) => self.statement_contains_yield(stmt),
+            ForBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    if self.statement_contains_yield(inner) {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    fn foreach_body_contains_yield<'a>(&self, body: &ForeachBody<'a>) -> bool {
+        match body {
+            ForeachBody::Statement(stmt) => self.statement_contains_yield(stmt),
+            ForeachBody::ColonDelimited(block) => {
+                for inner in block.statements.iter() {
+                    if self.statement_contains_yield(inner) {
+                        return true;
+                    }
+                }
                 false
             }
         }

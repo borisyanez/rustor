@@ -221,6 +221,12 @@ impl ReturnFinder {
             Statement::Return(_) => {
                 self.found = true;
             }
+            Statement::Expression(expr_stmt) => {
+                // Check if this is a yield expression (generator function)
+                if self.expression_contains_yield(&expr_stmt.expression) {
+                    self.found = true;
+                }
+            }
             Statement::Function(_) => {
                 // Don't descend into nested functions
             }
@@ -255,6 +261,25 @@ impl ReturnFinder {
                 self.check_foreach_body(&fe.body, source);
             }
             _ => {}
+        }
+    }
+
+    /// Check if an expression contains yield (making it a generator)
+    fn expression_contains_yield<'a>(&self, expr: &Expression<'a>) -> bool {
+        match expr {
+            Expression::Yield(_) => true,
+            Expression::Binary(binary) => {
+                self.expression_contains_yield(&binary.lhs) ||
+                self.expression_contains_yield(&binary.rhs)
+            }
+            Expression::Conditional(cond) => {
+                self.expression_contains_yield(&cond.condition) ||
+                cond.then.as_ref().map_or(false, |t| self.expression_contains_yield(t)) ||
+                self.expression_contains_yield(&cond.r#else)
+            }
+            Expression::Parenthesized(p) => self.expression_contains_yield(&p.expression),
+            Expression::Assignment(assign) => self.expression_contains_yield(assign.rhs),
+            _ => false,
         }
     }
 
