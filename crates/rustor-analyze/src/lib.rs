@@ -32,6 +32,7 @@ pub mod baseline;
 pub mod checks;
 pub mod config;
 pub mod issue;
+pub mod logging;
 pub mod output;
 pub mod resolver;
 pub mod scope;

@@ -2,6 +2,7 @@
 
 use super::level::Level;
 use super::neon::{parse, Value};
+use crate::logging;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -92,9 +93,21 @@ impl Default for PhpStanConfig {
 impl PhpStanConfig {
     /// Load configuration from a file
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        logging::log_config_load(path);
+
         let mut config = Self::default();
         let mut processed_includes = HashSet::new();
         config.load_file(path, &mut processed_includes)?;
+
+        // Log configuration summary
+        logging::log_config_summary(
+            config.level.as_u8(),
+            config.paths.len(),
+            config.exclude_paths.len(),
+            config.ignore_errors.len(),
+            config.includes.len(),
+        );
+
         Ok(config)
     }
 
@@ -102,9 +115,12 @@ impl PhpStanConfig {
     fn load_file(&mut self, path: &Path, processed: &mut HashSet<PathBuf>) -> Result<(), ConfigError> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         if processed.contains(&canonical) {
+            logging::log(&format!("Skipping already processed: {}", path.display()));
             return Ok(()); // Already processed
         }
         processed.insert(canonical.clone());
+
+        logging::log(&format!("Reading config file: {}", path.display()));
 
         let content = fs::read_to_string(path)?;
         let value = parse(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
@@ -114,16 +130,18 @@ impl PhpStanConfig {
 
         // Process includes first
         if let Some(includes) = value.get("includes") {
+            logging::log(&format!("Found includes section in: {}", path.display()));
             self.process_includes(includes, base_dir, processed)?;
         }
 
         // Process parameters
         if let Some(params) = value.get("parameters") {
-            self.process_parameters(params, base_dir)?;
+            logging::log(&format!("Processing parameters from: {}", path.display()));
+            self.process_parameters(params, base_dir, path)?;
         }
 
         // Top-level parameters (for older config format)
-        self.process_parameters(&value, base_dir)?;
+        self.process_parameters(&value, base_dir, path)?;
 
         Ok(())
     }
@@ -135,12 +153,26 @@ impl PhpStanConfig {
         processed: &mut HashSet<PathBuf>,
     ) -> Result<(), ConfigError> {
         if let Some(arr) = includes.as_array() {
+            logging::log(&format!("Processing {} include(s)", arr.len()));
+
             for item in arr {
                 if let Some(path_str) = item.as_str() {
                     let include_path = base_dir.join(path_str);
+                    logging::log_include_start(&include_path, base_dir);
+
                     if include_path.exists() {
-                        self.load_file(&include_path, processed)?;
-                        self.includes.push(include_path);
+                        match self.load_file(&include_path, processed) {
+                            Ok(()) => {
+                                logging::log_include_result(&include_path, true, None);
+                                self.includes.push(include_path);
+                            }
+                            Err(e) => {
+                                logging::log_include_result(&include_path, false, Some(&e.to_string()));
+                                return Err(e);
+                            }
+                        }
+                    } else {
+                        logging::log_include_result(&include_path, false, Some("File not found"));
                     }
                 }
             }
@@ -148,17 +180,27 @@ impl PhpStanConfig {
         Ok(())
     }
 
-    fn process_parameters(&mut self, params: &Value, base_dir: &Path) -> Result<(), ConfigError> {
+    fn process_parameters(&mut self, params: &Value, base_dir: &Path, source: &Path) -> Result<(), ConfigError> {
         let obj = match params.as_object() {
             Some(o) => o,
             None => return Ok(()),
         };
 
+        let source_name = source.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| source.display().to_string());
+
         // Level
         if let Some(level) = obj.get("level") {
             self.level = match level {
-                Value::Integer(n) => Level::from_u8(*n as u8),
-                Value::String(s) => Level::from_str(s).unwrap_or(Level::Level0),
+                Value::Integer(n) => {
+                    logging::log_parameters_merge(&source_name, "level", &n.to_string());
+                    Level::from_u8(*n as u8)
+                }
+                Value::String(s) => {
+                    logging::log_parameters_merge(&source_name, "level", s);
+                    Level::from_str(s).unwrap_or(Level::Level0)
+                }
                 _ => Level::Level0,
             };
         }
@@ -166,6 +208,7 @@ impl PhpStanConfig {
         // Paths
         if let Some(paths) = obj.get("paths") {
             if let Some(arr) = paths.as_array() {
+                logging::log_parameters_merge(&source_name, "paths", &format!("{} paths", arr.len()));
                 for path in arr {
                     if let Some(s) = path.as_str() {
                         self.paths.push(base_dir.join(s));
@@ -177,30 +220,42 @@ impl PhpStanConfig {
         // Exclude paths (multiple possible keys)
         for key in &["excludePaths", "excludes_analyse", "excludes"] {
             if let Some(exclude) = obj.get(*key) {
-                self.process_exclude_paths(exclude, base_dir);
+                let before_count = self.exclude_paths.len();
+                self.process_exclude_paths(exclude, base_dir, &source_name);
+                let added = self.exclude_paths.len() - before_count;
+                if added > 0 {
+                    logging::log_parameters_merge(&source_name, key, &format!("{} exclude paths", added));
+                }
             }
         }
 
         // PHP version
         if let Some(version) = obj.get("phpVersion") {
             if let Some(n) = version.as_i64() {
+                logging::log_parameters_merge(&source_name, "phpVersion", &n.to_string());
                 self.php_version = Some(n as u32);
             }
         }
 
         // Ignore errors
         if let Some(ignore) = obj.get("ignoreErrors") {
-            self.process_ignore_errors(ignore)?;
+            let before_count = self.ignore_errors.len();
+            self.process_ignore_errors(ignore, &source_name)?;
+            let added = self.ignore_errors.len() - before_count;
+            logging::log_ignore_errors(&source_name, added);
         }
 
         // Boolean flags
         if let Some(Value::Bool(b)) = obj.get("treatPhpDocTypesAsCertain") {
+            logging::log_parameters_merge(&source_name, "treatPhpDocTypesAsCertain", &b.to_string());
             self.treat_phpdoc_types_as_certain = *b;
         }
         if let Some(Value::Bool(b)) = obj.get("checkMissingTypehints") {
+            logging::log_parameters_merge(&source_name, "checkMissingTypehints", &b.to_string());
             self.check_missing_typehints = *b;
         }
         if let Some(Value::Bool(b)) = obj.get("reportUnmatchedIgnoredErrors") {
+            logging::log_parameters_merge(&source_name, "reportUnmatchedIgnoredErrors", &b.to_string());
             self.report_unmatched_ignored_errors = *b;
         }
 
@@ -208,6 +263,7 @@ impl PhpStanConfig {
         if let Some(parallel) = obj.get("parallel") {
             if let Some(parallel_obj) = parallel.as_object() {
                 if let Some(Value::Integer(n)) = parallel_obj.get("maximumNumberOfProcesses") {
+                    logging::log_parameters_merge(&source_name, "parallel.maximumNumberOfProcesses", &n.to_string());
                     self.parallel_max_processes = Some(*n as usize);
                 }
             }
@@ -216,6 +272,7 @@ impl PhpStanConfig {
         // Stub files
         if let Some(stubs) = obj.get("stubFiles") {
             if let Some(arr) = stubs.as_array() {
+                logging::log_parameters_merge(&source_name, "stubFiles", &format!("{} files", arr.len()));
                 for stub in arr {
                     if let Some(s) = stub.as_str() {
                         self.stub_files.push(base_dir.join(s));
@@ -227,6 +284,7 @@ impl PhpStanConfig {
         // Bootstrap files
         if let Some(bootstrap) = obj.get("bootstrapFiles") {
             if let Some(arr) = bootstrap.as_array() {
+                logging::log_parameters_merge(&source_name, "bootstrapFiles", &format!("{} files", arr.len()));
                 for file in arr {
                     if let Some(s) = file.as_str() {
                         self.bootstrap_files.push(base_dir.join(s));
@@ -238,12 +296,14 @@ impl PhpStanConfig {
         Ok(())
     }
 
-    fn process_exclude_paths(&mut self, exclude: &Value, base_dir: &Path) {
+    fn process_exclude_paths(&mut self, exclude: &Value, base_dir: &Path, source_name: &str) {
         match exclude {
             Value::Array(arr) => {
                 for path in arr {
                     if let Some(s) = path.as_str() {
-                        self.exclude_paths.push(base_dir.join(s));
+                        let full_path = base_dir.join(s);
+                        logging::log(&format!("  [{}] exclude: {}", source_name, full_path.display()));
+                        self.exclude_paths.push(full_path);
                     }
                 }
             }
@@ -252,14 +312,18 @@ impl PhpStanConfig {
                 if let Some(Value::Array(arr)) = obj.get("analyse") {
                     for path in arr {
                         if let Some(s) = path.as_str() {
-                            self.exclude_paths.push(base_dir.join(s));
+                            let full_path = base_dir.join(s);
+                            logging::log(&format!("  [{}] exclude (analyse): {}", source_name, full_path.display()));
+                            self.exclude_paths.push(full_path);
                         }
                     }
                 }
                 if let Some(Value::Array(arr)) = obj.get("analyseAndScan") {
                     for path in arr {
                         if let Some(s) = path.as_str() {
-                            self.exclude_paths.push(base_dir.join(s));
+                            let full_path = base_dir.join(s);
+                            logging::log(&format!("  [{}] exclude (analyseAndScan): {}", source_name, full_path.display()));
+                            self.exclude_paths.push(full_path);
                         }
                     }
                 }
@@ -268,13 +332,15 @@ impl PhpStanConfig {
         }
     }
 
-    fn process_ignore_errors(&mut self, ignore: &Value) -> Result<(), ConfigError> {
+    fn process_ignore_errors(&mut self, ignore: &Value, source_name: &str) -> Result<(), ConfigError> {
         let arr = match ignore.as_array() {
             Some(a) => a,
             None => return Ok(()),
         };
 
-        for item in arr {
+        let start_index = self.ignore_errors.len();
+
+        for (i, item) in arr.iter().enumerate() {
             let error = match item {
                 Value::String(s) => IgnoreError {
                     message: s.clone(),
@@ -306,6 +372,15 @@ impl PhpStanConfig {
                 }
                 _ => continue,
             };
+
+            // Log individual pattern if logging is enabled
+            logging::log_ignore_error_pattern(
+                start_index + i,
+                &error.message,
+                error.identifier.as_deref(),
+                error.path.as_deref(),
+            );
+
             self.ignore_errors.push(error);
         }
 
@@ -328,6 +403,11 @@ impl PhpStanConfig {
     pub fn is_excluded(&self, path: &Path) -> bool {
         for exclude in &self.exclude_paths {
             if path.starts_with(exclude) {
+                logging::log(&format!(
+                    "EXCLUDED: {} (matched prefix: {})",
+                    path.display(),
+                    exclude.display()
+                ));
                 return true;
             }
             // Check glob patterns
@@ -336,6 +416,11 @@ impl PhpStanConfig {
                 // Simple glob matching
                 if let Ok(pattern) = glob::Pattern::new(&exclude_str) {
                     if pattern.matches_path(path) {
+                        logging::log(&format!(
+                            "EXCLUDED: {} (matched glob: {})",
+                            path.display(),
+                            exclude_str
+                        ));
                         return true;
                     }
                 }
@@ -351,6 +436,14 @@ impl PhpStanConfig {
             if let Some(ignore_id) = &ignore.identifier {
                 if let Some(error_id) = identifier {
                     if ignore_id == error_id {
+                        logging::log_error_filter(
+                            path,
+                            0, // Line not available at this level
+                            message,
+                            identifier,
+                            true,
+                            Some(&format!("identifier match: {}", ignore_id)),
+                        );
                         return true;
                     }
                 }
@@ -373,10 +466,26 @@ impl PhpStanConfig {
                     .trim_end_matches(|c| c == '#' || c == '/');
                 if let Ok(re) = fnmatch_regex::glob_to_regex(pattern) {
                     if re.is_match(message) {
+                        logging::log_error_filter(
+                            path,
+                            0,
+                            message,
+                            identifier,
+                            true,
+                            Some(&format!("regex pattern: {}", ignore.message)),
+                        );
                         return true;
                     }
                 }
             } else if message.contains(&ignore.message) {
+                logging::log_error_filter(
+                    path,
+                    0,
+                    message,
+                    identifier,
+                    true,
+                    Some(&format!("message contains: {}", ignore.message)),
+                );
                 return true;
             }
         }
