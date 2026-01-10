@@ -5,6 +5,7 @@ use colored::*;
 use rustor_analyze::{
     baseline::Baseline,
     config::{Level, PhpStanConfig},
+    logging,
     output::{format_issues, OutputFormat},
     Analyzer,
 };
@@ -29,10 +30,26 @@ pub struct AnalyzeArgs {
     pub verbose: bool,
     /// PHPStan compatibility mode - exactly matches PHPStan behavior
     pub phpstan_compat: bool,
+    /// Debug log file path (enables detailed logging)
+    pub debug_log: Option<PathBuf>,
 }
 
 /// Run the analyze subcommand
 pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
+    // Initialize logging if debug-log is specified
+    if let Some(log_path) = &args.debug_log {
+        match logging::init_logger(Some(log_path)) {
+            Ok(path) => {
+                if args.verbose {
+                    println!("{}: Debug log writing to {}", "Debug".bold(), path.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: Failed to initialize debug log: {}", "Warning".yellow(), e);
+            }
+        }
+    }
+
     // Load PHPStan configuration
     let mut config = load_config(&args)?;
 
@@ -163,6 +180,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
     let mut baseline = None;
     let mut verbose = false;
     let mut phpstan_compat = false;
+    let mut debug_log = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -201,6 +219,16 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             verbose = true;
         } else if arg == "--phpstan-compat" {
             phpstan_compat = true;
+        } else if arg == "--debug-log" {
+            i += 1;
+            if i < args.len() {
+                debug_log = Some(PathBuf::from(&args[i]));
+            } else {
+                // Default path in /tmp
+                debug_log = Some(PathBuf::from("/tmp/rustor-analyze.log"));
+            }
+        } else if let Some(path) = arg.strip_prefix("--debug-log=") {
+            debug_log = Some(PathBuf::from(path));
         } else if arg == "-h" || arg == "--help" {
             print_analyze_help();
             std::process::exit(0);
@@ -220,6 +248,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
         baseline,
         verbose,
         phpstan_compat,
+        debug_log,
     })
 }
 
@@ -240,6 +269,7 @@ pub fn print_analyze_help() {
     println!("        --generate-baseline <FILE>  Generate baseline file");
     println!("        --baseline <FILE>         Use baseline file to filter issues");
     println!("        --phpstan-compat          PHPStan exact compatibility mode");
+    println!("        --debug-log [FILE]        Enable debug logging (default: /tmp/rustor-analyze.log)");
     println!("    -v, --verbose                 Verbose output");
     println!("    -h, --help                    Print help");
     println!();
@@ -249,6 +279,7 @@ pub fn print_analyze_help() {
     println!("    rustor analyze -c phpstan.neon --error-format json");
     println!("    rustor analyze --generate-baseline baseline.neon");
     println!("    rustor analyze --phpstan-compat --level 1");
+    println!("    rustor analyze --debug-log /tmp/my-analyze.log");
 }
 
 /// Check if we should run the analyze subcommand
