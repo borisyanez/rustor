@@ -32,6 +32,8 @@ pub struct AnalyzeArgs {
     pub phpstan_compat: bool,
     /// Debug log file path (enables detailed logging)
     pub debug_log: Option<PathBuf>,
+    /// Ignore config files
+    pub no_config: bool,
 }
 
 /// Run the analyze subcommand
@@ -180,6 +182,14 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
 
 /// Load PHPStan configuration
 fn load_config(args: &AnalyzeArgs) -> Result<PhpStanConfig> {
+    // If --no-config is specified, use defaults
+    if args.no_config {
+        if args.verbose {
+            println!("{}: Ignoring config files (--no-config)", "Info".bold());
+        }
+        return Ok(PhpStanConfig::default());
+    }
+
     // If config path is specified, use it
     if let Some(config_path) = &args.configuration {
         if !config_path.exists() {
@@ -215,12 +225,15 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
     let mut verbose = false;
     let mut phpstan_compat = false;
     let mut debug_log = None;
+    let mut no_config = false;
 
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
 
-        if arg == "-c" || arg == "--configuration" {
+        if arg == "--no-config" {
+            no_config = true;
+        } else if arg == "-c" || arg == "--configuration" {
             i += 1;
             if i < args.len() {
                 configuration = Some(PathBuf::from(&args[i]));
@@ -283,6 +296,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
         verbose,
         phpstan_compat,
         debug_log,
+        no_config,
     })
 }
 
