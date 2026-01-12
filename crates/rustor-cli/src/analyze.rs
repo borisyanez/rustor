@@ -139,9 +139,14 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
             baseline.entries.push(entry);
         }
 
+        let before_count = issues.len();
         issues = baseline.filter(issues);
+        let after_count = issues.len();
+        let filtered = before_count - after_count;
+
         if args.verbose {
-            println!("{}: Applied {} ignoreErrors from config", "Info".bold(), analyzer.config().ignore_errors.len());
+            println!("{}: Applied {} ignoreErrors from config (filtered {} errors)",
+                     "Info".bold(), analyzer.config().ignore_errors.len(), filtered);
         }
     }
 
