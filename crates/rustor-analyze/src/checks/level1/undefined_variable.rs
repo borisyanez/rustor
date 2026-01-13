@@ -652,23 +652,22 @@ impl<'s> VariableAnalyzer<'s> {
         match expr {
             // Pattern: !$var or !isset($var)
             Expression::UnaryPrefix(unary) => {
-                // Check if it's !isset($var)
-                if let Expression::Call(Call::Function(call)) = &*unary.operand {
-                    let func_name = match &*call.function {
-                        Expression::Identifier(ident) => {
-                            self.get_span_text(&ident.span())
+                // Check if it's !isset($var) - isset is a language construct
+                if let Expression::Construct(Construct::Isset(isset)) = &*unary.operand {
+                    for value in isset.values.iter() {
+                        if let Some(var_name) = self.get_var_name(value) {
+                            vars.push(var_name);
                         }
-                        _ => "",
-                    };
-
-                    if func_name == "isset" {
-                        if let Some(arg) = call.argument_list.arguments.first() {
-                            if let Some(var_name) = self.get_var_name(arg.value()) {
-                                vars.push(var_name);
-                            }
-                        }
-                        return;
                     }
+                    return;
+                }
+
+                // Check if it's !empty($var) - though this is less common
+                if let Expression::Construct(Construct::Empty(empty)) = &*unary.operand {
+                    if let Some(var_name) = self.get_var_name(empty.value) {
+                        vars.push(var_name);
+                    }
+                    return;
                 }
 
                 // Pattern: !$var
@@ -676,22 +675,10 @@ impl<'s> VariableAnalyzer<'s> {
                     vars.push(var_name);
                 }
             }
-            // Pattern: empty($var)
-            Expression::Call(Call::Function(call)) => {
-                let func_name = match &*call.function {
-                    Expression::Identifier(ident) => {
-                        self.get_span_text(&ident.span())
-                    }
-                    _ => return,
-                };
-
-                // empty($var) is treated as checking for undefined
-                if func_name == "empty" {
-                    if let Some(arg) = call.argument_list.arguments.first() {
-                        if let Some(var_name) = self.get_var_name(arg.value()) {
-                            vars.push(var_name);
-                        }
-                    }
+            // Pattern: empty($var) - language construct
+            Expression::Construct(Construct::Empty(empty)) => {
+                if let Some(var_name) = self.get_var_name(empty.value) {
+                    vars.push(var_name);
                 }
             }
             // Pattern: !$a || !$b (multiple checks with OR)
