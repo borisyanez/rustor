@@ -432,6 +432,33 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             return true;
         }
 
+        // Well-known interface implementations (PSR-7, HTTP, Doctrine)
+        // These are stable, widely-used interfaces with known implementations
+
+        // PSR-7 HTTP Message interfaces
+        if expected.ends_with("responseinterface") && actual == "response" {
+            return true;
+        }
+        if expected.ends_with("requestinterface") && actual == "request" {
+            return true;
+        }
+        if expected.ends_with("uriinterface") && actual == "uri" {
+            return true;
+        }
+        if expected.ends_with("streaminterface") && actual == "stream" {
+            return true;
+        }
+
+        // HTTP Client interface (PSR-18)
+        if expected.ends_with("clientinterface") && actual == "client" {
+            return true;
+        }
+
+        // Doctrine Collections
+        if expected == "collection" && actual == "arraycollection" {
+            return true;
+        }
+
         // Handle self/static keywords - they refer to the current class
         if let Some(class_name) = current_class {
             let class_lower = class_name.to_lowercase();
