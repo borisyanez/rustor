@@ -25,7 +25,29 @@
       "Bash(git commit:*)",
       "Bash(for i in 1 2 3)",
       "Bash(do echo \"=== Run $i ===\")",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
+      "Bash(git reset:*)",
+      "Bash(./target/release/rustor analyze:*)",
+      "Bash(cargo clean:*)",
+      "Bash(php -l:*)",
+      "Bash(for level in 0 1 2 3 4 5 6)",
+      "Bash(do echo -n \"Level $level: \")",
+      "Bash(1)",
+      "Bash(time /Users/borisyv/RustProjects/rustor/target/release/rustor analyze:*)",
+      "Bash(tee:*)",
+      "Bash(time ./libs/vendor/bin/phpstan:*)",
+      "Bash(for id in \"classConstant.notFound\" \"function.resultUnused\" \"instanceof.alwaysFalse\" \"property.typeMismatch\" \"return.typeMismatch\" \"variable.possiblyUndefined\")",
+      "WebSearch",
+      "WebFetch(domain:phpstan.org)",
+      "Bash(mkdir:*)",
+      "Bash(do echo \"Testing level $level...\" ./target/release/rustor analyze /tmp/test_all_levels.php --level=$level)",
+      "Bash(for level in 0 1 2 3 4 5 6 7 8 9 10)",
+      "Bash(do echo \"Level $level:\")",
+      "Bash(git push)",
+      "Bash(./vendor/bin/phpstan analyze:*)",
+      "Bash(/Users/borisyv/PhpProjects/phpstan-src/vendor/bin/phpstan analyze:*)",
+      "Bash(php:*)"
     ]
   }
 }
