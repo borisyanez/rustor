@@ -277,13 +277,57 @@ impl<'s> VariableAnalyzer<'s> {
                 }
             }
             Statement::If(if_stmt) => {
-                self.analyze_expression(&if_stmt.condition, false);
+                // Negative control flow: if (!$var) { return; } means $var is defined after
+                let checked_vars = self.get_undefined_checked_vars(&if_stmt.condition);
+                let has_early_exit = !checked_vars.is_empty() && self.body_has_early_exit(&if_stmt.body);
+
+                // For negative control flow with early exit, don't check the condition
+                // because we know the variable will be defined after this point
+                if !has_early_exit {
+                    self.analyze_expression(&if_stmt.condition, false);
+                }
+
                 // Check if there's an else clause
                 let has_else = match &if_stmt.body {
                     IfBody::Statement(stmt_body) => stmt_body.else_clause.is_some(),
                     IfBody::ColonDelimited(block) => block.else_clause.is_some(),
                 };
-                self.analyze_if_body(&if_stmt.body, has_else);
+
+                // If this is negative control flow with early exit, skip the normal analysis
+                // because the branch that exits doesn't affect the state after the if
+                if has_early_exit {
+                    // Just analyze the body for other errors, but don't merge branches
+                    // Save the current state
+                    let before_state = self.current_scope().defined.clone();
+                    let before_possibly = self.current_scope().possibly_defined.clone();
+
+                    // Analyze the body
+                    match &if_stmt.body {
+                        IfBody::Statement(stmt_body) => {
+                            self.analyze_statement(stmt_body.statement);
+                        }
+                        IfBody::ColonDelimited(block) => {
+                            for inner in block.statements.iter() {
+                                self.analyze_statement(inner);
+                            }
+                        }
+                    }
+
+                    // Restore the state (the exit branch doesn't contribute)
+                    self.current_scope_mut().defined = before_state;
+                    self.current_scope_mut().possibly_defined = before_possibly;
+
+                    // Now promote the checked variables to definitely defined
+                    for var in checked_vars {
+                        if self.current_scope().is_possibly_defined(&var) {
+                            self.current_scope_mut().possibly_defined.remove(&var);
+                            self.define(var);
+                        }
+                    }
+                } else {
+                    // Normal if statement analysis
+                    self.analyze_if_body(&if_stmt.body, has_else);
+                }
             }
             Statement::Foreach(foreach) => {
                 self.analyze_expression(&foreach.expression, false);
@@ -594,6 +638,121 @@ impl<'s> VariableAnalyzer<'s> {
             return Some(name.to_string());
         }
         None
+    }
+
+    /// Extract variables being checked for undefined/empty/false in a condition
+    /// Returns variables from patterns like: !$var, empty($var), !isset($var), !$var || !$other
+    fn get_undefined_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.extract_undefined_checked_vars(condition, &mut vars);
+        vars
+    }
+
+    fn extract_undefined_checked_vars<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>) {
+        match expr {
+            // Pattern: !$var or !isset($var)
+            Expression::UnaryPrefix(unary) => {
+                // Check if it's !isset($var)
+                if let Expression::Call(Call::Function(call)) = &*unary.operand {
+                    let func_name = match &*call.function {
+                        Expression::Identifier(ident) => {
+                            self.get_span_text(&ident.span())
+                        }
+                        _ => "",
+                    };
+
+                    if func_name == "isset" {
+                        if let Some(arg) = call.argument_list.arguments.first() {
+                            if let Some(var_name) = self.get_var_name(arg.value()) {
+                                vars.push(var_name);
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Pattern: !$var
+                if let Some(var_name) = self.get_var_name(&unary.operand) {
+                    vars.push(var_name);
+                }
+            }
+            // Pattern: empty($var)
+            Expression::Call(Call::Function(call)) => {
+                let func_name = match &*call.function {
+                    Expression::Identifier(ident) => {
+                        self.get_span_text(&ident.span())
+                    }
+                    _ => return,
+                };
+
+                // empty($var) is treated as checking for undefined
+                if func_name == "empty" {
+                    if let Some(arg) = call.argument_list.arguments.first() {
+                        if let Some(var_name) = self.get_var_name(arg.value()) {
+                            vars.push(var_name);
+                        }
+                    }
+                }
+            }
+            // Pattern: !$a || !$b (multiple checks with OR)
+            Expression::Binary(binary) => {
+                // For OR conditions, both sides are checked
+                self.extract_undefined_checked_vars(&binary.lhs, vars);
+                self.extract_undefined_checked_vars(&binary.rhs, vars);
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if a body has an early exit (return, exit, throw, die)
+    fn body_has_early_exit<'a>(&self, body: &IfBody<'a>) -> bool {
+        match body {
+            IfBody::Statement(stmt_body) => {
+                self.statement_has_early_exit(stmt_body.statement)
+            }
+            IfBody::ColonDelimited(block) => {
+                // Check if any statement in the block is an early exit
+                for stmt in block.statements.iter() {
+                    if self.statement_has_early_exit(stmt) {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    fn statement_has_early_exit<'a>(&self, stmt: &Statement<'a>) -> bool {
+        match stmt {
+            Statement::Return(_) => true,
+            Statement::Block(block) => {
+                // Check if any statement in the block is an early exit
+                for inner in block.statements.iter() {
+                    if self.statement_has_early_exit(inner) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::Expression(expr_stmt) => {
+                // Check for exit() or die() calls
+                if let Expression::Call(Call::Function(call)) = &expr_stmt.expression {
+                    let func_name = match &*call.function {
+                        Expression::Identifier(ident) => {
+                            self.get_span_text(&ident.span())
+                        }
+                        _ => return false,
+                    };
+                    return func_name == "exit" || func_name == "die";
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn get_span_text(&self, span: &mago_span::Span) -> &str {
+        &self.source[span.start.offset as usize..span.end.offset as usize]
     }
 
     fn analyze_expression<'a>(&mut self, expr: &Expression<'a>, is_assignment_lhs: bool) {

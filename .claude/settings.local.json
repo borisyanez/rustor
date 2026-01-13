@@ -56,7 +56,11 @@
       "Bash(/tmp/test_phpstan_json.sh)",
       "Bash(/tmp/compare_tools.sh)",
       "Bash(for level in 0 2 3 4 10)",
-      "Bash(/tmp/analyze_differences.sh)"
+      "Bash(/tmp/analyze_differences.sh)",
+      "Bash(1 echo \"Rustor exit code: $?\" if [ -f /tmp/rustor_full_results.json ])",
+      "Bash(fi)",
+      "Bash(1 jq -r '.files[].messages[].identifier' /tmp/rustor_with_negflow_results.json)",
+      "Bash(1 jq -r '.files[].messages[].identifier' /tmp/rustor_negflow_full.json)"
     ]
   }
 }
