@@ -86,39 +86,31 @@ impl<'s> VoidPureVisitor<'s> {
                 // Check if function returns void
                 if let Some(return_hint) = &func.return_type_hint {
                     if self.is_void_return_type(&return_hint.hint) {
-                        // Skip empty functions (common placeholder pattern)
-                        if func.body.statements.is_empty() {
-                            return;
-                        }
+                        // Skip empty functions (common placeholder/stub pattern)
+                        if !func.body.statements.is_empty() {
+                            // Check if function has side effects (excluding unreachable code)
+                            let has_side_effects = self.has_observable_side_effects(func.body.statements.iter());
 
-                        // Check if function has side effects
-                        let mut has_side_effects = false;
-                        for stmt in func.body.statements.iter() {
-                            if self.statement_has_side_effects(stmt) {
-                                has_side_effects = true;
-                                break;
+                            if !has_side_effects {
+                                let func_name = self.get_span_text(&func.name.span);
+                                let (line, col) = self.get_line_col(func.name.span.start.offset as usize);
+
+                                self.issues.push(Issue {
+                                    check_id: "void.pure".to_string(),
+                                    severity: Severity::Error,
+                                    message: format!(
+                                        "Function {}() returns void but does not have any side effects",
+                                        func_name
+                                    ),
+                                    file: self.file_path.to_path_buf(),
+                                    line,
+                                    column: col,
+                                    identifier: Some("void.pure".to_string()),
+                                    tip: Some(
+                                        "Either change the return type or add side effects (assignments, function calls, echo, etc.)".to_string()
+                                    ),
+                                });
                             }
-                        }
-
-                        if !has_side_effects {
-                            let func_name = self.get_span_text(&func.name.span);
-                            let (line, col) = self.get_line_col(func.name.span.start.offset as usize);
-
-                            self.issues.push(Issue {
-                                check_id: "void.pure".to_string(),
-                                severity: Severity::Error,
-                                message: format!(
-                                    "Function {}() returns void but does not have any side effects",
-                                    func_name
-                                ),
-                                file: self.file_path.to_path_buf(),
-                                line,
-                                column: col,
-                                identifier: Some("void.pure".to_string()),
-                                tip: Some(
-                                    "Either change the return type or add side effects (assignments, function calls, echo, etc.)".to_string()
-                                ),
-                            });
                         }
                     }
                 }
@@ -130,39 +122,31 @@ impl<'s> VoidPureVisitor<'s> {
                             // Check if method returns void
                             if let Some(return_hint) = &method.return_type_hint {
                                 if self.is_void_return_type(&return_hint.hint) {
-                                    // Skip empty methods (common placeholder pattern)
-                                    if concrete.statements.is_empty() {
-                                        continue;
-                                    }
+                                    // Skip empty methods (common placeholder/stub pattern)
+                                    if !concrete.statements.is_empty() {
+                                        // Check if method has side effects (excluding unreachable code)
+                                        let has_side_effects = self.has_observable_side_effects(concrete.statements.iter());
 
-                                    // Check if method has side effects
-                                    let mut has_side_effects = false;
-                                    for stmt in concrete.statements.iter() {
-                                        if self.statement_has_side_effects(stmt) {
-                                            has_side_effects = true;
-                                            break;
+                                        if !has_side_effects {
+                                            let method_name = self.get_span_text(&method.name.span);
+                                            let (line, col) = self.get_line_col(method.name.span.start.offset as usize);
+
+                                            self.issues.push(Issue {
+                                                check_id: "void.pure".to_string(),
+                                                severity: Severity::Error,
+                                                message: format!(
+                                                    "Method {}() returns void but does not have any side effects",
+                                                    method_name
+                                                ),
+                                                file: self.file_path.to_path_buf(),
+                                                line,
+                                                column: col,
+                                                identifier: Some("void.pure".to_string()),
+                                                tip: Some(
+                                                    "Either change the return type or add side effects (assignments, function calls, echo, etc.)".to_string()
+                                                ),
+                                            });
                                         }
-                                    }
-
-                                    if !has_side_effects {
-                                        let method_name = self.get_span_text(&method.name.span);
-                                        let (line, col) = self.get_line_col(method.name.span.start.offset as usize);
-
-                                        self.issues.push(Issue {
-                                            check_id: "void.pure".to_string(),
-                                            severity: Severity::Error,
-                                            message: format!(
-                                                "Method {}() returns void but does not have any side effects",
-                                                method_name
-                                            ),
-                                            file: self.file_path.to_path_buf(),
-                                            line,
-                                            column: col,
-                                            identifier: Some("void.pure".to_string()),
-                                            tip: Some(
-                                                "Either change the return type or add side effects (assignments, function calls, echo, etc.)".to_string()
-                                            ),
-                                        });
                                     }
                                 }
                             }
@@ -184,6 +168,22 @@ impl<'s> VoidPureVisitor<'s> {
             },
             _ => {}
         }
+    }
+
+    /// Check if statements have observable side effects, stopping at return
+    fn has_observable_side_effects<'a>(&self, statements: impl Iterator<Item = &'a Statement<'a>>) -> bool {
+        for stmt in statements {
+            // Check for early exit (return) - anything after is unreachable
+            if matches!(stmt, Statement::Return(_)) {
+                // Check if the return itself has side effects
+                return self.statement_has_side_effects(stmt);
+            }
+
+            if self.statement_has_side_effects(stmt) {
+                return true;
+            }
+        }
+        false
     }
 
     fn statement_has_side_effects<'a>(&self, stmt: &Statement<'a>) -> bool {

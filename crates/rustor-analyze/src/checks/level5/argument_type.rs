@@ -518,6 +518,11 @@ impl<'s> ArgumentTypeVisitor<'s> {
             return true;
         }
 
+        // At level 5, mixed can be passed to anything (level 9 will enforce the restriction)
+        if actual_lower == "mixed" {
+            return true;
+        }
+
         // object accepts any object
         if expected_lower == "object" && actual_lower == "object" {
             return true;

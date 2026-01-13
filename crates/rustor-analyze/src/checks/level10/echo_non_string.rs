@@ -39,6 +39,7 @@ impl Check for EchoNonStringCheck {
             file_path: ctx.file_path,
             mixed_vars: HashSet::new(),
             defined_vars: HashSet::new(),
+            var_types: HashMap::new(),
             class_properties: HashMap::new(),
             issues: Vec::new(),
         };
@@ -55,6 +56,8 @@ struct EchoNonStringVisitor<'s> {
     mixed_vars: HashSet<String>,
     /// Variables that have been defined/assigned in current scope
     defined_vars: HashSet<String>,
+    /// Variable types (variable name -> type name)
+    var_types: HashMap<String, String>,
     /// Class properties (class name -> property names)
     class_properties: HashMap<String, HashSet<String>>,
     issues: Vec<Issue>,
@@ -84,6 +87,20 @@ impl<'s> EchoNonStringVisitor<'s> {
 
     fn is_mixed_hint(&self, hint: &Hint<'_>) -> bool {
         matches!(hint, Hint::Mixed(_))
+    }
+
+    fn extract_type_name(&self, hint: &Hint<'_>) -> Option<String> {
+        match hint {
+            Hint::Identifier(ident) => Some(self.get_span_text(&ident.span()).to_string()),
+            Hint::Mixed(_) => Some("mixed".to_string()),
+            Hint::String(_) => Some("string".to_string()),
+            Hint::Integer(_) => Some("int".to_string()),
+            Hint::Float(_) => Some("float".to_string()),
+            Hint::Bool(_) => Some("bool".to_string()),
+            Hint::Array(_) => Some("array".to_string()),
+            Hint::Nullable(n) => self.extract_type_name(&n.hint),
+            _ => None,
+        }
     }
 
     fn visit_program<'a>(&mut self, program: &Program<'a>) {
@@ -122,10 +139,12 @@ impl<'s> EchoNonStringVisitor<'s> {
                 // Save old state
                 let old_mixed_vars = self.mixed_vars.clone();
                 let old_defined_vars = self.defined_vars.clone();
+                let old_var_types = self.var_types.clone();
 
                 // Collect mixed and untyped parameters
                 self.mixed_vars.clear();
                 self.defined_vars.clear();
+                self.var_types.clear();
 
                 for param in func.parameter_list.parameters.iter() {
                     let param_name = self.get_span_text(&param.variable.span()).trim_start_matches('$').to_string();
@@ -134,8 +153,13 @@ impl<'s> EchoNonStringVisitor<'s> {
                     self.defined_vars.insert(param_name.clone());
 
                     if let Some(hint) = &param.hint {
-                        if self.is_mixed_hint(hint) {
-                            self.mixed_vars.insert(param_name);
+                        // Extract and store the type
+                        if let Some(type_name) = self.extract_type_name(hint) {
+                            self.var_types.insert(param_name.clone(), type_name.clone());
+
+                            if type_name == "mixed" {
+                                self.mixed_vars.insert(param_name);
+                            }
                         }
                     } else {
                         // No type hint = implicit mixed
@@ -151,6 +175,7 @@ impl<'s> EchoNonStringVisitor<'s> {
                 // Restore old state
                 self.mixed_vars = old_mixed_vars;
                 self.defined_vars = old_defined_vars;
+                self.var_types = old_var_types;
             }
             Statement::Class(class) => {
                 for member in class.members.iter() {
@@ -159,10 +184,12 @@ impl<'s> EchoNonStringVisitor<'s> {
                             // Save old state
                             let old_mixed_vars = self.mixed_vars.clone();
                             let old_defined_vars = self.defined_vars.clone();
+                            let old_var_types = self.var_types.clone();
 
                             // Collect mixed and untyped parameters
                             self.mixed_vars.clear();
                             self.defined_vars.clear();
+                            self.var_types.clear();
 
                             for param in method.parameter_list.parameters.iter() {
                                 let param_name = self.get_span_text(&param.variable.span()).trim_start_matches('$').to_string();
@@ -171,8 +198,13 @@ impl<'s> EchoNonStringVisitor<'s> {
                                 self.defined_vars.insert(param_name.clone());
 
                                 if let Some(hint) = &param.hint {
-                                    if self.is_mixed_hint(hint) {
-                                        self.mixed_vars.insert(param_name);
+                                    // Extract and store the type
+                                    if let Some(type_name) = self.extract_type_name(hint) {
+                                        self.var_types.insert(param_name.clone(), type_name.clone());
+
+                                        if type_name == "mixed" {
+                                            self.mixed_vars.insert(param_name);
+                                        }
                                     }
                                 } else {
                                     // No type hint = implicit mixed
@@ -188,6 +220,7 @@ impl<'s> EchoNonStringVisitor<'s> {
                             // Restore old state
                             self.mixed_vars = old_mixed_vars;
                             self.defined_vars = old_defined_vars;
+                            self.var_types = old_var_types;
                         }
                     }
                 }
@@ -252,15 +285,44 @@ impl<'s> EchoNonStringVisitor<'s> {
                 }
             }
             Expression::Access(access) => {
-                // For property accesses, we need to determine if the property exists
-                // If it doesn't exist, it returns mixed, so echo.nonString applies
-                // This is a simplified check - full type inference would be more accurate
+                // For property accesses, check if the property exists on the object type
                 if let Access::Property(prop_access) = access {
-                    // We can't easily determine the object type without full type inference
-                    // For now, just skip property access checks
-                    // PHPStan catches these via the property.notFound check AND echo.nonString
-                    // but that requires type resolution we don't have yet
-                    let _ = prop_access; // Silence unused warning
+                    // Try to determine the object type
+                    if let Expression::Variable(var) = &*prop_access.object {
+                        let var_name = self.get_span_text(&var.span()).trim_start_matches('$');
+
+                        // Check if we know the type of this variable
+                        if let Some(type_name) = self.var_types.get(var_name) {
+                            // Get the property name
+                            let prop_name = self.get_span_text(&prop_access.property.span()).trim_start_matches('$');
+
+                            // Check if this property exists on the type
+                            let type_lower = type_name.to_lowercase();
+                            let has_property = self.class_properties
+                                .get(&type_lower)
+                                .map(|props| props.contains(prop_name))
+                                .unwrap_or(false);
+
+                            // If property doesn't exist, accessing it returns mixed
+                            if !has_property {
+                                let (line, col) = self.get_line_col(access.span().start.offset as usize);
+
+                                self.issues.push(Issue {
+                                    check_id: "echo.nonString".to_string(),
+                                    severity: Severity::Error,
+                                    message: "Parameter #1 (mixed) of echo cannot be converted to string".to_string(),
+                                    file: self.file_path.to_path_buf(),
+                                    line,
+                                    column: col,
+                                    identifier: Some("echo.nonString".to_string()),
+                                    tip: Some(format!(
+                                        "Property ${} on type {} does not exist, access returns mixed which cannot be safely converted to string.",
+                                        prop_name, type_name
+                                    )),
+                                });
+                            }
+                        }
+                    }
                 }
             }
             _ => {

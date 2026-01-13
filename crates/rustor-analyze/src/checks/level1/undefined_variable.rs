@@ -19,7 +19,7 @@ impl Check for UndefinedVariableCheck {
     }
 
     fn level(&self) -> u8 {
-        1
+        0
     }
 
     fn check<'a>(&self, program: &Program<'a>, ctx: &CheckContext<'_>) -> Vec<Issue> {
