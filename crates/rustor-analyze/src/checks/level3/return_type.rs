@@ -341,7 +341,7 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             let actual_lower = actual.to_lowercase();
 
             // Skip if types are compatible
-            if self.types_compatible(&expected_lower, &actual_lower) {
+            if self.types_compatible(&expected_lower, &actual_lower, self.current_class.as_deref()) {
                 return;
             }
 
@@ -401,9 +401,30 @@ impl<'s> ReturnTypeAnalyzer<'s> {
     }
 
     /// Check if two types are compatible
-    fn types_compatible(&self, expected: &str, actual: &str) -> bool {
+    fn types_compatible(&self, expected: &str, actual: &str, current_class: Option<&str>) -> bool {
         if expected == actual {
             return true;
+        }
+
+        // Handle self/static keywords - they refer to the current class
+        if let Some(class_name) = current_class {
+            let class_lower = class_name.to_lowercase();
+
+            // Expected is self/static, actual is the class name
+            if (expected == "self" || expected == "static") && actual == class_lower {
+                return true;
+            }
+
+            // Actual is self/static, expected is the class name
+            if (actual == "self" || actual == "static") && expected == class_lower {
+                return true;
+            }
+
+            // Both are self/static
+            if (expected == "self" || expected == "static") &&
+               (actual == "self" || actual == "static") {
+                return true;
+            }
         }
 
         // mixed accepts everything
