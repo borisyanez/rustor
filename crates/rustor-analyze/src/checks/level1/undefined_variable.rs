@@ -606,32 +606,36 @@ impl<'s> VariableAnalyzer<'s> {
                     self.define(name.to_string());
                 } else if !name.starts_with("$$") {
                     // Check if it's defined or possibly defined
-                    if self.is_possibly_defined(name) {
-                        // Variable is defined in some branches but not all
-                        let (line, col) = self.get_line_col(var.span().start.offset as usize);
-                        self.issues.push(
-                            Issue::error(
-                                "undefined.variable",
-                                format!("Variable {} might not be defined.", name),
-                                self.file_path.clone(),
-                                line,
-                                col,
-                            )
-                            .with_identifier("variable.possiblyUndefined"),
-                        );
-                    } else if !self.is_defined(name) {
-                        // Variable is completely undefined
-                        let (line, col) = self.get_line_col(var.span().start.offset as usize);
-                        self.issues.push(
-                            Issue::error(
-                                "undefined.variable",
-                                format!("Undefined variable {}", name),
-                                self.file_path.clone(),
-                                line,
-                                col,
-                            )
-                            .with_identifier("variable.undefined"),
-                        );
+                    // IMPORTANT: Check is_defined FIRST to avoid false positives when a variable
+                    // is definitely defined in the current scope but possibly defined in an outer scope
+                    if !self.is_defined(name) {
+                        if self.is_possibly_defined(name) {
+                            // Variable is defined in some branches but not all
+                            let (line, col) = self.get_line_col(var.span().start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "undefined.variable",
+                                    format!("Variable {} might not be defined.", name),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("variable.possiblyUndefined"),
+                            );
+                        } else {
+                            // Variable is completely undefined
+                            let (line, col) = self.get_line_col(var.span().start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "undefined.variable",
+                                    format!("Undefined variable {}", name),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("variable.undefined"),
+                            );
+                        }
                     }
                 }
             }
