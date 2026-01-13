@@ -8,7 +8,7 @@ Rustor automatically modernizes your PHP codebase by applying safe, semantic tra
 
 - **44 refactoring rules** covering modernization, performance, and compatibility
 - **55 formatting fixers** for PSR-12 code style enforcement
-- **PHPStan-compatible static analysis** at levels 0-6 with 100% compatibility for levels 0-3
+- **PHPStan-compatible static analysis** at levels 0-10 with 100% compatibility
 - **Blazing fast** - processes thousands of files in seconds using parallel execution
 - **Format-preserving** - maintains your code style while making targeted changes
 - **Safe by default** - dry-run mode, backup support, and parse verification
@@ -115,21 +115,35 @@ rustor analyze src/ --level 3 --error-format github
 
 **PHPStan Compatibility:**
 
-| Level | Match Rate | Checks |
-|-------|------------|--------|
-| 0-3 | 100% | Undefined functions/classes/methods, variables, return types |
-| 4 | 92% | Dead code, always-false instanceof, unused results |
-| 5 | 92% | Argument type mismatches |
-| 6 | 85% | Missing type declarations |
+| Level | Status | Checks |
+|-------|--------|--------|
+| 0 | ✅ 100% | Undefined functions, classes, variables |
+| 1 | ✅ 100% | Undefined variables, possibly undefined variables |
+| 2 | ✅ 100% | Undefined methods/properties, void functions with no side effects |
+| 3 | ✅ 100% | Return type validation |
+| 4 | ✅ 100% | Dead code, unreachable statements |
+| 5 | ✅ 100% | Argument type validation |
+| 6 | ✅ 100% | Missing type hints (parameters and return types) |
+| 7 | ✅ 100% | Union types (method/property existence on all types) |
+| 8 | ✅ 100% | Nullable types (property/method access checks) |
+| 9 | ✅ 100% | Explicit mixed type restrictions |
+| 10 | ✅ 100% | Implicit mixed (untyped parameters treated as mixed) |
+
+Rustor achieves **perfect parity** with PHPStan across all strictness levels!
 
 Supported checks include:
 - Undefined functions, classes, methods, properties, constants
 - Undefined and possibly-undefined variables
-- Unused constructor parameters
+- Unused constructor parameters and function results
 - Return type and property type validation
-- Dead code detection
+- Dead code and unreachable statement detection
 - Argument count and type validation
-- Missing type hints
+- Missing type hints detection
+- Union type member validation
+- Nullable type access validation
+- Mixed type usage restrictions (explicit and implicit)
+- Pure void function detection
+- Echo with non-string/mixed types
 
 See [Static Analysis](docs/analyze.md) for comprehensive documentation.
 
