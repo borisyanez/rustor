@@ -85,6 +85,7 @@ impl CheckRegistry {
         // Level 2 checks
         registry.register(Box::new(level2::CallMethodsCheck));
         registry.register(Box::new(level2::PropertyAccessCheck));
+        registry.register(Box::new(level2::VoidPureCheck));
 
         // Level 3 checks
         registry.register(Box::new(level3::ReturnTypeCheck));
@@ -111,6 +112,7 @@ impl CheckRegistry {
 
         // Level 10 checks
         registry.register(Box::new(level10::ImplicitMixedCheck));
+        registry.register(Box::new(level10::EchoNonStringCheck));
 
         registry
     }
