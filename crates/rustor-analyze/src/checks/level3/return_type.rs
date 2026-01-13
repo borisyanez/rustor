@@ -406,6 +406,32 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             return true;
         }
 
+        // Handle union types - expected is a union (e.g., "int|null|string")
+        if expected.contains('|') {
+            let expected_types: Vec<&str> = expected.split('|').map(|s| s.trim()).collect();
+            // If actual matches any member of the union, it's compatible
+            for expected_type in expected_types {
+                if self.types_compatible(expected_type, actual, current_class) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Handle union types - actual is a union
+        // All members of actual union must be compatible with expected
+        if actual.contains('|') {
+            let actual_types: Vec<&str> = actual.split('|').map(|s| s.trim()).collect();
+            return actual_types.iter().all(|actual_type| {
+                self.types_compatible(expected, actual_type, current_class)
+            });
+        }
+
+        // Closure is callable in PHP
+        if expected == "callable" && actual == "closure" {
+            return true;
+        }
+
         // Handle self/static keywords - they refer to the current class
         if let Some(class_name) = current_class {
             let class_lower = class_name.to_lowercase();
