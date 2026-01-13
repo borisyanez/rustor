@@ -544,22 +544,48 @@ impl<'s> VariableAnalyzer<'s> {
     }
 
     fn analyze_switch_body<'a>(&mut self, body: &SwitchBody<'a>) {
+        let before_snapshot = self.current_scope().snapshot();
+        let mut branch_snapshots = Vec::new();
+
         match body {
             SwitchBody::BraceDelimited(block) => {
                 for case in block.cases.iter() {
+                    // Analyze this case as a separate branch
                     for stmt in case.statements().iter() {
                         self.analyze_statement(stmt);
                     }
+
+                    // Save the state after this case
+                    branch_snapshots.push(self.current_scope().snapshot());
+
+                    // Reset to before state for next case
+                    // (PHP switch has fallthrough, but with early returns each case is independent)
+                    self.current_scope_mut().defined = before_snapshot.clone();
                 }
             }
             SwitchBody::ColonDelimited(block) => {
                 for case in block.cases.iter() {
+                    // Analyze this case as a separate branch
                     for stmt in case.statements().iter() {
                         self.analyze_statement(stmt);
                     }
+
+                    // Save the state after this case
+                    branch_snapshots.push(self.current_scope().snapshot());
+
+                    // Reset to before state for next case
+                    self.current_scope_mut().defined = before_snapshot.clone();
                 }
             }
         }
+
+        // Reset to original state before merging
+        self.current_scope_mut().defined = before_snapshot.clone();
+
+        // Merge branch results
+        // Note: If there's no default case, we consider the "no match" path
+        // For now, we conservatively assume a default case might not exist
+        self.merge_branches(&before_snapshot, branch_snapshots);
     }
 
     fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
