@@ -21,8 +21,10 @@ pub enum Level {
     Level7 = 7,
     /// Level 8: Nullable checks
     Level8 = 8,
-    /// Level 9: Mixed type checks (strictest)
+    /// Level 9: Explicit mixed type checks
     Level9 = 9,
+    /// Level 10: Implicit mixed type checks (strictest)
+    Level10 = 10,
 }
 
 impl Level {
@@ -37,7 +39,8 @@ impl Level {
             6 => Level::Level6,
             7 => Level::Level7,
             8 => Level::Level8,
-            _ => Level::Level9,
+            9 => Level::Level9,
+            _ => Level::Level10,
         }
     }
 
@@ -52,7 +55,8 @@ impl Level {
             "6" => Some(Level::Level6),
             "7" => Some(Level::Level7),
             "8" => Some(Level::Level8),
-            "9" | "max" => Some(Level::Level9),
+            "9" => Some(Level::Level9),
+            "10" | "max" => Some(Level::Level10),
             _ => None,
         }
     }
@@ -86,7 +90,8 @@ pub fn level_description(level: Level) -> &'static str {
         Level::Level6 => "Level 5 + missing typehints",
         Level::Level7 => "Level 6 + union type strictness",
         Level::Level8 => "Level 7 + nullable strictness",
-        Level::Level9 => "Strictest level: mixed type checks",
+        Level::Level9 => "Level 8 + explicit mixed type checks",
+        Level::Level10 => "Strictest level: implicit mixed type checks",
     }
 }
 

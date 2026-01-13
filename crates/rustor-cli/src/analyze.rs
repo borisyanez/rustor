@@ -18,7 +18,7 @@ pub struct AnalyzeArgs {
     pub paths: Vec<PathBuf>,
     /// PHPStan config file
     pub configuration: Option<PathBuf>,
-    /// Analysis level (0-9)
+    /// Analysis level (0-10)
     pub level: Option<u8>,
     /// Output format: raw, json, table, github
     pub error_format: String,
@@ -312,7 +312,7 @@ pub fn print_analyze_help() {
     println!();
     println!("{}", "OPTIONS:".bold());
     println!("    -c, --configuration <FILE>    PHPStan config file (phpstan.neon)");
-    println!("    -l, --level <LEVEL>           Analysis level (0-9, max)");
+    println!("    -l, --level <LEVEL>           Analysis level (0-10, max)");
     println!("        --error-format <FORMAT>   Output format: raw, json, table, github");
     println!("        --generate-baseline <FILE>  Generate baseline file");
     println!("        --baseline <FILE>         Use baseline file to filter issues");
