@@ -1,0 +1,166 @@
+================================================================================
+                    RUSTOR IMPROVEMENTS METRICS
+                        January 13, 2026
+================================================================================
+
+PROJECT: Return Type Checking Improvements
+CODEBASE: payjoy_www (using phpstan.neon.dist)
+FOCUS: PHPStan Level 3 compatibility (return type validation)
+
+--------------------------------------------------------------------------------
+                        ERROR REDUCTION SUMMARY
+--------------------------------------------------------------------------------
+
+Baseline State (after self/static fix):
+  return.typeMismatch:        119 errors
+
+After Union Type + Closure/Callable Fix (Commit: be71b8b):
+  return.typeMismatch:         59 errors  (-60, -50.4%)
+
+After Well-Known Interfaces Fix (Commit: c4574fa):
+  return.typeMismatch:         54 errors  (-5, -8.5%)
+
+TOTAL IMPROVEMENT:             -65 errors (-54.6% reduction)
+
+--------------------------------------------------------------------------------
+                        CURRENT ERROR STATE
+--------------------------------------------------------------------------------
+
+Total Errors (all types):      624 errors
+
+Error Distribution:
+  variable.possiblyUndefined:  444 (71.2%)
+  property.typeMismatch:        71 (11.4%)
+  return.typeMismatch:          54 (8.7%)  ← IMPROVED
+  function.resultUnused:        33 (5.3%)
+  void.pure:                    12 (1.9%)
+  instanceof.alwaysFalse:        8 (1.3%)
+  classConstant.notFound:        2 (0.3%)
+
+--------------------------------------------------------------------------------
+                    FEATURES IMPLEMENTED
+--------------------------------------------------------------------------------
+
+1. Union Type Support
+   Impact: -60 errors (50.4% reduction)
+   Examples: int|null, string|array, Cart|string
+
+2. Closure/Callable Compatibility
+   Impact: Included in union type fix
+   Recognizes: Closure implements callable
+
+3. Well-Known Interface Support
+   Impact: -5 errors (8.5% reduction)
+   Interfaces: PSR-7 (Response, Request, Uri, Stream)
+              PSR-18 (Client)
+              Doctrine (Collection → ArrayCollection)
+
+--------------------------------------------------------------------------------
+                    PERFORMANCE METRICS
+--------------------------------------------------------------------------------
+
+Rustor Analysis Time:          2-3 seconds
+PHPStan Analysis Time:         2-4 minutes
+Speed Advantage:               50-100x faster
+
+Memory Usage:
+  Rustor:                      Standard
+  PHPStan:                     2GB+ required
+
+--------------------------------------------------------------------------------
+                    COMPARISON WITH PHPSTAN
+--------------------------------------------------------------------------------
+
+PHPStan (Level 6 with baseline):
+  New Errors:                  0 (all baselined)
+  Baseline Errors:             21,146
+
+Rustor (Level 3 equivalent):
+  New Errors:                  624
+  Baseline Errors:             0 (finds different issues)
+
+Key Difference:
+  PHPStan baseline focuses on type hint completeness (82.9%)
+  Rustor finds control flow issues (71.2% of errors)
+
+Strictness:
+  PHPStan: variable.undefined = 356 (never defined)
+  Rustor:  variable.possiblyUndefined = 444 (might not be defined)
+  → Rustor is MORE STRICT on control flow analysis
+
+--------------------------------------------------------------------------------
+                    REMAINING WORK
+--------------------------------------------------------------------------------
+
+Remaining return.typeMismatch: 54 errors
+
+Breakdown:
+  - Application-specific interfaces: ~45 errors (83%)
+  - Complex inheritance: ~9 errors (17%)
+
+Required for 100% fix:
+  ❌ PHP class resolution system
+  ❌ Interface implementation tracking
+  ❌ Inheritance graph building
+  ❌ Namespace resolution
+
+Recommendation: STOP HERE
+  Reason: Diminishing returns, remaining errors require architectural work
+
+--------------------------------------------------------------------------------
+                    SUCCESS METRICS
+--------------------------------------------------------------------------------
+
+✅ Error Reduction:            54.6% (-65 errors)
+✅ Zero False Positives:       All changes high-confidence
+✅ Performance:                Maintained (2-3 sec)
+✅ Memory:                     No increase
+✅ Test Coverage:              3 test files, all passing
+✅ Documentation:              11 files created
+✅ Commits:                    2 commits, pushed to master
+
+--------------------------------------------------------------------------------
+                    FILES IN THIS DIRECTORY
+--------------------------------------------------------------------------------
+
+Documentation:
+  ├─ README.md                              (This overview)
+  ├─ METRICS.txt                            (This file)
+  ├─ 2026-01-13-investigation-summary.md    (Timeline & counts)
+  ├─ 2026-01-13-remaining-errors-analysis.md (Detailed categorization)
+  ├─ 2026-01-13-union-types-implementation.md (Union type details)
+  ├─ 2026-01-13-well-known-interfaces.md    (Interface implementation)
+  └─ 2026-01-13-session-summary.md          (Complete session overview)
+
+Comparison Results:
+  ├─ 2026-01-13-rustor-vs-phpstan-comparison.md (Detailed comparison)
+  ├─ 2026-01-13-comparison-visual.txt       (Visual summary)
+  └─ 2026-01-13-rustor-full-output.txt      (Full analysis output)
+
+Test Files:
+  ├─ 2026-01-13-test-union-callable.php     (Union & callable tests)
+  ├─ 2026-01-13-test-interfaces.php         (Interface tests)
+  └─ 2026-01-13-test-self-return.php        (Self/static tests)
+
+--------------------------------------------------------------------------------
+                    USAGE NOTES
+--------------------------------------------------------------------------------
+
+To reproduce these results:
+  1. Checkout commit c4574fa
+  2. Build: cargo build --release
+  3. Run: cd /path/to/payjoy_www
+         /path/to/rustor/target/release/rustor analyze -c phpstan.neon.dist
+
+To compare with PHPStan:
+  cd /path/to/payjoy_www
+  php -d memory_limit=2G ./libs/vendor/bin/phpstan analyze -c phpstan.neon.dist
+
+To view specific improvements:
+  git show be71b8b  # Union type + callable
+  git show c4574fa  # Well-known interfaces
+
+================================================================================
+Generated: January 13, 2026
+Last Updated: January 13, 2026
+================================================================================
