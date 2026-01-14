@@ -722,6 +722,11 @@ impl<'s> VariableAnalyzer<'s> {
                 false
             }
             Statement::Expression(expr_stmt) => {
+                // Check for throw expressions
+                if matches!(&expr_stmt.expression, Expression::Throw(_)) {
+                    return true;
+                }
+
                 // Check for exit() or die() calls
                 if let Expression::Call(Call::Function(call)) = &expr_stmt.expression {
                     let func_name = match &*call.function {
