@@ -591,45 +591,62 @@ impl<'s> VariableAnalyzer<'s> {
         let before_snapshot = self.current_scope().snapshot();
         let mut branch_snapshots = Vec::new();
 
-        match body {
+        let has_default = match body {
             SwitchBody::BraceDelimited(block) => {
+                let has_default_case = self.switch_has_default(&block.cases);
                 for case in block.cases.iter() {
                     // Analyze this case as a separate branch
                     for stmt in case.statements().iter() {
                         self.analyze_statement(stmt);
                     }
 
-                    // Save the state after this case
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    // Only save snapshot if case has statements (skip empty fallthrough cases)
+                    if !case.statements().is_empty() {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
 
                     // Reset to before state for next case
                     // (PHP switch has fallthrough, but with early returns each case is independent)
                     self.current_scope_mut().defined = before_snapshot.clone();
                 }
+                has_default_case
             }
             SwitchBody::ColonDelimited(block) => {
+                let has_default_case = self.switch_has_default(&block.cases);
                 for case in block.cases.iter() {
                     // Analyze this case as a separate branch
                     for stmt in case.statements().iter() {
                         self.analyze_statement(stmt);
                     }
 
-                    // Save the state after this case
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    // Only save snapshot if case has statements (skip empty fallthrough cases)
+                    if !case.statements().is_empty() {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
 
                     // Reset to before state for next case
                     self.current_scope_mut().defined = before_snapshot.clone();
                 }
+                has_default_case
             }
-        }
+        };
 
         // Reset to original state before merging
         self.current_scope_mut().defined = before_snapshot.clone();
 
         // Merge branch results
-        // Note: If there's no default case, we consider the "no match" path
-        // For now, we conservatively assume a default case might not exist
+        // If there's no default case, we need to consider the "no match" path
+        // where none of the cases matched and execution continues after the switch
+        if !has_default {
+            // Add the "no match" snapshot (same as before_snapshot)
+            branch_snapshots.push(before_snapshot.clone());
+        }
+
         self.merge_branches(&before_snapshot, branch_snapshots);
+    }
+
+    fn switch_has_default<'a>(&self, cases: &Sequence<'a, SwitchCase<'a>>) -> bool {
+        cases.iter().any(|case| matches!(case, SwitchCase::Default(_)))
     }
 
     fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
