@@ -36,6 +36,7 @@ impl Check for ReturnTypeCheck {
             file_path: ctx.file_path.to_path_buf(),
             issues: Vec::new(),
             current_class: None,
+            current_namespace: None,
             symbol_table: ctx.symbol_table,
         };
 
@@ -50,6 +51,7 @@ struct ReturnTypeAnalyzer<'s> {
     issues: Vec<Issue>,
     /// Current class context for resolving 'self' and 'static'
     current_class: Option<String>,
+    current_namespace: Option<String>,
     symbol_table: Option<&'s SymbolTable>,
 }
 
@@ -523,12 +525,34 @@ impl<'s> ReturnTypeAnalyzer<'s> {
 
         // Check type hierarchy: does actual class implement/extend expected interface/class?
         if let Some(symbol_table) = self.symbol_table {
-            if self.is_subtype_of(actual, expected, symbol_table) {
+            // Resolve type names using use statements and namespace
+            let resolved_expected = self.resolve_type_name(expected);
+            let resolved_actual = self.resolve_type_name(actual);
+
+            if self.is_subtype_of(&resolved_actual, &resolved_expected, symbol_table) {
                 return true;
             }
         }
 
         false
+    }
+
+    /// Resolve a type name to its fully qualified form using use statements and namespace
+    fn resolve_type_name(&self, type_name: &str) -> String {
+        // Skip built-in types
+        if matches!(type_name.to_lowercase().as_str(),
+            "int" | "float" | "string" | "bool" | "array" | "object" |
+            "null" | "void" | "mixed" | "callable" | "iterable" | "resource" | "scalar" |
+            "self" | "static" | "parent" | "closure") {
+            return type_name.to_string();
+        }
+
+        // Use symbol table to resolve with file aliases
+        if let Some(symbol_table) = self.symbol_table {
+            return symbol_table.resolve_class_name(type_name, &self.file_path, self.current_namespace.as_deref());
+        }
+
+        type_name.to_string()
     }
 
     /// Check if `subtype` is a subtype of `supertype` through class hierarchy

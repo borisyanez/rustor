@@ -43,6 +43,7 @@ impl Check for PropertyTypeCheck {
             file_path: ctx.file_path.to_path_buf(),
             class_properties: HashMap::new(),
             current_class: None,
+            current_namespace: None,
             issues: Vec::new(),
             symbol_table: ctx.symbol_table,
         };
@@ -62,6 +63,7 @@ struct PropertyTypeAnalyzer<'s> {
     file_path: PathBuf,
     class_properties: HashMap<String, HashMap<String, PropertyInfo>>, // class -> property -> info
     current_class: Option<String>,
+    current_namespace: Option<String>,
     issues: Vec<Issue>,
     symbol_table: Option<&'s SymbolTable>,
 }
@@ -446,6 +448,23 @@ impl<'s> PropertyTypeAnalyzer<'s> {
         }
     }
 
+    /// Resolve a type name to its fully qualified form using use statements and namespace
+    fn resolve_type_name(&self, type_name: &str) -> String {
+        // Skip built-in types
+        if matches!(type_name.to_lowercase().as_str(),
+            "int" | "float" | "string" | "bool" | "array" | "object" |
+            "null" | "void" | "mixed" | "callable" | "iterable" | "resource" | "scalar") {
+            return type_name.to_string();
+        }
+
+        // Use symbol table to resolve with file aliases
+        if let Some(symbol_table) = self.symbol_table {
+            return symbol_table.resolve_class_name(type_name, &self.file_path, self.current_namespace.as_deref());
+        }
+
+        type_name.to_string()
+    }
+
     fn types_compatible(&self, expected: &str, actual: &str, is_nullable: bool) -> bool {
         if expected == actual {
             return true;
@@ -483,7 +502,11 @@ impl<'s> PropertyTypeAnalyzer<'s> {
 
         // Check type hierarchy: does actual class implement/extend expected interface/class?
         if let Some(symbol_table) = self.symbol_table {
-            if self.is_subtype_of(actual, expected, symbol_table) {
+            // Resolve type names using use statements and namespace
+            let resolved_expected = self.resolve_type_name(expected);
+            let resolved_actual = self.resolve_type_name(actual);
+
+            if self.is_subtype_of(&resolved_actual, &resolved_expected, symbol_table) {
                 return true;
             }
         }
