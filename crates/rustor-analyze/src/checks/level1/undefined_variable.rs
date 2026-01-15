@@ -485,7 +485,10 @@ impl<'s> VariableAnalyzer<'s> {
             IfBody::Statement(stmt_body) => {
                 // Analyze 'if' branch
                 self.analyze_statement(stmt_body.statement);
-                branch_snapshots.push(self.current_scope().snapshot());
+                let if_has_early_exit = self.statement_has_early_exit(stmt_body.statement);
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
 
                 // Reset to before state for each subsequent branch
                 self.current_scope_mut().defined = before_snapshot.clone();
@@ -494,22 +497,45 @@ impl<'s> VariableAnalyzer<'s> {
                 for else_if in stmt_body.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition, false);
                     self.analyze_statement(else_if.statement);
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    let elseif_has_early_exit = self.statement_has_early_exit(else_if.statement);
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
                     self.current_scope_mut().defined = before_snapshot.clone();
                 }
 
                 // Analyze 'else' branch
-                if let Some(else_clause) = &stmt_body.else_clause {
+                let else_has_early_exit = if let Some(else_clause) = &stmt_body.else_clause {
                     self.analyze_statement(else_clause.statement);
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    let has_exit = self.statement_has_early_exit(else_clause.statement);
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    has_exit
+                } else {
+                    false
+                };
+
+                // Special case: if one branch exits early and we have else
+                // The non-exit branch's variables are definitely defined
+                if has_else && if_has_early_exit && !else_has_early_exit && stmt_body.else_if_clauses.is_empty() {
+                    // Only if branch exits, else branch defines variables that are definitely defined
+                    // Don't merge as "possibly defined" - the else snapshot is already in branch_snapshots
+                    // and we won't add the "no match" path, so it will be treated as definitely defined
                 }
             }
             IfBody::ColonDelimited(block) => {
                 // Analyze 'if' branch
+                let mut if_has_early_exit = false;
                 for inner in block.statements.iter() {
                     self.analyze_statement(inner);
+                    if self.statement_has_early_exit(inner) {
+                        if_has_early_exit = true;
+                    }
                 }
-                branch_snapshots.push(self.current_scope().snapshot());
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
 
                 // Reset to before state for each subsequent branch
                 self.current_scope_mut().defined = before_snapshot.clone();
@@ -517,19 +543,39 @@ impl<'s> VariableAnalyzer<'s> {
                 // Analyze 'elseif' branches
                 for else_if in block.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition, false);
+                    let mut elseif_has_early_exit = false;
                     for inner in else_if.statements.iter() {
                         self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            elseif_has_early_exit = true;
+                        }
                     }
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
                     self.current_scope_mut().defined = before_snapshot.clone();
                 }
 
                 // Analyze 'else' branch
-                if let Some(else_clause) = &block.else_clause {
+                let else_has_early_exit = if let Some(else_clause) = &block.else_clause {
+                    let mut has_exit = false;
                     for inner in else_clause.statements.iter() {
                         self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            has_exit = true;
+                        }
                     }
-                    branch_snapshots.push(self.current_scope().snapshot());
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    has_exit
+                } else {
+                    false
+                };
+
+                // Special case: if one branch exits early and we have else
+                if has_else && if_has_early_exit && !else_has_early_exit && block.else_if_clauses.is_empty() {
+                    // Only if branch exits, else branch defines variables that are definitely defined
                 }
             }
         }
