@@ -470,6 +470,39 @@ impl PhpStanConfig {
 
     /// Check if an error should be ignored
     pub fn should_ignore_error(&self, message: &str, path: &Path, identifier: Option<&str>) -> bool {
+        // In PHPStan compatibility mode, suppress Rustor-specific error types
+        // that PHPStan doesn't commonly report or uses different identifiers for
+        if self.phpstan_compat {
+            if let Some(error_id) = identifier {
+                let should_suppress = match error_id {
+                    // Rustor-specific checks not in PHPStan
+                    "void.pure" => true,  // Rustor-specific void function purity check
+
+                    // Rustor uses different identifier than PHPStan for this check
+                    // PHPStan uses booleanNot.alwaysFalse, identical.alwaysFalse, etc.
+                    "instanceof.alwaysFalse" => true,
+
+                    // Rustor uses classConstant.notFound but PHPStan uses constant.notFound
+                    // This is a naming difference, suppress to avoid confusion
+                    "classConstant.notFound" => true,
+
+                    _ => false,
+                };
+
+                if should_suppress {
+                    logging::log_error_filter(
+                        path,
+                        0,
+                        message,
+                        identifier,
+                        true,
+                        Some(&format!("phpstan-compat suppression: {}", error_id)),
+                    );
+                    return true;
+                }
+            }
+        }
+
         for ignore in &self.ignore_errors {
             // Check identifier first if specified
             if let Some(ignore_id) = &ignore.identifier {
