@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "add Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}

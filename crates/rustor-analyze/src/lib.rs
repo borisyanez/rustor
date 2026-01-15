@@ -44,6 +44,8 @@ use config::PhpStanConfig;
 use issue::IssueCollection;
 use mago_database::file::FileId;
 use rayon::prelude::*;
+use resolver::symbol_collector::SymbolCollector;
+use symbols::SymbolTable;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -160,10 +162,27 @@ impl Analyzer {
             }
         }
 
-        // Analyze files in parallel
+        // First pass: collect symbols from all files to build symbol table
+        let collected_symbols: Vec<_> = files
+            .par_iter()
+            .filter_map(|file| {
+                let source = fs::read_to_string(file).ok()?;
+                let arena = bumpalo::Bump::new();
+                let file_id = FileId::new(file.to_string_lossy().as_ref());
+                let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                let collector = SymbolCollector::new(&source, file);
+                Some(collector.collect(&program))
+            })
+            .collect();
+
+        // Build symbol table
+        let symbol_table = SymbolCollector::build_symbol_table_from_symbols(collected_symbols);
+
+        // Second pass: analyze files with symbol table
         let results: Vec<_> = files
             .par_iter()
-            .map(|file| self.analyze_file(file))
+            .map(|file| self.analyze_file_with_symbols(file, &symbol_table))
             .collect();
 
         // Combine results
@@ -180,6 +199,63 @@ impl Analyzer {
 
         combined.sort();
         Ok(combined)
+    }
+
+    /// Analyze a file with a pre-built symbol table
+    fn analyze_file_with_symbols(&self, path: &Path, symbol_table: &SymbolTable) -> Result<IssueCollection, AnalyzeError> {
+        let source = fs::read_to_string(path)?;
+        self.analyze_source_with_symbols(path, &source, symbol_table)
+    }
+
+    /// Analyze source code with a given path and symbol table
+    fn analyze_source_with_symbols(&self, path: &Path, source: &str, symbol_table: &SymbolTable) -> Result<IssueCollection, AnalyzeError> {
+        // Parse the PHP file using bumpalo arena
+        let arena = bumpalo::Bump::new();
+        let file_id = FileId::new(path.to_string_lossy().as_ref());
+        let (program, parse_error) = mago_syntax::parser::parse_file_content(&arena, file_id, source);
+
+        let mut issues = IssueCollection::new();
+
+        // Report parse errors
+        if let Some(error) = parse_error {
+            issues.add(issue::Issue::error(
+                "parse.error",
+                error.to_string(),
+                path.to_path_buf(),
+                1, // TODO: Get line from error
+                1,
+            ));
+        }
+
+        // Create check context with symbol table
+        let ctx = CheckContext {
+            file_path: path,
+            source,
+            config: &self.config,
+            builtin_functions: PHP_BUILTIN_FUNCTIONS,
+            builtin_classes: PHP_BUILTIN_CLASSES,
+            symbol_table: Some(symbol_table),
+            scope: None,        // TODO: Pass scope for variable tracking
+            analysis_level: self.config.level.as_u8(),
+        };
+
+        // Run checks for the configured level
+        let checks = self.registry.checks_for_level(self.config.level.as_u8());
+        for check in checks {
+            let check_issues = check.check(&program, &ctx);
+            for issue in check_issues {
+                // Filter ignored errors
+                if !self.config.should_ignore_error(
+                    &issue.message,
+                    &issue.file,
+                    issue.identifier.as_deref(),
+                ) {
+                    issues.add(issue);
+                }
+            }
+        }
+
+        Ok(issues)
     }
 
     /// Analyze paths specified in the configuration

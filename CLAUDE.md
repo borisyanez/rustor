@@ -105,3 +105,6 @@ Edit::new(span, replacement_string, message)
 ## Output Formats
 
 text, diff, json, sarif, html, checkstyle, github (for GitHub Actions annotations)
+
+## Permissions -- claude code permissions
+    # always allow to execute rustor locally even to perform analysis on other directories, always use the phpstan.

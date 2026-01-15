@@ -4,6 +4,7 @@
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
+use crate::symbols::SymbolTable;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use std::collections::HashMap;
@@ -43,6 +44,7 @@ impl Check for PropertyTypeCheck {
             class_properties: HashMap::new(),
             current_class: None,
             issues: Vec::new(),
+            symbol_table: ctx.symbol_table,
         };
 
         // First pass: collect property definitions
@@ -61,6 +63,7 @@ struct PropertyTypeAnalyzer<'s> {
     class_properties: HashMap<String, HashMap<String, PropertyInfo>>, // class -> property -> info
     current_class: Option<String>,
     issues: Vec<Issue>,
+    symbol_table: Option<&'s SymbolTable>,
 }
 
 impl<'s> PropertyTypeAnalyzer<'s> {
@@ -476,6 +479,47 @@ impl<'s> PropertyTypeAnalyzer<'s> {
         // iterable accepts arrays
         if expected == "iterable" && actual == "array" {
             return true;
+        }
+
+        // Check type hierarchy: does actual class implement/extend expected interface/class?
+        if let Some(symbol_table) = self.symbol_table {
+            if self.is_subtype_of(actual, expected, symbol_table) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if `subtype` is a subtype of `supertype` through class hierarchy
+    /// (i.e., subtype implements supertype interface or extends supertype class)
+    fn is_subtype_of(&self, subtype: &str, supertype: &str, symbol_table: &SymbolTable) -> bool {
+        // Get the subtype class info
+        let Some(class_info) = symbol_table.get_class(subtype) else {
+            return false;
+        };
+
+        // Check if subtype directly implements supertype
+        if class_info.interfaces.iter().any(|iface| iface.to_lowercase() == supertype.to_lowercase()) {
+            return true;
+        }
+
+        // Check if subtype directly extends supertype
+        if let Some(parent) = &class_info.parent {
+            if parent.to_lowercase() == supertype.to_lowercase() {
+                return true;
+            }
+            // Recursively check parent class
+            if self.is_subtype_of(parent, supertype, symbol_table) {
+                return true;
+            }
+        }
+
+        // Check if any implemented interface extends supertype
+        for interface in &class_info.interfaces {
+            if self.is_subtype_of(interface, supertype, symbol_table) {
+                return true;
+            }
         }
 
         false

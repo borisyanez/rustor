@@ -127,6 +127,22 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
 
+                // Extract extends (parent class) - classes extend only one parent
+                if let Some(extends) = &class.extends {
+                    if let Some(parent) = extends.types.first() {
+                        let parent_text = self.get_span_text(&parent.span());
+                        info.parent = Some(self.qualify_name(parent_text));
+                    }
+                }
+
+                // Extract implements (interfaces)
+                if let Some(implements) = &class.implements {
+                    for iface in implements.types.iter() {
+                        let iface_text = self.get_span_text(&iface.span());
+                        info.interfaces.push(self.qualify_name(iface_text));
+                    }
+                }
+
                 self.symbols.classes.push(info);
                 true
             }
@@ -139,6 +155,14 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.kind = ClassKind::Interface;
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
+
+                // Extract extends (interfaces can extend other interfaces)
+                if let Some(extends) = &interface.extends {
+                    for parent_iface in extends.types.iter() {
+                        let parent_text = self.get_span_text(&parent_iface.span());
+                        info.interfaces.push(self.qualify_name(parent_text));
+                    }
+                }
 
                 self.symbols.classes.push(info);
                 true

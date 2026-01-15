@@ -61,7 +61,13 @@
       "Bash(fi)",
       "Bash(1 jq -r '.files[].messages[].identifier' /tmp/rustor_with_negflow_results.json)",
       "Bash(1 jq -r '.files[].messages[].identifier' /tmp/rustor_negflow_full.json)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(paste:*)",
+      "Bash(1 jq -r '.files | to_entries[] | .value.messages[] | select\\(.identifier == \"\"return.typeMismatch\"\"\\) | .message' /tmp/rustor_return_errors.json)",
+      "Bash(timeout 60 ./libs/vendor/bin/phpstan analyze:*)",
+      "Bash(git checkout:*)",
+      "Bash(timeout 60 /Users/borisyv/RustProjects/rustor/target/release/rustor analyze:*)",
+      "add Bash(awk:*)"
     ]
   }
 }
