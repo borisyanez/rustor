@@ -235,6 +235,9 @@ impl<'s> VoidPureVisitor<'s> {
                 true
             }
 
+            // Throw is a side effect (alters control flow, unwinds stack)
+            Expression::Throw(_) => true,
+
             // Literals and simple operations have no side effects
             Expression::Literal(_) | Expression::Variable(_) | Expression::Identifier(_) => false,
 
