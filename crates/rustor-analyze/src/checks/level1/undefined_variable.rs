@@ -646,8 +646,12 @@ impl<'s> VariableAnalyzer<'s> {
                         self.analyze_statement(stmt);
                     }
 
-                    // Only save snapshot if case has statements (skip empty fallthrough cases)
-                    if !case.statements().is_empty() {
+                    // Check if case has early exit
+                    let case_has_early_exit = self.case_has_early_exit(case);
+
+                    // Only save snapshot if case has statements AND doesn't have early exit
+                    // Skip empty fallthrough cases and cases that return/throw/exit
+                    if !case.statements().is_empty() && !case_has_early_exit {
                         branch_snapshots.push(self.current_scope().snapshot());
                     }
 
@@ -665,8 +669,12 @@ impl<'s> VariableAnalyzer<'s> {
                         self.analyze_statement(stmt);
                     }
 
-                    // Only save snapshot if case has statements (skip empty fallthrough cases)
-                    if !case.statements().is_empty() {
+                    // Check if case has early exit
+                    let case_has_early_exit = self.case_has_early_exit(case);
+
+                    // Only save snapshot if case has statements AND doesn't have early exit
+                    // Skip empty fallthrough cases and cases that return/throw/exit
+                    if !case.statements().is_empty() && !case_has_early_exit {
                         branch_snapshots.push(self.current_scope().snapshot());
                     }
 
@@ -693,6 +701,16 @@ impl<'s> VariableAnalyzer<'s> {
 
     fn switch_has_default<'a>(&self, cases: &Sequence<'a, SwitchCase<'a>>) -> bool {
         cases.iter().any(|case| matches!(case, SwitchCase::Default(_)))
+    }
+
+    /// Check if a switch case has an early exit (return, throw, exit, die)
+    /// A case exits early if its last statement is an early exit
+    fn case_has_early_exit<'a>(&self, case: &SwitchCase<'a>) -> bool {
+        let statements = case.statements();
+        if let Some(last_stmt) = statements.last() {
+            return self.statement_has_early_exit(last_stmt);
+        }
+        false
     }
 
     fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
