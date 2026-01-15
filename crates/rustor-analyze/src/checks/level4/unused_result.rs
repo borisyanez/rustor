@@ -73,8 +73,10 @@ fn build_pure_function_set() -> HashSet<&'static str> {
     set.insert("stripslashes");
     set.insert("quotemeta");
     set.insert("preg_replace");
-    set.insert("preg_match");
-    set.insert("preg_match_all");
+    // Removed: preg_match and preg_match_all modify $matches by reference
+    // Common pattern: preg_match($pattern, $subject, $matches); then use $matches array
+    // set.insert("preg_match");
+    // set.insert("preg_match_all");
     set.insert("str_split");
     set.insert("number_format");
 
@@ -89,7 +91,9 @@ fn build_pure_function_set() -> HashSet<&'static str> {
     set.insert("array_flip");
     set.insert("array_reverse");
     set.insert("array_filter");
-    set.insert("array_map");
+    // Removed: array_map is often called for side effects of the callback
+    // Common pattern: array_map(fn($x) => $this->process($x), $items); for side effects
+    // set.insert("array_map");
     set.insert("array_reduce");
     set.insert("array_column");
     set.insert("array_slice");
@@ -138,7 +142,9 @@ fn build_pure_function_set() -> HashSet<&'static str> {
 
     // JSON
     set.insert("json_encode");
-    set.insert("json_decode");
+    // Removed: json_decode is often used for validation without capturing result
+    // Common pattern: json_decode($data); if (json_last_error() === JSON_ERROR_NONE) { ... }
+    // set.insert("json_decode");
 
     // Serialization
     set.insert("serialize");
