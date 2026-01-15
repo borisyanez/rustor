@@ -218,7 +218,7 @@ impl<'s> PropertyTypeAnalyzer<'s> {
         match stmt {
             Statement::Class(class) => {
                 let class_name = self.get_span_text(&class.name.span).to_string();
-                self.current_class = Some(class_name.to_lowercase());
+                self.current_class = Some(class_name);
 
                 for member in class.members.iter() {
                     if let ClassLikeMember::Method(method) = member {
@@ -364,7 +364,7 @@ impl<'s> PropertyTypeAnalyzer<'s> {
 
                             // Clone data to avoid borrow checker issues
                             let prop_info_opt = self.current_class.as_ref().and_then(|class_name| {
-                                self.class_properties.get(class_name).and_then(|properties| {
+                                self.class_properties.get(&class_name.to_lowercase()).and_then(|properties| {
                                     properties.get(&prop_name).cloned()
                                 })
                             });
@@ -407,12 +407,18 @@ impl<'s> PropertyTypeAnalyzer<'s> {
             }
 
             let (line, col) = self.get_line_col(assignment_span.start.offset as usize);
+            // Format property name with class if available (matching PHPStan format)
+            let full_prop_name = if let Some(ref class_name) = self.current_class {
+                format!("{}::${}", class_name, prop_name)
+            } else {
+                format!("${}", prop_name)
+            };
             self.issues.push(
                 Issue::error(
                     "property.type",
                     format!(
-                        "Property ${} ({}{}) cannot be assigned {} value.",
-                        prop_name,
+                        "Property {} ({}{}) does not accept {}.",
+                        full_prop_name,
                         if is_nullable { "?" } else { "" },
                         expected_type,
                         actual

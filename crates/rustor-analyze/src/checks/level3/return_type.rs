@@ -200,12 +200,14 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                     if rt_lower == "void" && has_value {
                         let span = ret.span();
                         let (line, col) = self.get_line_col(span.start.offset as usize);
+                        // Determine if this is a method or function (methods contain ::)
+                        let kind = if func_name.contains("::") { "Method" } else { "Function" };
                         self.issues.push(
                             Issue::error(
                                 "return.type",
                                 format!(
-                                    "Function {} with return type void returns a value.",
-                                    func_name
+                                    "{} {}() with return type void returns a value.",
+                                    kind, func_name
                                 ),
                                 self.file_path.clone(),
                                 line,
@@ -219,12 +221,14 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                     if rt_lower != "void" && rt_lower != "never" && !has_value {
                         let span = ret.span();
                         let (line, col) = self.get_line_col(span.start.offset as usize);
+                        // Determine if this is a method or function (methods contain ::)
+                        let kind = if func_name.contains("::") { "Method" } else { "Function" };
                         self.issues.push(
                             Issue::error(
                                 "return.type",
                                 format!(
-                                    "Function {} with return type {} returns without a value.",
-                                    func_name, rt
+                                    "{} {}() with return type {} returns without a value.",
+                                    kind, func_name, rt
                                 ),
                                 self.file_path.clone(),
                                 line,
@@ -351,12 +355,14 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             }
 
             let (line, col) = self.get_line_col(ret_span.start.offset as usize);
+            // Determine if this is a method or function (methods contain ::)
+            let kind = if func_name.contains("::") { "Method" } else { "Function" };
             self.issues.push(
                 Issue::error(
                     "return.type",
                     format!(
-                        "Function {} should return {} but returns {}.",
-                        func_name, expected_type, actual
+                        "{} {}() should return {} but returns {}.",
+                        kind, func_name, expected_type, actual
                     ),
                     self.file_path.clone(),
                     line,
