@@ -1,0 +1,475 @@
+//! Check for redundant isset() on variables that are always defined (Level 1)
+//!
+//! Detects isset() calls on variables that are guaranteed to exist.
+
+use crate::checks::{Check, CheckContext};
+use crate::issue::Issue;
+use mago_span::HasSpan;
+use mago_syntax::ast::*;
+use std::collections::HashSet;
+use std::path::PathBuf;
+
+/// Checks for isset() on variables that are always defined
+pub struct IssetVariableCheck;
+
+impl Check for IssetVariableCheck {
+    fn id(&self) -> &'static str {
+        "isset.variable"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects isset() calls on variables that always exist"
+    }
+
+    fn level(&self) -> u8 {
+        1
+    }
+
+    fn check<'a>(&self, program: &Program<'a>, ctx: &CheckContext<'_>) -> Vec<Issue> {
+        let mut analyzer = IssetAnalyzer {
+            source: ctx.source,
+            file_path: ctx.file_path.to_path_buf(),
+            scopes: vec![Scope::new()],
+            issues: Vec::new(),
+        };
+
+        // Add superglobals to the global scope
+        analyzer.define_superglobals();
+
+        analyzer.analyze_program(program);
+        analyzer.issues
+    }
+}
+
+/// A scope containing defined variables
+#[derive(Debug, Clone)]
+struct Scope {
+    /// Variables that are definitely defined in all code paths
+    defined: HashSet<String>,
+    /// Whether $this is available in this scope
+    has_this: bool,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self {
+            defined: HashSet::new(),
+            has_this: false,
+        }
+    }
+
+    fn define(&mut self, name: String) {
+        self.defined.insert(name);
+    }
+
+    fn is_defined(&self, name: &str) -> bool {
+        self.defined.contains(name)
+    }
+}
+
+struct IssetAnalyzer<'s> {
+    source: &'s str,
+    file_path: PathBuf,
+    scopes: Vec<Scope>,
+    issues: Vec<Issue>,
+}
+
+impl<'s> IssetAnalyzer<'s> {
+    fn get_span_text(&self, span: &mago_span::Span) -> &str {
+        &self.source[span.start.offset as usize..span.end.offset as usize]
+    }
+
+    fn get_line_col(&self, offset: usize) -> (usize, usize) {
+        let mut line = 1;
+        let mut col = 1;
+        for (i, ch) in self.source.char_indices() {
+            if i >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
+    fn current_scope(&self) -> &Scope {
+        self.scopes.last().unwrap()
+    }
+
+    fn current_scope_mut(&mut self) -> &mut Scope {
+        self.scopes.last_mut().unwrap()
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(Scope::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn define_superglobals(&mut self) {
+        let superglobals = [
+            "$GLOBALS",
+            "$_SERVER",
+            "$_GET",
+            "$_POST",
+            "$_FILES",
+            "$_COOKIE",
+            "$_SESSION",
+            "$_REQUEST",
+            "$_ENV",
+        ];
+        for var in &superglobals {
+            self.current_scope_mut().define(var.to_string());
+        }
+    }
+
+    fn define(&mut self, name: String) {
+        self.current_scope_mut().define(name);
+    }
+
+    fn is_defined(&self, name: &str) -> bool {
+        // Check all scopes from innermost to outermost
+        for scope in self.scopes.iter().rev() {
+            if scope.is_defined(name) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
+        match expr {
+            Expression::Variable(Variable::Direct(var)) => {
+                Some(self.get_span_text(&var.span).to_string())
+            }
+            _ => None,
+        }
+    }
+
+    fn analyze_program<'a>(&mut self, program: &Program<'a>) {
+        for stmt in program.statements.iter() {
+            self.analyze_statement(stmt);
+        }
+    }
+
+    fn analyze_statement<'a>(&mut self, stmt: &Statement<'a>) {
+        match stmt {
+            Statement::Expression(expr_stmt) => {
+                // Track assignments
+                if let Expression::Assignment(assign) = &expr_stmt.expression {
+                    if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
+                        let var_name = self.get_span_text(&var.span).to_string();
+                        self.define(var_name);
+                    }
+                }
+                self.analyze_expression(&expr_stmt.expression);
+            }
+            Statement::If(if_stmt) => {
+                self.analyze_expression(&if_stmt.condition);
+                self.analyze_if_body(&if_stmt.body);
+            }
+            Statement::While(while_stmt) => {
+                self.analyze_expression(&while_stmt.condition);
+                self.analyze_while_body(&while_stmt.body);
+            }
+            Statement::For(for_stmt) => {
+                for init in for_stmt.initializations.iter() {
+                    // Track variable definitions in for loop initialization
+                    if let Expression::Assignment(assign) = init {
+                        if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
+                            let var_name = self.get_span_text(&var.span).to_string();
+                            self.define(var_name);
+                        }
+                    }
+                    self.analyze_expression(init);
+                }
+                for cond in for_stmt.conditions.iter() {
+                    self.analyze_expression(cond);
+                }
+                for inc in for_stmt.increments.iter() {
+                    self.analyze_expression(inc);
+                }
+                self.analyze_for_body(&for_stmt.body);
+            }
+            Statement::Foreach(foreach) => {
+                self.analyze_expression(&foreach.expression);
+                // Define the loop variables
+                if let ForeachTarget::KeyValue(kv) = &foreach.target {
+                    if let Some(key_name) = self.get_var_name(&kv.key) {
+                        self.define(key_name);
+                    }
+                    if let Some(value_name) = self.get_var_name(&kv.value) {
+                        self.define(value_name);
+                    }
+                } else if let ForeachTarget::Value(value) = &foreach.target {
+                    if let Some(name) = self.get_var_name(&value.value) {
+                        self.define(name);
+                    }
+                }
+                self.analyze_foreach_body(&foreach.body);
+            }
+            Statement::Function(func) => {
+                self.push_scope();
+                // Define parameters
+                for param in func.parameter_list.parameters.iter() {
+                    let var_name = self.get_span_text(&param.variable.span).to_string();
+                    self.define(var_name);
+                }
+                for inner in func.body.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+                self.pop_scope();
+            }
+            Statement::Class(class) => {
+                for member in class.members.iter() {
+                    if let ClassLikeMember::Method(method) = member {
+                        self.push_scope();
+                        // $this is available in methods
+                        self.current_scope_mut().has_this = true;
+                        self.define("$this".to_string());
+
+                        // Define parameters
+                        for param in method.parameter_list.parameters.iter() {
+                            let var_name = self.get_span_text(&param.variable.span).to_string();
+                            self.define(var_name);
+                        }
+
+                        if let MethodBody::Concrete(body) = &method.body {
+                            for stmt in body.statements.iter() {
+                                self.analyze_statement(stmt);
+                            }
+                        }
+                        self.pop_scope();
+                    }
+                }
+            }
+            Statement::Block(block) => {
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                }
+            }
+            Statement::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    self.analyze_expression(value);
+                }
+            }
+            Statement::Echo(echo) => {
+                for value in echo.values.iter() {
+                    self.analyze_expression(value);
+                }
+            }
+            Statement::Namespace(ns) => match &ns.body {
+                NamespaceBody::Implicit(body) => {
+                    for inner in body.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+                NamespaceBody::BraceDelimited(body) => {
+                    for inner in body.statements.iter() {
+                        self.analyze_statement(inner);
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn analyze_expression<'a>(&mut self, expr: &Expression<'a>) {
+        match expr {
+            // Check isset() construct
+            Expression::Construct(Construct::Isset(isset)) => {
+                for value in isset.values.iter() {
+                    if let Some(var_name) = self.get_var_name(value) {
+                        // Check if variable is always defined
+                        if self.is_defined(&var_name) {
+                            let (line, col) = self.get_line_col(value.span().start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "isset.variable",
+                                    format!(
+                                        "Variable {} in isset() always exists and is not nullable.",
+                                        var_name
+                                    ),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("isset.variable"),
+                            );
+                        }
+                    }
+                }
+            }
+            Expression::Binary(binary) => {
+                self.analyze_expression(&binary.lhs);
+                self.analyze_expression(&binary.rhs);
+            }
+            Expression::UnaryPrefix(unary) => {
+                self.analyze_expression(&unary.operand);
+            }
+            Expression::UnaryPostfix(postfix) => {
+                self.analyze_expression(&postfix.operand);
+            }
+            Expression::Conditional(cond) => {
+                self.analyze_expression(&cond.condition);
+                if let Some(then) = &cond.then {
+                    self.analyze_expression(then);
+                }
+                self.analyze_expression(&cond.r#else);
+            }
+            Expression::Assignment(assign) => {
+                self.analyze_expression(&assign.lhs);
+                self.analyze_expression(&assign.rhs);
+            }
+            Expression::Call(call) => {
+                match call {
+                    Call::Function(func_call) => {
+                        for arg in func_call.argument_list.arguments.iter() {
+                            self.analyze_expression(arg.value());
+                        }
+                    }
+                    Call::Method(method_call) => {
+                        self.analyze_expression(&method_call.object);
+                        for arg in method_call.argument_list.arguments.iter() {
+                            self.analyze_expression(arg.value());
+                        }
+                    }
+                    Call::NullSafeMethod(method_call) => {
+                        self.analyze_expression(&method_call.object);
+                        for arg in method_call.argument_list.arguments.iter() {
+                            self.analyze_expression(arg.value());
+                        }
+                    }
+                    Call::StaticMethod(static_call) => {
+                        for arg in static_call.argument_list.arguments.iter() {
+                            self.analyze_expression(arg.value());
+                        }
+                    }
+                }
+            }
+            Expression::Array(array) => {
+                for element in array.elements.iter() {
+                    match element {
+                        ArrayElement::KeyValue(kv) => {
+                            self.analyze_expression(&kv.key);
+                            self.analyze_expression(&kv.value);
+                        }
+                        ArrayElement::Value(val) => {
+                            self.analyze_expression(&val.value);
+                        }
+                        ArrayElement::Variadic(var) => {
+                            self.analyze_expression(&var.value);
+                        }
+                        ArrayElement::Missing(_) => {}
+                    }
+                }
+            }
+            Expression::LegacyArray(array) => {
+                for element in array.elements.iter() {
+                    match element {
+                        ArrayElement::KeyValue(kv) => {
+                            self.analyze_expression(&kv.key);
+                            self.analyze_expression(&kv.value);
+                        }
+                        ArrayElement::Value(val) => {
+                            self.analyze_expression(&val.value);
+                        }
+                        ArrayElement::Variadic(var) => {
+                            self.analyze_expression(&var.value);
+                        }
+                        ArrayElement::Missing(_) => {}
+                    }
+                }
+            }
+            Expression::Parenthesized(p) => {
+                self.analyze_expression(&p.expression);
+            }
+            Expression::ArrayAccess(arr) => {
+                self.analyze_expression(&arr.array);
+                self.analyze_expression(&arr.index);
+            }
+            _ => {}
+        }
+    }
+
+    fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>) {
+        match body {
+            IfBody::Statement(stmt_body) => {
+                self.analyze_statement(stmt_body.statement);
+                for else_if in stmt_body.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition);
+                    self.analyze_statement(else_if.statement);
+                }
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    self.analyze_statement(else_clause.statement);
+                }
+            }
+            IfBody::ColonDelimited(block) => {
+                for stmt in block.statements.iter() {
+                    self.analyze_statement(stmt);
+                }
+                for else_if in block.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition);
+                    for stmt in else_if.statements.iter() {
+                        self.analyze_statement(stmt);
+                    }
+                }
+                if let Some(else_clause) = &block.else_clause {
+                    for stmt in else_clause.statements.iter() {
+                        self.analyze_statement(stmt);
+                    }
+                }
+            }
+        }
+    }
+
+    fn analyze_while_body<'a>(&mut self, body: &WhileBody<'a>) {
+        match body {
+            WhileBody::Statement(stmt) => self.analyze_statement(stmt),
+            WhileBody::ColonDelimited(block) => {
+                for stmt in block.statements.iter() {
+                    self.analyze_statement(stmt);
+                }
+            }
+        }
+    }
+
+    fn analyze_for_body<'a>(&mut self, body: &ForBody<'a>) {
+        match body {
+            ForBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForBody::ColonDelimited(block) => {
+                for stmt in block.statements.iter() {
+                    self.analyze_statement(stmt);
+                }
+            }
+        }
+    }
+
+    fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
+        match body {
+            ForeachBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForeachBody::ColonDelimited(block) => {
+                for stmt in block.statements.iter() {
+                    self.analyze_statement(stmt);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_isset_variable_check_level() {
+        let check = IssetVariableCheck;
+        assert_eq!(check.level(), 1);
+    }
+}

@@ -82,6 +82,7 @@ impl CheckRegistry {
         registry.register(Box::new(level1::UndefinedVariableCheck));
         registry.register(Box::new(level1::MagicMethodsCheck));
         registry.register(Box::new(level1::UnusedConstructorParameterCheck));
+        registry.register(Box::new(level1::IssetVariableCheck));
 
         // Level 2 checks
         registry.register(Box::new(level2::CallMethodsCheck));
