@@ -67,7 +67,14 @@
       "Bash(timeout 60 ./libs/vendor/bin/phpstan analyze:*)",
       "Bash(git checkout:*)",
       "Bash(timeout 60 /Users/borisyv/RustProjects/rustor/target/release/rustor analyze:*)",
-      "add Bash(awk:*)"
+      "add Bash(awk:*)",
+      "Bash(cargo check:*)",
+      "Bash(wait)",
+      "Bash(timeout 120 /Users/borisyv/RustProjects/rustor/target/release/rustor analyze:*)",
+      "Bash(git restore:*)",
+      "Bash(__NEW_LINE__ echo -e \"\\\\nPHPStan baseline top error types:\")",
+      "Bash(wc:*)",
+      "Bash(/Users/borisyv/code/payjoy_www/libs/vendor/bin/phpstan analyze:*)"
     ]
   }
 }

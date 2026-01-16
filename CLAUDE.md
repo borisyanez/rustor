@@ -107,4 +107,9 @@ Edit::new(span, replacement_string, message)
 text, diff, json, sarif, html, checkstyle, github (for GitHub Actions annotations)
 
 ## Permissions -- claude code permissions
-    # always allow to execute rustor locally even to perform analysis on other directories, always use the phpstan.
+    # always allow to execute rustor locally even to perform analysis on other directories, always use the phpstan
+
+## Comparing rustor to phpstan
+    # always run the following commands
+   -  `cd /Users/borisyv/code/payjoy_www && echo "=== Running Rustor ===" && time /Users/borisyv/RustProjects/rustor/target/release/rustor analyze  -c phpstan.neon.dist --format=table --phpstan_compat`
+   -  `cd /Users/borisyv/code/payjoy_www && echo "=== Running PHPStan with increased memory ===" && time ./libs/vendor/bin/phpstan analyze --configuration=phpstan.neon --memory-limit=-1 -format=table`

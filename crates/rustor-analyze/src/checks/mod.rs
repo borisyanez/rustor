@@ -74,6 +74,7 @@ impl CheckRegistry {
         registry.register(Box::new(level0::UndefinedClassCheck));
         registry.register(Box::new(level0::CallStaticMethodsCheck));
         registry.register(Box::new(level0::ClassConstantCheck));
+        registry.register(Box::new(level0::UndefinedConstantCheck));
         registry.register(Box::new(level0::ArgumentCountCheck));
         registry.register(Box::new(level0::MissingReturnCheck));
 
