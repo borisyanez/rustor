@@ -169,14 +169,14 @@ rustor analyze src/ --level 3 --output github
 
 **⚠️ Levels 7-10 Status:**
 - **Level 7:** Partially implemented (45% compatibility) - See [Level 7 Validation Report](docs/level7-validation-report.md)
-- **Level 8:** Partially implemented (40% compatibility, **1 false positive**) - See [Level 8 Validation Report](docs/level8-validation-report.md)
+- **Level 8:** Partially implemented (40% compatibility, **basic control flow**) - See [Level 8 Validation Report](docs/level8-validation-report.md)
 - **Level 9:** Minimally implemented (10% compatibility, **90% of checks missing**) - See [Level 9 Validation Report](docs/level9-validation-report.md)
 - **Level 10:** Partially implemented (47% compatibility) - See [Level 10 Validation Report](docs/level10-validation-report.md)
 
 **Production Recommendation:**
 - ✅ **Use levels 0-6** for production (100% compatible, thoroughly validated)
 - ⚠️ **Level 7** (45%): Use only if you need union member validation specifically
-- ❌ **Level 8** (40%): Avoid (has false positive on nullsafe operator)
+- ⚠️ **Level 8** (40%): Basic control flow analysis (missing advanced patterns: isset, instanceof)
 - ❌ **Level 9** (10%): Avoid entirely (placeholder only, 90% missing)
 - ⚠️ **Level 10** (47%): Limited use - good for enforcing type declarations, but 86% of operations missing
 

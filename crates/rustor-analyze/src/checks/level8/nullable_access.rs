@@ -11,14 +11,20 @@
 //! }
 //! ```
 //!
-//! TODO: Implement full control flow analysis for null checks
-//! Currently detects nullable parameters but doesn't track null checks yet
+//! Supports basic control flow analysis:
+//! - Early return pattern: if ($var === null) { return; }
+//! - Nullsafe operator: $var?->method()
+//!
+//! TODO: Implement advanced control flow analysis for:
+//! - Non-early-return if blocks: if ($var !== null) { ... }
+//! - Complex boolean expressions: if ($a && $b) ...
+//! - Variable reassignment tracking
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::{Issue, Severity};
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Check for method/property access on nullable types
 pub struct NullableAccessCheck;
@@ -41,6 +47,7 @@ impl Check for NullableAccessCheck {
             source: ctx.source,
             file_path: ctx.file_path,
             nullable_params: HashMap::new(),
+            null_checked_vars: HashSet::new(),
             issues: Vec::new(),
         };
 
@@ -54,6 +61,8 @@ struct NullableAccessVisitor<'s> {
     file_path: &'s std::path::Path,
     /// Parameter name -> type name (for nullable parameters)
     nullable_params: HashMap<String, String>,
+    /// Variables that have been null-checked (narrowed to non-null)
+    null_checked_vars: HashSet<String>,
     issues: Vec<Issue>,
 }
 
@@ -90,9 +99,11 @@ impl<'s> NullableAccessVisitor<'s> {
             Statement::Function(func) => {
                 // Save old state
                 let old_nullable_params = self.nullable_params.clone();
+                let old_null_checked = self.null_checked_vars.clone();
 
                 // Collect nullable parameters
                 self.nullable_params.clear();
+                self.null_checked_vars.clear();
                 for param in func.parameter_list.parameters.iter() {
                     let param_name = self.get_span_text(&param.variable.span()).trim_start_matches('$');
                     if let Some(hint) = &param.hint {
@@ -109,6 +120,7 @@ impl<'s> NullableAccessVisitor<'s> {
 
                 // Restore old state
                 self.nullable_params = old_nullable_params;
+                self.null_checked_vars = old_null_checked;
             }
             Statement::Class(class) => {
                 for member in class.members.iter() {
@@ -118,9 +130,11 @@ impl<'s> NullableAccessVisitor<'s> {
                             MethodBody::Concrete(concrete) => {
                                 // Save old state
                                 let old_nullable_params = self.nullable_params.clone();
+                                let old_null_checked = self.null_checked_vars.clone();
 
                                 // Collect nullable parameters
                                 self.nullable_params.clear();
+                                self.null_checked_vars.clear();
                                 for param in method.parameter_list.parameters.iter() {
                                     let param_name = self.get_span_text(&param.variable.span()).trim_start_matches('$');
                                     if let Some(hint) = &param.hint {
@@ -137,6 +151,7 @@ impl<'s> NullableAccessVisitor<'s> {
 
                                 // Restore old state
                                 self.nullable_params = old_nullable_params;
+                                self.null_checked_vars = old_null_checked;
                             }
                             MethodBody::Abstract(_) => {
                                 // No body to analyze
@@ -195,8 +210,75 @@ impl<'s> NullableAccessVisitor<'s> {
                     self.visit_body_statement(inner);
                 }
             }
-            // TODO: Handle if statements to track null checks
+            Statement::If(if_stmt) => {
+                // Pattern 1: if ($var === null) { return; } - variable is non-null AFTER the if
+                if let Some(var_name) = self.extract_null_check_with_early_return(if_stmt) {
+                    self.null_checked_vars.insert(var_name.clone());
+
+                    // Visit the if statement
+                    self.visit_expression(&if_stmt.condition);
+                    self.visit_if_body(&if_stmt.body);
+                }
+                // Pattern 2: if ($var !== null) { ... } - variable is non-null INSIDE the if
+                else if let Some(var_name) = self.extract_not_null_check(&if_stmt.condition) {
+                    // Save current null-checked vars
+                    let saved_null_checked = self.null_checked_vars.clone();
+
+                    // Add variable to null-checked set for inside the if block
+                    self.null_checked_vars.insert(var_name);
+
+                    // Visit the if statement
+                    self.visit_expression(&if_stmt.condition);
+                    self.visit_if_body(&if_stmt.body);
+
+                    // Restore original null-checked vars (variable only narrowed inside if)
+                    self.null_checked_vars = saved_null_checked;
+                } else {
+                    // No null check pattern - just visit normally
+                    self.visit_expression(&if_stmt.condition);
+                    self.visit_if_body(&if_stmt.body);
+                }
+            }
             _ => {}
+        }
+    }
+
+    fn visit_if_body<'a>(&mut self, body: &IfBody<'a>) {
+        match body {
+            IfBody::Statement(stmt_body) => {
+                self.visit_body_statement(&stmt_body.statement);
+
+                // Visit elseif clauses
+                for elseif in stmt_body.else_if_clauses.iter() {
+                    self.visit_expression(&elseif.condition);
+                    self.visit_body_statement(&elseif.statement);
+                }
+
+                // Visit else clause
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    self.visit_body_statement(&else_clause.statement);
+                }
+            }
+            IfBody::ColonDelimited(colon_body) => {
+                for inner in colon_body.statements.iter() {
+                    self.visit_body_statement(inner);
+                }
+
+                // Visit elseif clauses
+                for elseif in colon_body.else_if_clauses.iter() {
+                    self.visit_expression(&elseif.condition);
+                    for inner in elseif.statements.iter() {
+                        self.visit_body_statement(inner);
+                    }
+                }
+
+                // Visit else clause
+                if let Some(else_clause) = &colon_body.else_clause {
+                    for inner in else_clause.statements.iter() {
+                        self.visit_body_statement(inner);
+                    }
+                }
+            }
         }
     }
 
@@ -240,6 +322,92 @@ impl<'s> NullableAccessVisitor<'s> {
         }
     }
 
+    /// Extract variable name from not-null check
+    /// Detects: if ($var !== null) or if ($var != null)
+    fn extract_not_null_check<'a>(&self, condition: &Expression<'a>) -> Option<String> {
+        if let Expression::Binary(bin) = condition {
+            // Check for !== or != with null
+            let is_not_equal_op = matches!(
+                bin.operator,
+                BinaryOperator::NotIdentical(_) | BinaryOperator::NotEqual(_)
+            );
+
+            if !is_not_equal_op {
+                return None;
+            }
+
+            // Check if one side is a variable and the other is null
+            match (&*bin.lhs, &*bin.rhs) {
+                (Expression::Variable(var), Expression::Literal(Literal::Null(_))) => {
+                    Some(self.get_span_text(&var.span()).trim_start_matches('$').to_string())
+                }
+                (Expression::Literal(Literal::Null(_)), Expression::Variable(var)) => {
+                    Some(self.get_span_text(&var.span()).trim_start_matches('$').to_string())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Extract variable name from null check with early return pattern
+    /// Detects: if ($var === null) { return ...; }
+    fn extract_null_check_with_early_return<'a>(&self, if_stmt: &If<'a>) -> Option<String> {
+        // Check if condition is: $var === null
+        if let Expression::Binary(bin) = &if_stmt.condition {
+            // Check for === or == with null
+            let is_equal_op = matches!(
+                bin.operator,
+                BinaryOperator::Identical(_) | BinaryOperator::Equal(_)
+            );
+
+            if !is_equal_op {
+                return None;
+            }
+
+            // Check if one side is a variable and the other is null
+            let var_name = match (&*bin.lhs, &*bin.rhs) {
+                (Expression::Variable(var), Expression::Literal(Literal::Null(_))) => {
+                    Some(self.get_span_text(&var.span()).trim_start_matches('$').to_string())
+                }
+                (Expression::Literal(Literal::Null(_)), Expression::Variable(var)) => {
+                    Some(self.get_span_text(&var.span()).trim_start_matches('$').to_string())
+                }
+                _ => None,
+            }?;
+
+            // Check if body contains return statement
+            let has_return = match &if_stmt.body {
+                IfBody::Statement(stmt_body) => {
+                    self.statement_contains_return(&stmt_body.statement)
+                }
+                IfBody::ColonDelimited(colon_body) => {
+                    colon_body.statements.iter().any(|stmt| {
+                        matches!(stmt, Statement::Return(_))
+                    })
+                }
+            };
+
+            if has_return {
+                return Some(var_name);
+            }
+        }
+
+        None
+    }
+
+    /// Check if a statement contains a return
+    fn statement_contains_return<'a>(&self, stmt: &Statement<'a>) -> bool {
+        match stmt {
+            Statement::Return(_) => true,
+            Statement::Block(block) => {
+                block.statements.iter().any(|s| matches!(s, Statement::Return(_)))
+            }
+            _ => false,
+        }
+    }
+
     fn check_nullable_access<'a>(
         &mut self,
         target: &Expression<'a>,
@@ -250,9 +418,14 @@ impl<'s> NullableAccessVisitor<'s> {
         if let Expression::Variable(var) = target {
             let var_name = self.get_span_text(&var.span()).trim_start_matches('$');
 
+            // Skip if variable has been null-checked
+            if self.null_checked_vars.contains(var_name) {
+                return;
+            }
+
             // Check if this variable is a nullable parameter
             if let Some(type_name) = self.nullable_params.get(var_name) {
-                // Report error (TODO: skip if null-checked)
+                // Report error
                 let (line, col) = self.get_line_col(target.span().start.offset as usize);
                 let member_name = self.get_span_text(member_span);
 

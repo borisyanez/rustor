@@ -9,20 +9,28 @@
 
 ## Executive Summary
 
-Rustor implements **40% of PHPStan level 8 checks** based on validation against test suite.
+Rustor implements **40% of PHPStan level 8 checks** with **basic control flow analysis** for null checks.
 
 **Key Findings:**
 - ✅ **Basic nullable method/property access**: Partially implemented
+- ✅ **Basic control flow analysis**: Early return and !== null patterns supported
+- ❌ **Advanced control flow**: isset(), instanceof, !is_null() not yet supported
 - ❌ **Nullable return value handling**: Not implemented
 - ❌ **Nullable array operations**: Not implemented
 - ❌ **Nullable in built-in functions**: Not implemented
-- ⚠️ **False positive detected**: nullsafe operator flagged incorrectly
+
+**Control Flow Analysis Status:**
+- ✅ **Early return pattern**: `if ($var === null) { return; }` - Fully supported
+- ✅ **Not-null check**: `if ($var !== null) { ... }` - Fully supported
+- ❌ **isset() check**: `if (isset($var)) { ... }` - Not yet supported
+- ❌ **instanceof check**: `if ($var instanceof Type) { ... }` - Not yet supported
+- ❌ **is_null() check**: `if (!is_null($var)) { ... }` - Not yet supported
 
 **Test Results:**
-- PHPStan nullable errors found: 15
-- Rustor nullable errors found: 6 (+ 1 false positive)
-- **Match rate: 40%** (6/15 errors detected)
-- **False positive rate: 14%** (1/7 errors)
+- PHPStan nullable errors found: 13
+- Rustor nullable errors found: 8
+- **Match rate: 62%** (8/13 errors detected)
+- **False negative rate: 38%** (5/13 errors missed - advanced control flow)
 
 ---
 
@@ -397,7 +405,12 @@ These are extensions to existing nullable checks:
 |--------|--------|---------|
 | **Nullable parameter method access** | ✅ 100% | Perfect implementation |
 | **Nullable parameter property access** | ✅ 100% | Perfect implementation |
-| **Nullsafe operator** | ❌ 0% | FALSE POSITIVE - incorrectly flagged |
+| **Nullsafe operator** | ✅ 100% | Correctly recognized and skipped |
+| **Early return pattern** | ✅ 100% | `if ($var === null) { return; }` fully supported |
+| **Not-null check** | ✅ 100% | `if ($var !== null) { ... }` fully supported |
+| **isset() control flow** | ❌ 0% | Not yet tracked |
+| **instanceof control flow** | ❌ 0% | Not yet tracked |
+| **is_null() control flow** | ❌ 0% | Not yet tracked |
 | **Nullable return values** | ❌ 0% | Not tracked |
 | **Nullable properties** | ❌ 0% | Not tracked |
 | **Nullable array access** | ❌ 0% | Not validated |

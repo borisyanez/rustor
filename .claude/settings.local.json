@@ -74,7 +74,10 @@
       "Bash(git restore:*)",
       "Bash(__NEW_LINE__ echo -e \"\\\\nPHPStan baseline top error types:\")",
       "Bash(wc:*)",
-      "Bash(/Users/borisyv/code/payjoy_www/libs/vendor/bin/phpstan analyze:*)"
+      "Bash(/Users/borisyv/code/payjoy_www/libs/vendor/bin/phpstan analyze:*)",
+      "Bash(rust-analyzer diagnostics:*)",
+      "Bash(/usr/bin/time:*)",
+      "Bash(./bin/phpstan analyze:*)"
     ]
   }
 }
