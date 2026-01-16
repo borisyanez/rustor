@@ -96,6 +96,7 @@ impl CheckRegistry {
         // Level 4 checks
         registry.register(Box::new(level4::DeadCodeCheck));
         registry.register(Box::new(level4::UnusedResultCheck));
+        registry.register(Box::new(level4::AlwaysFalseBooleanCheck));
 
         // Level 5 checks
         registry.register(Box::new(level5::ArgumentTypeCheck));
