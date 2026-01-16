@@ -166,6 +166,128 @@ lspconfig.rustor.setup({
 
 ---
 
+### PhpStorm / IntelliJ IDEA
+
+PhpStorm supports LSP servers through plugins. There are two approaches:
+
+#### Option 1: LSP4IJ Plugin (Recommended)
+
+1. **Install LSP4IJ Plugin**
+   - Go to `Settings/Preferences` → `Plugins`
+   - Search for "LSP4IJ" or "LSP Support"
+   - Install and restart PhpStorm
+
+2. **Configure Rustor LSP Server**
+   - Go to `Settings/Preferences` → `Languages & Frameworks` → `Language Server Protocol` → `Server Definitions`
+   - Click `+` to add a new server
+   - Configure:
+     ```
+     Name: Rustor
+     Extension: php
+     Command: /path/to/rustor --lsp
+     ```
+   - Or use shell script for better path resolution:
+     ```
+     Command: /bin/bash
+     Args: -c "rustor --lsp"
+     ```
+
+3. **Enable for PHP Files**
+   - Ensure "Enabled" is checked
+   - Set "File type" to `PHP` or `*.php`
+   - Click "OK" to save
+
+4. **Verify Installation**
+   - Open a PHP file
+   - You should see rustor diagnostics in the editor
+   - Use `Alt+Enter` (Windows/Linux) or `⌥⏎` (macOS) to see quick fixes
+
+#### Option 2: External Tool Integration
+
+If LSP4IJ doesn't work, use rustor as an external tool for on-demand analysis:
+
+1. **Add External Tool**
+   - Go to `Settings/Preferences` → `Tools` → `External Tools`
+   - Click `+` to add a new tool
+   - Configure:
+     ```
+     Name: Rustor Analyze
+     Description: Run rustor analysis
+     Program: /path/to/rustor
+     Arguments: $FilePath$ --format diff
+     Working directory: $ProjectFileDir$
+     ```
+
+2. **Add Keyboard Shortcut** (Optional)
+   - Go to `Settings/Preferences` → `Keymap`
+   - Search for "Rustor Analyze"
+   - Add keyboard shortcut (e.g., `Ctrl+Alt+R`)
+
+3. **Usage**
+   - Right-click in editor → `External Tools` → `Rustor Analyze`
+   - Or use your keyboard shortcut
+   - Results appear in the "Run" tool window
+
+#### Option 3: File Watcher for Auto-Analysis
+
+For automatic analysis on save:
+
+1. **Add File Watcher**
+   - Go to `Settings/Preferences` → `Tools` → `File Watchers`
+   - Click `+` to add a custom watcher
+   - Configure:
+     ```
+     Name: Rustor
+     File type: PHP
+     Scope: Project Files
+     Program: /path/to/rustor
+     Arguments: $FilePath$ --format checkstyle
+     Output paths to refresh: $FilePath$
+     Working directory: $ProjectFileDir$
+     ```
+
+2. **Advanced Options**
+   - Check "Auto-save edited files to trigger the watcher"
+   - Check "Trigger the watcher on external changes"
+   - Set "Show console" to "Never" for clean UI
+
+3. **Checkstyle Output**
+   - PhpStorm can parse checkstyle format for inline annotations
+   - Errors appear in the "Problems" tool window
+
+#### Recommended Setup
+
+For the best PhpStorm experience, combine multiple approaches:
+
+1. **LSP4IJ Plugin** - Real-time diagnostics as you type
+2. **External Tool** - On-demand detailed analysis with diff view
+3. **File Watcher** - Automatic analysis on save
+
+#### Troubleshooting
+
+**LSP Server Not Starting:**
+```bash
+# Test rustor path
+which rustor
+/usr/local/bin/rustor
+
+# Use absolute path in PhpStorm configuration
+Command: /usr/local/bin/rustor
+Args: --lsp
+```
+
+**No Diagnostics Appearing:**
+- Check `View` → `Tool Windows` → `LSP Console` for error logs
+- Verify rustor works from command line
+- Restart PhpStorm after configuration changes
+
+**Performance Issues:**
+- Disable other PHP inspections that may conflict
+- Use File Watcher only for specific file types
+- Increase PhpStorm memory if needed
+
+---
+
 ### Helix
 
 Add to `~/.config/helix/languages.toml`:

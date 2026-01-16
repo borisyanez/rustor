@@ -212,13 +212,14 @@ See [Static Analysis](docs/analyze.md) for comprehensive documentation.
 
 ### For Users
 - **[PHPStan Migration Guide](docs/phpstan-migration-guide.md)** - Complete guide to migrating from PHPStan
+- **[PhpStorm Setup Guide](docs/phpstorm-setup.md)** - PhpStorm/IntelliJ IDEA integration
+- **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
 - **[Static Analysis](docs/analyze.md)** - PHPStan-compatible analysis with NEON config support
 - **[Phase 5 Validation Report](docs/phase5-validation-report.md)** - 100% baseline compatibility proof
 - **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
 - **[Fixers Reference](docs/fixers.md)** - All 55 formatting fixers for PSR-12
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
 - **[Configuration](docs/configuration.md)** - `.rustor.toml` file format
-- **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
 
 ### For Developers
 - **[Rector Import](docs/rector-import.md)** - Import rules from Rector PHP
@@ -320,7 +321,18 @@ Rustor includes a built-in LSP server for real-time diagnostics:
 rustor --lsp
 ```
 
-See [IDE Integration](docs/lsp.md) for setup instructions for VS Code, Neovim, and other editors.
+**Supported IDEs:**
+- **PhpStorm / IntelliJ IDEA** - [Complete Setup Guide](docs/phpstorm-setup.md)
+- **VS Code** - [Setup Instructions](docs/lsp.md#visual-studio-code)
+- **Neovim** - [Setup Instructions](docs/lsp.md#neovim)
+- **Helix, Sublime Text, Emacs, Zed** - [All Editors](docs/lsp.md)
+
+**PhpStorm Quick Start:**
+1. Install LSP4IJ plugin
+2. Add Rustor LSP server: `rustor --lsp`
+3. Get real-time diagnostics and quick fixes
+
+See [PhpStorm Setup Guide](docs/phpstorm-setup.md) for detailed instructions.
 
 ## Configuration
 
