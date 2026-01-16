@@ -26,7 +26,7 @@ pub struct PropertyTypeCheck;
 
 impl Check for PropertyTypeCheck {
     fn id(&self) -> &'static str {
-        "property.type"
+        "assign.propertyType"
     }
 
     fn description(&self) -> &'static str {
@@ -415,7 +415,7 @@ impl<'s> PropertyTypeAnalyzer<'s> {
             };
             self.issues.push(
                 Issue::error(
-                    "property.type",
+                    "assign.propertyType",
                     format!(
                         "Property {} ({}{}) does not accept {}.",
                         full_prop_name,
@@ -427,7 +427,7 @@ impl<'s> PropertyTypeAnalyzer<'s> {
                     line,
                     col,
                 )
-                .with_identifier("property.typeMismatch"),
+                .with_identifier("assign.propertyType"),
             );
         }
     }

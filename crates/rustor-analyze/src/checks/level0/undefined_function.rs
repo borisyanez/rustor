@@ -11,7 +11,7 @@ pub struct UndefinedFunctionCheck;
 
 impl Check for UndefinedFunctionCheck {
     fn id(&self) -> &'static str {
-        "undefined.function"
+        "function.notFound"
     }
 
     fn description(&self) -> &'static str {
@@ -147,7 +147,7 @@ impl<'a, 's> Visitor<'a> for UndefinedFunctionVisitor<'s> {
                 let (line, col) = self.get_line_col(func_span.start.offset as usize);
                 self.issues.push(
                     Issue::error(
-                        "undefined.function",
+                        "function.notFound",
                         format!("Call to undefined function {}()", name),
                         self.file_path.clone(),
                         line,

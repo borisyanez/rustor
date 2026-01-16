@@ -11,7 +11,7 @@ pub struct UndefinedClassCheck;
 
 impl Check for UndefinedClassCheck {
     fn id(&self) -> &'static str {
-        "undefined.class"
+        "class.notFound"
     }
 
     fn description(&self) -> &'static str {
@@ -212,7 +212,7 @@ impl<'s> UndefinedClassVisitor<'s> {
             let (line, col) = self.get_line_col(offset);
             self.issues.push(
                 Issue::error(
-                    "undefined.class",
+                    "class.notFound",
                     format!("Class {} not found", name),
                     self.file_path.clone(),
                     line,
