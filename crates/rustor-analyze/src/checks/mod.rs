@@ -100,6 +100,7 @@ impl CheckRegistry {
         registry.register(Box::new(level4::UnusedResultCheck));
         registry.register(Box::new(level4::AlwaysFalseBooleanCheck));
         registry.register(Box::new(level4::WriteOnlyPropertyCheck));
+        registry.register(Box::new(level4::InvalidBinaryOpCheck));
 
         // Level 5 checks
         registry.register(Box::new(level5::ArgumentTypeCheck));
