@@ -198,6 +198,24 @@ impl<'s> MissingTypehintVisitor<'s> {
                 .with_identifier("missingType.return"),
             );
         } else if let Some(ret_type) = return_type {
+            // Check if return type is a plain iterable without value type
+            if self.is_plain_iterable_type(&ret_type.hint) {
+                let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
+                self.issues.push(
+                    Issue::error(
+                        "missingType.iterableValue",
+                        format!(
+                            "Function {}() return type has no value type specified in iterable type array.",
+                            func_name
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("missingType.iterableValue"),
+                );
+            }
+
             // Check if return type is a generic class without type parameters
             if let Some((class_name, template_params)) = self.is_generic_without_params(&ret_type.hint) {
                 let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
@@ -298,6 +316,24 @@ impl<'s> MissingTypehintVisitor<'s> {
                 .with_identifier("missingType.return"),
             );
         } else if let Some(ret_type) = return_type {
+            // Check if return type is a plain iterable without value type
+            if self.is_plain_iterable_type(&ret_type.hint) {
+                let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
+                self.issues.push(
+                    Issue::error(
+                        "missingType.iterableValue",
+                        format!(
+                            "Method {}() return type has no value type specified in iterable type array.",
+                            method_name
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("missingType.iterableValue"),
+                );
+            }
+
             // Check if return type is a generic class without type parameters
             if let Some((class_name, template_params)) = self.is_generic_without_params(&ret_type.hint) {
                 let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
@@ -398,6 +434,27 @@ impl<'s> MissingTypehintVisitor<'s> {
                 );
             }
         } else if let Some(hint) = prop.hint() {
+            // Check if property type is a plain iterable without value type
+            if self.is_plain_iterable_type(hint) {
+                for var in prop.variables() {
+                    let prop_name = self.get_span_text(&var.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.iterableValue",
+                            format!(
+                                "Property {}::{} has no value type specified in iterable type array.",
+                                class_name, prop_name
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.iterableValue"),
+                    );
+                }
+            }
+
             // Check if property type is a generic class without type parameters
             if let Some((gen_class_name, template_params)) = self.is_generic_without_params(hint) {
                 for var in prop.variables() {
