@@ -240,8 +240,42 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             }
         } else if arg == "-l" || arg == "--level" {
             i += 1;
-            if i < args.len() {
-                level = args[i].parse().ok();
+            if i >= args.len() {
+                anyhow::bail!("--level requires a value (0-10 or 'max')");
+            }
+
+            // Handle special "max" value
+            let level_value = &args[i];
+            if level_value == "max" {
+                level = Some(10);
+            } else {
+                match level_value.parse::<u8>() {
+                    Ok(l) if l <= 10 => level = Some(l),
+                    Ok(l) => anyhow::bail!("Invalid level: {}. Level must be between 0 and 10", l),
+                    Err(_) => anyhow::bail!("Invalid level: '{}'. Expected a number 0-10 or 'max'", level_value),
+                }
+            }
+        } else if let Some(level_str) = arg.strip_prefix("--level=") {
+            // Handle --level=5 format
+            if level_str == "max" {
+                level = Some(10);
+            } else {
+                match level_str.parse::<u8>() {
+                    Ok(l) if l <= 10 => level = Some(l),
+                    Ok(l) => anyhow::bail!("Invalid level: {}. Level must be between 0 and 10", l),
+                    Err(_) => anyhow::bail!("Invalid level: '{}'. Expected a number 0-10 or 'max'", level_str),
+                }
+            }
+        } else if let Some(level_str) = arg.strip_prefix("-l=") {
+            // Handle -l=5 format
+            if level_str == "max" {
+                level = Some(10);
+            } else {
+                match level_str.parse::<u8>() {
+                    Ok(l) if l <= 10 => level = Some(l),
+                    Ok(l) => anyhow::bail!("Invalid level: {}. Level must be between 0 and 10", l),
+                    Err(_) => anyhow::bail!("Invalid level: '{}'. Expected a number 0-10 or 'max'", level_str),
+                }
             }
         } else if arg == "--error-format" {
             i += 1;

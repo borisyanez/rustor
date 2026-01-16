@@ -77,7 +77,8 @@
       "Bash(/Users/borisyv/code/payjoy_www/libs/vendor/bin/phpstan analyze:*)",
       "Bash(rust-analyzer diagnostics:*)",
       "Bash(/usr/bin/time:*)",
-      "Bash(./bin/phpstan analyze:*)"
+      "Bash(./bin/phpstan analyze:*)",
+      "Bash(./target/release/rustor:*)"
     ]
   }
 }
