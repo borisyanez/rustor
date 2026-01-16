@@ -162,6 +162,25 @@ impl<'s> MissingTypehintVisitor<'s> {
                         .with_identifier("missingType.iterableValue"),
                     );
                 }
+
+                // Check for generic class without type parameters (missingType.generics)
+                if let Some((class_name, template_params)) = self.is_generic_without_params(hint) {
+                    let param_name = self.get_span_text(&param.variable.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.generics",
+                            format!(
+                                "Function {}() has parameter {} with generic class {} but does not specify its types: {}",
+                                func_name, param_name, class_name, template_params
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.generics"),
+                    );
+                }
             }
         }
 
@@ -178,6 +197,24 @@ impl<'s> MissingTypehintVisitor<'s> {
                 )
                 .with_identifier("missingType.return"),
             );
+        } else if let Some(ret_type) = return_type {
+            // Check if return type is a generic class without type parameters
+            if let Some((class_name, template_params)) = self.is_generic_without_params(&ret_type.hint) {
+                let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
+                self.issues.push(
+                    Issue::error(
+                        "missingType.generics",
+                        format!(
+                            "Function {}() return type with generic class {} does not specify its types: {}",
+                            func_name, class_name, template_params
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("missingType.generics"),
+                );
+            }
         }
     }
 
@@ -225,6 +262,25 @@ impl<'s> MissingTypehintVisitor<'s> {
                         .with_identifier("missingType.iterableValue"),
                     );
                 }
+
+                // Check for generic class without type parameters (missingType.generics)
+                if let Some((class_name, template_params)) = self.is_generic_without_params(hint) {
+                    let param_name = self.get_span_text(&param.variable.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.generics",
+                            format!(
+                                "Method {}() has parameter {} with generic class {} but does not specify its types: {}",
+                                method_name, param_name, class_name, template_params
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.generics"),
+                    );
+                }
             }
         }
 
@@ -241,6 +297,24 @@ impl<'s> MissingTypehintVisitor<'s> {
                 )
                 .with_identifier("missingType.return"),
             );
+        } else if let Some(ret_type) = return_type {
+            // Check if return type is a generic class without type parameters
+            if let Some((class_name, template_params)) = self.is_generic_without_params(&ret_type.hint) {
+                let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
+                self.issues.push(
+                    Issue::error(
+                        "missingType.generics",
+                        format!(
+                            "Method {}() return type with generic class {} does not specify its types: {}",
+                            method_name, class_name, template_params
+                        ),
+                        self.file_path.clone(),
+                        line,
+                        col,
+                    )
+                    .with_identifier("missingType.generics"),
+                );
+            }
         }
     }
 
@@ -253,6 +327,54 @@ impl<'s> MissingTypehintVisitor<'s> {
             Hint::Parenthesized(p) => self.is_plain_iterable_type(&p.hint),
             _ => false,
         }
+    }
+
+    /// Check if a type hint is a generic class without type parameters specified
+    /// Returns Some((class_name, template_params)) if it's a generic class missing type args
+    fn is_generic_without_params(&self, hint: &Hint<'_>) -> Option<(String, String)> {
+        // For nullable or parenthesized hints, check the inner type
+        match hint {
+            Hint::Nullable(nullable) => {
+                return self.is_generic_without_params(&nullable.hint);
+            }
+            Hint::Parenthesized(p) => {
+                return self.is_generic_without_params(&p.hint);
+            }
+            _ => {}
+        };
+
+        // Extract the type name from the hint span
+        let type_name = self.get_span_text(&hint.span()).to_string();
+
+        // Normalize to check against known generic classes (case-insensitive, check suffix)
+        let type_lower = type_name.to_lowercase();
+
+        // Common generic classes and their template parameters
+        // Format: (class name/suffix to match, template parameter description)
+        // Matches both short names (via use) and fully qualified names
+        let generic_classes = [
+            ("arrayiterator", "TKey, TValue"),
+            ("iterator", "TKey, TValue"),
+            ("traversable", "TKey, TValue"),
+            ("generator", "TKey, TValue, TSend, TReturn"),
+            ("app", "TContainerInterface"),  // Slim\App
+            ("entityrepository", "T"),  // Doctrine\ORM\EntityRepository
+            ("persistentcollection", "TKey, T"),  // Doctrine\ORM\PersistentCollection
+            ("collection", "TKey, T"),  // Doctrine\Common\Collections\Collection
+            ("arraycollection", "TKey, T"),  // Doctrine\Common\Collections\ArrayCollection
+            ("abstractlazycollection", "TKey, T"),  // Doctrine\Common\Collections\AbstractLazyCollection
+            ("objectrepository", "T"),  // Doctrine\Persistence\ObjectRepository
+        ];
+
+        for (class_pattern, template_params) in &generic_classes {
+            // Match if the type name ends with the pattern (for namespaced classes)
+            // or equals the pattern (for global classes)
+            if type_lower.ends_with(class_pattern) || type_lower == *class_pattern {
+                return Some((type_name, template_params.to_string()));
+            }
+        }
+
+        None
     }
 
     fn check_property<'a>(&mut self, class_name: &str, prop: &Property<'a>) {
@@ -274,6 +396,27 @@ impl<'s> MissingTypehintVisitor<'s> {
                     )
                     .with_identifier("missingType.property"),
                 );
+            }
+        } else if let Some(hint) = prop.hint() {
+            // Check if property type is a generic class without type parameters
+            if let Some((gen_class_name, template_params)) = self.is_generic_without_params(hint) {
+                for var in prop.variables() {
+                    let prop_name = self.get_span_text(&var.span);
+                    let (line, col) = self.get_line_col(hint.span().start.offset as usize);
+                    self.issues.push(
+                        Issue::error(
+                            "missingType.generics",
+                            format!(
+                                "Property {}::{} with generic class {} does not specify its types: {}",
+                                class_name, prop_name, gen_class_name, template_params
+                            ),
+                            self.file_path.clone(),
+                            line,
+                            col,
+                        )
+                        .with_identifier("missingType.generics"),
+                    );
+                }
             }
         }
     }
