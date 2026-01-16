@@ -8,6 +8,7 @@
 //! - Argument count mismatches
 //! - Missing return statements
 //! - Invalid uses of new static()
+//! - Class name case mismatches
 
 mod undefined_function;
 mod undefined_class;
@@ -17,6 +18,7 @@ mod undefined_constant;
 mod argument_count;
 mod missing_return;
 mod invalid_static_new;
+mod class_name_case;
 
 pub use undefined_function::UndefinedFunctionCheck;
 pub use undefined_class::UndefinedClassCheck;
@@ -26,3 +28,4 @@ pub use undefined_constant::UndefinedConstantCheck;
 pub use argument_count::ArgumentCountCheck;
 pub use missing_return::MissingReturnCheck;
 pub use invalid_static_new::InvalidStaticNewCheck;
+pub use class_name_case::ClassNameCaseCheck;

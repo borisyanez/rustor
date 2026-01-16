@@ -78,6 +78,7 @@ impl CheckRegistry {
         registry.register(Box::new(level0::ArgumentCountCheck));
         registry.register(Box::new(level0::MissingReturnCheck));
         registry.register(Box::new(level0::InvalidStaticNewCheck));
+        registry.register(Box::new(level0::ClassNameCaseCheck));
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
