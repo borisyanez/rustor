@@ -315,6 +315,9 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             std::process::exit(0);
         } else if !arg.starts_with('-') {
             paths.push(PathBuf::from(arg));
+        } else {
+            // Unknown flag
+            anyhow::bail!("Unknown option: '{}'. Use --help to see available options", arg);
         }
 
         i += 1;
