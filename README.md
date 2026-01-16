@@ -163,7 +163,7 @@ rustor analyze src/ --level 3 --output github
 | 7 | ⚠️ 45% | 🔄 **Partial** | Union type member validation (method/property access) |
 | 8 | ⚠️ 40% | 🔄 **Partial** | Nullable parameter access (⚠️ 1 false positive on nullsafe operator) |
 | 9 | ⚠️ 10% | 🔄 **Minimal** | Mixed to typed parameter only (90% of checks missing) |
-| 10 | ⚠️ Needs validation | 🔄 **Unknown** | Implicit mixed (untyped = mixed) |
+| 10 | ⚠️ 47% | 🔄 **Partial** | Missing type detection (100%) + arg passing (86% operations missing) |
 
 **✅ Perfect baseline compatibility for levels 0-6!** Your existing PHPStan baselines work without any changes. Tested on production codebases with 26,000+ baselined errors.
 
@@ -171,9 +171,14 @@ rustor analyze src/ --level 3 --output github
 - **Level 7:** Partially implemented (45% compatibility) - See [Level 7 Validation Report](docs/level7-validation-report.md)
 - **Level 8:** Partially implemented (40% compatibility, **1 false positive**) - See [Level 8 Validation Report](docs/level8-validation-report.md)
 - **Level 9:** Minimally implemented (10% compatibility, **90% of checks missing**) - See [Level 9 Validation Report](docs/level9-validation-report.md)
-- **Level 10:** Implemented but not yet validated against PHPStan test suite
+- **Level 10:** Partially implemented (47% compatibility) - See [Level 10 Validation Report](docs/level10-validation-report.md)
 
-**Production Recommendation:** Use levels 0-6 for production. Levels 7-9 have partial/minimal support with significant gaps. Avoid level 8 if using PHP 8.0+ nullsafe operator. Avoid level 9 entirely (only argument passing validation).
+**Production Recommendation:**
+- ✅ **Use levels 0-6** for production (100% compatible, thoroughly validated)
+- ⚠️ **Level 7** (45%): Use only if you need union member validation specifically
+- ❌ **Level 8** (40%): Avoid (has false positive on nullsafe operator)
+- ❌ **Level 9** (10%): Avoid entirely (placeholder only, 90% missing)
+- ⚠️ **Level 10** (47%): Limited use - good for enforcing type declarations, but 86% of operations missing
 
 **Error Identifier Coverage:**
 
@@ -227,6 +232,7 @@ See [Static Analysis](docs/analyze.md) for comprehensive documentation.
 - **[Level 7 Validation Report](docs/level7-validation-report.md)** - Level 7 validation results (45% compatibility)
 - **[Level 8 Validation Report](docs/level8-validation-report.md)** - Level 8 validation results (40% compatibility, 1 false positive)
 - **[Level 9 Validation Report](docs/level9-validation-report.md)** - Level 9 validation results (10% compatibility, 90% missing)
+- **[Level 10 Validation Report](docs/level10-validation-report.md)** - Level 10 validation results (47% compatibility)
 - **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
 - **[Fixers Reference](docs/fixers.md)** - All 55 formatting fixers for PSR-12
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
