@@ -107,6 +107,7 @@ impl CheckRegistry {
 
         // Level 6 checks
         registry.register(Box::new(level6::MissingTypehintCheck));
+        registry.register(Box::new(level6::AlreadyNarrowedTypeCheck));
 
         // Level 7 checks
         registry.register(Box::new(level7::UnionTypeCheck));
