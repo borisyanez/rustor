@@ -3,6 +3,7 @@
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
+use crate::symbols::SymbolTable;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -44,6 +45,7 @@ impl Check for CallMethodsCheck {
             variable_types: HashMap::new(),
             param_type_stack: Vec::new(),
             builtin_classes: ctx.builtin_classes,
+            symbol_table: ctx.symbol_table,
             issues: Vec::new(),
             check_arg_counts: true,
         };
@@ -67,6 +69,7 @@ struct MethodCallVisitor<'s> {
     /// Stack of parameter types for nested function scopes
     param_type_stack: Vec<HashMap<String, String>>,
     builtin_classes: &'s [&'static str],
+    symbol_table: Option<&'s SymbolTable>,
     issues: Vec<Issue>,
     check_arg_counts: bool,
 }
@@ -188,6 +191,79 @@ impl<'s> MethodCallVisitor<'s> {
         }
         // Then check variable assignments
         self.variable_types.get(var_name).cloned()
+    }
+
+    /// Check if a method exists on a class (checks both local file and symbol table)
+    /// Returns true if the method exists, false otherwise
+    fn method_exists(&self, class_name: &str, method_name: &str) -> bool {
+        let class_lower = class_name.to_lowercase();
+        let method_lower = method_name.to_lowercase();
+
+        // First check local file definitions
+        if let Some(methods) = self.class_methods.get(&class_lower) {
+            if methods.contains_key(&method_lower) {
+                return true;
+            }
+        }
+
+        // Then check symbol table for cross-file resolution
+        if let Some(symbol_table) = self.symbol_table {
+            // Check direct class
+            if symbol_table.class_has_method(class_name, method_name) {
+                return true;
+            }
+
+            // Check parent classes and traits recursively
+            if let Some(class_info) = symbol_table.get_class(class_name) {
+                // Check parent class
+                if let Some(parent) = &class_info.parent {
+                    if self.method_exists_in_hierarchy(parent, method_name, symbol_table) {
+                        return true;
+                    }
+                }
+
+                // Check traits
+                for trait_name in &class_info.traits {
+                    if self.method_exists_in_hierarchy(trait_name, method_name, symbol_table) {
+                        return true;
+                    }
+                }
+
+                // Check interfaces (they can have default methods in PHP 8.0+)
+                for interface in &class_info.interfaces {
+                    if self.method_exists_in_hierarchy(interface, method_name, symbol_table) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Recursively check if a method exists in a class hierarchy
+    fn method_exists_in_hierarchy(&self, class_name: &str, method_name: &str, symbol_table: &SymbolTable) -> bool {
+        // Check this class
+        if symbol_table.class_has_method(class_name, method_name) {
+            return true;
+        }
+
+        // Recursively check parent and traits
+        if let Some(class_info) = symbol_table.get_class(class_name) {
+            if let Some(parent) = &class_info.parent {
+                if self.method_exists_in_hierarchy(parent, method_name, symbol_table) {
+                    return true;
+                }
+            }
+
+            for trait_name in &class_info.traits {
+                if self.method_exists_in_hierarchy(trait_name, method_name, symbol_table) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Extract typed parameters from a parameter list
@@ -509,31 +585,33 @@ impl<'s> MethodCallVisitor<'s> {
         }
 
         let class_lower = class_name.to_lowercase();
-        if let Some(methods) = self.class_methods.get(&class_lower) {
+
+        // Check if method exists (local or cross-file)
+        if !self.method_exists(class_name, method) {
+            // Method not found anywhere
+            let (line, col) = self.get_line_col(method_span.start.offset as usize);
+            self.issues.push(
+                Issue::error(
+                    "method.notFound",
+                    format!(
+                        "Call to an undefined method {}::{}().",
+                        class_name, method
+                    ),
+                    self.file_path.clone(),
+                    line,
+                    col,
+                )
+                .with_identifier("method.notFound"),
+            );
+        } else if let Some(methods) = self.class_methods.get(&class_lower) {
+            // Method exists in local file - check argument count
             if let Some(method_info) = methods.get(method_lower) {
-                // Method exists - check argument count
                 let method_info = method_info.clone();
                 self.check_method_args(
                     class_name,
                     &method_info,
                     arg_count,
                     method_span.start.offset as usize,
-                );
-            } else {
-                // Method not found
-                let (line, col) = self.get_line_col(method_span.start.offset as usize);
-                self.issues.push(
-                    Issue::error(
-                        "method.notFound",
-                        format!(
-                            "Call to an undefined method {}::{}().",
-                            class_name, method
-                        ),
-                        self.file_path.clone(),
-                        line,
-                        col,
-                    )
-                    .with_identifier("method.notFound"),
                 );
             }
         }
@@ -582,31 +660,33 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
                     }
 
                     let class_lower = class_name.to_lowercase();
-                    if let Some(methods) = self.class_methods.get(&class_lower) {
+
+                    // Check if method exists (local or cross-file)
+                    if !self.method_exists(&class_name, &method) {
+                        // Method not found anywhere
+                        let (line, col) = self.get_line_col(method_span.start.offset as usize);
+                        self.issues.push(
+                            Issue::error(
+                                "method.notFound",
+                                format!(
+                                    "Call to an undefined method {}::{}().",
+                                    class_name, method
+                                ),
+                                self.file_path.clone(),
+                                line,
+                                col,
+                            )
+                            .with_identifier("method.notFound"),
+                        );
+                    } else if let Some(methods) = self.class_methods.get(&class_lower) {
+                        // Method exists in local file - check argument count
                         if let Some(method_info) = methods.get(&method_lower) {
-                            // Method exists - check argument count
                             let method_info = method_info.clone();
                             self.check_method_args(
                                 &class_name,
                                 &method_info,
                                 arg_count,
                                 method_span.start.offset as usize,
-                            );
-                        } else {
-                            // Method not found
-                            let (line, col) = self.get_line_col(method_span.start.offset as usize);
-                            self.issues.push(
-                                Issue::error(
-                                    "method.notFound",
-                                    format!(
-                                        "Call to an undefined method {}::{}().",
-                                        class_name, method
-                                    ),
-                                    self.file_path.clone(),
-                                    line,
-                                    col,
-                                )
-                                .with_identifier("method.notFound"),
                             );
                         }
                     }
@@ -621,31 +701,32 @@ impl<'a, 's> Visitor<'a> for MethodCallVisitor<'s> {
                             return true;
                         }
 
-                        if let Some(methods) = self.class_methods.get(&class_lower) {
+                        // Check if method exists (local or cross-file)
+                        if !self.method_exists(&class_name, &method) {
+                            // Method not found anywhere
+                            let (line, col) = self.get_line_col(method_span.start.offset as usize);
+                            self.issues.push(
+                                Issue::error(
+                                    "method.notFound",
+                                    format!(
+                                        "Call to an undefined method {}::{}().",
+                                        class_name, method
+                                    ),
+                                    self.file_path.clone(),
+                                    line,
+                                    col,
+                                )
+                                .with_identifier("method.notFound"),
+                            );
+                        } else if let Some(methods) = self.class_methods.get(&class_lower) {
+                            // Method exists in local file - check argument count
                             if let Some(method_info) = methods.get(&method_lower) {
-                                // Method exists - check argument count
                                 let method_info = method_info.clone();
                                 self.check_method_args(
                                     &class_name,
                                     &method_info,
                                     arg_count,
                                     method_span.start.offset as usize,
-                                );
-                            } else {
-                                // Method not found
-                                let (line, col) = self.get_line_col(method_span.start.offset as usize);
-                                self.issues.push(
-                                    Issue::error(
-                                        "method.notFound",
-                                        format!(
-                                            "Call to an undefined method {}::{}().",
-                                            class_name, method
-                                        ),
-                                        self.file_path.clone(),
-                                        line,
-                                        col,
-                                    )
-                                    .with_identifier("method.notFound"),
                                 );
                             }
                         }
