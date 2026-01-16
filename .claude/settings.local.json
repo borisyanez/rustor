@@ -78,7 +78,8 @@
       "Bash(rust-analyzer diagnostics:*)",
       "Bash(/usr/bin/time:*)",
       "Bash(./bin/phpstan analyze:*)",
-      "Bash(./target/release/rustor:*)"
+      "Bash(./target/release/rustor:*)",
+      "Bash(timeout 120 cargo build:*)"
     ]
   }
 }

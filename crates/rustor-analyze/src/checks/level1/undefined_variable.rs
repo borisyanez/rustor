@@ -281,6 +281,10 @@ impl<'s> VariableAnalyzer<'s> {
                 let checked_vars = self.get_undefined_checked_vars(&if_stmt.condition);
                 let has_early_exit = !checked_vars.is_empty() && self.body_has_early_exit(&if_stmt.body);
 
+                // Pattern: if (!isset($var)) { $var = ...; } means $var is defined after
+                let isset_checked_vars = self.get_isset_checked_vars(&if_stmt.condition);
+                let has_isset_pattern = !isset_checked_vars.is_empty();
+
                 // For negative control flow with early exit, don't check the condition
                 // because we know the variable will be defined after this point
                 if !has_early_exit {
@@ -322,6 +326,39 @@ impl<'s> VariableAnalyzer<'s> {
                         if self.current_scope().is_possibly_defined(&var) {
                             self.current_scope_mut().possibly_defined.remove(&var);
                             self.define(var);
+                        }
+                    }
+                } else if has_isset_pattern && !has_else {
+                    // Pattern: if (!isset($var)) { $var = ...; }
+                    // After this if, $var is guaranteed to be defined
+
+                    // Save the current state
+                    let before_state = self.current_scope().defined.clone();
+
+                    // Analyze the body
+                    match &if_stmt.body {
+                        IfBody::Statement(stmt_body) => {
+                            self.analyze_statement(stmt_body.statement);
+                        }
+                        IfBody::ColonDelimited(block) => {
+                            for inner in block.statements.iter() {
+                                self.analyze_statement(inner);
+                            }
+                        }
+                    }
+
+                    // Get variables defined in the if block
+                    let after_state = self.current_scope().defined.clone();
+
+                    // For each isset-checked variable, if it was defined in the block, it's now guaranteed
+                    for var in isset_checked_vars {
+                        // Check if var was defined inside the block or was already defined
+                        if after_state.contains(&var) || before_state.contains(&var) {
+                            // After if (!isset($var)) { $var = X; }, $var is definitely defined
+                            // because either:
+                            // 1. It was already defined (isset was true, didn't enter block)
+                            // 2. It wasn't defined, entered block, and got defined there
+                            self.current_scope_mut().defined.insert(var);
                         }
                     }
                 } else {
@@ -721,6 +758,35 @@ impl<'s> VariableAnalyzer<'s> {
         None
     }
 
+    /// Extract variables being checked with isset pattern: !isset($var)
+    /// This is used for pattern: if (!isset($var)) { $var = ...; }
+    fn get_isset_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.extract_isset_checked_vars(condition, &mut vars);
+        vars
+    }
+
+    fn extract_isset_checked_vars<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>) {
+        match expr {
+            // Pattern: !isset($var)
+            Expression::UnaryPrefix(unary) => {
+                if let Expression::Construct(Construct::Isset(isset)) = &*unary.operand {
+                    for value in isset.values.iter() {
+                        if let Some(var_name) = self.get_var_name(value) {
+                            vars.push(var_name);
+                        }
+                    }
+                }
+            }
+            // Pattern: !isset($a) || !isset($b)
+            Expression::Binary(binary) => {
+                self.extract_isset_checked_vars(&binary.lhs, vars);
+                self.extract_isset_checked_vars(&binary.rhs, vars);
+            }
+            _ => {}
+        }
+    }
+
     /// Extract variables being checked for undefined/empty/false in a condition
     /// Returns variables from patterns like: !$var, empty($var), !isset($var), !$var || !$other
     fn get_undefined_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
@@ -931,8 +997,15 @@ impl<'s> VariableAnalyzer<'s> {
                 }
             }
             Expression::Binary(binary) => {
-                self.analyze_expression(&binary.lhs, false);
-                self.analyze_expression(&binary.rhs, false);
+                // Special handling for null coalesce operator: $var ?? "default"
+                // The LHS is allowed to be undefined/null - that's the whole point
+                if matches!(binary.operator, BinaryOperator::NullCoalesce(_)) {
+                    // Skip checking LHS for undefined, only analyze RHS
+                    self.analyze_expression(&binary.rhs, false);
+                } else {
+                    self.analyze_expression(&binary.lhs, false);
+                    self.analyze_expression(&binary.rhs, false);
+                }
             }
             Expression::Conditional(ternary) => {
                 self.analyze_expression(&ternary.condition, false);
