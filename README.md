@@ -160,12 +160,18 @@ rustor analyze src/ --level 3 --output github
 | 4 | ✅ 100% | ✅ **100%** | Dead code, write-only properties, invalid operations |
 | 5 | ✅ 100% | ✅ **100%** | Argument type validation |
 | 6 | ✅ 100% | ✅ **100%** | Missing type hints, iterables, generics |
-| 7 | ✅ 100% | ✅ **100%** | Union types (method/property existence) |
-| 8 | ✅ 100% | ✅ **100%** | Nullable types (property/method access) |
-| 9 | ✅ 100% | ✅ **100%** | Explicit mixed type restrictions |
-| 10 | ✅ 100% | ✅ **100%** | Implicit mixed (untyped = mixed) |
+| 7 | ⚠️ 45% | 🔄 **Partial** | Union type member validation (method/property access) |
+| 8 | ⚠️ Needs validation | 🔄 **Unknown** | Nullable types (implemented, not validated) |
+| 9 | ⚠️ Needs validation | 🔄 **Unknown** | Explicit mixed type restrictions |
+| 10 | ⚠️ Needs validation | 🔄 **Unknown** | Implicit mixed (untyped = mixed) |
 
-**✅ Perfect baseline compatibility achieved!** Your existing PHPStan baselines work without any changes. Tested on production codebases with 26,000+ baselined errors.
+**✅ Perfect baseline compatibility for levels 0-6!** Your existing PHPStan baselines work without any changes. Tested on production codebases with 26,000+ baselined errors.
+
+**⚠️ Levels 7-10 Status:**
+- **Level 7:** Partially implemented (45% compatibility) - See [Level 7 Validation Report](docs/level7-validation-report.md)
+- **Levels 8-10:** Implemented but not yet validated against PHPStan test suite
+
+**Production Recommendation:** Use levels 0-6 for production. Levels 7-10 are available but may have incomplete coverage.
 
 **Error Identifier Coverage:**
 
@@ -215,7 +221,8 @@ See [Static Analysis](docs/analyze.md) for comprehensive documentation.
 - **[PhpStorm Setup Guide](docs/phpstorm-setup.md)** - PhpStorm/IntelliJ IDEA integration
 - **[IDE Integration](docs/lsp.md)** - LSP server setup for VS Code, Neovim, etc.
 - **[Static Analysis](docs/analyze.md)** - PHPStan-compatible analysis with NEON config support
-- **[Phase 5 Validation Report](docs/phase5-validation-report.md)** - 100% baseline compatibility proof
+- **[Phase 5 Validation Report](docs/phase5-validation-report.md)** - Levels 0-6 baseline compatibility (100%)
+- **[Level 7 Validation Report](docs/level7-validation-report.md)** - Level 7 validation results (45% compatibility)
 - **[Rules Reference](docs/rules.md)** - Complete list of all 44 refactoring rules
 - **[Fixers Reference](docs/fixers.md)** - All 55 formatting fixers for PSR-12
 - **[CLI Reference](docs/cli.md)** - All command-line options and flags
