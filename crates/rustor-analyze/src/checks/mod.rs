@@ -77,6 +77,7 @@ impl CheckRegistry {
         registry.register(Box::new(level0::UndefinedConstantCheck));
         registry.register(Box::new(level0::ArgumentCountCheck));
         registry.register(Box::new(level0::MissingReturnCheck));
+        registry.register(Box::new(level0::InvalidStaticNewCheck));
 
         // Level 1 checks
         registry.register(Box::new(level1::UndefinedVariableCheck));
