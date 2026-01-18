@@ -583,8 +583,15 @@ impl<'s> ReturnTypeAnalyzer<'s> {
 
     /// Resolve a type name to its fully qualified form using use statements and namespace
     fn resolve_type_name(&self, type_name: &str) -> String {
+        // Strip nullable prefix if present - we'll handle it separately
+        let (is_nullable, base_type) = if type_name.starts_with('?') {
+            (true, &type_name[1..])
+        } else {
+            (false, type_name)
+        };
+
         // Skip built-in types
-        if matches!(type_name.to_lowercase().as_str(),
+        if matches!(base_type.to_lowercase().as_str(),
             "int" | "float" | "string" | "bool" | "array" | "object" |
             "null" | "void" | "mixed" | "callable" | "iterable" | "resource" | "scalar" |
             "self" | "static" | "parent" | "closure") {
@@ -593,10 +600,10 @@ impl<'s> ReturnTypeAnalyzer<'s> {
 
         // Use symbol table to resolve with file aliases
         if let Some(symbol_table) = self.symbol_table {
-            let resolved = symbol_table.resolve_class_name(type_name, &self.file_path, self.current_namespace.as_deref());
+            let resolved = symbol_table.resolve_class_name(base_type, &self.file_path, self.current_namespace.as_deref());
             self.debug_log(&format!(
-                "resolve_type_name: {} -> {} (namespace: {:?}, file: {})",
-                type_name, resolved, self.current_namespace, self.file_path.display()
+                "resolve_type_name: {} -> {} (namespace: {:?}, file: {}, nullable: {})",
+                type_name, resolved, self.current_namespace, self.file_path.display(), is_nullable
             ));
             return resolved;
         }
