@@ -34,6 +34,8 @@ pub struct AnalyzeArgs {
     pub debug_log: Option<PathBuf>,
     /// Ignore config files
     pub no_config: bool,
+    /// Ignore baseline counts (match patterns unlimited times)
+    pub ignore_baseline_counts: bool,
 }
 
 /// Run the analyze subcommand
@@ -120,9 +122,9 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
             let baseline = Baseline::load(baseline_path)?;
             if std::env::var("RUSTOR_DEBUG").is_ok() {
                 eprintln!("[CLI] Loaded {} baseline entries", baseline.len());
-                eprintln!("[CLI] Filtering {} issues", issues.len());
+                eprintln!("[CLI] Filtering {} issues (ignore_counts={})", issues.len(), args.ignore_baseline_counts);
             }
-            issues = baseline.filter(issues);
+            issues = baseline.filter_with_options(issues, args.ignore_baseline_counts);
             if std::env::var("RUSTOR_DEBUG").is_ok() {
                 eprintln!("[CLI] After filtering: {} issues", issues.len());
             }
@@ -153,7 +155,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
         }
 
         let before_count = issues.len();
-        issues = baseline.filter(issues);
+        issues = baseline.filter_with_options(issues, args.ignore_baseline_counts);
         let after_count = issues.len();
         let filtered = before_count - after_count;
 
@@ -237,6 +239,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
     let mut phpstan_compat = false;
     let mut debug_log = None;
     let mut no_config = false;
+    let mut ignore_baseline_counts = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -311,6 +314,8 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
             verbose = true;
         } else if arg == "--phpstan-compat" {
             phpstan_compat = true;
+        } else if arg == "--ignore-baseline-counts" {
+            ignore_baseline_counts = true;
         } else if arg == "--debug-log" {
             i += 1;
             if i < args.len() {
@@ -345,6 +350,7 @@ pub fn parse_analyze_args(args: &[String]) -> Result<AnalyzeArgs> {
         phpstan_compat,
         debug_log,
         no_config,
+        ignore_baseline_counts,
     })
 }
 
@@ -364,6 +370,8 @@ pub fn print_analyze_help() {
     println!("        --error-format <FORMAT>   Output format: raw, json, table, github");
     println!("        --generate-baseline <FILE>  Generate baseline file");
     println!("        --baseline <FILE>         Use baseline file to filter issues");
+    println!("        --ignore-baseline-counts  Ignore baseline counts (match patterns unlimited times)");
+    println!("        --no-config               Ignore config files");
     println!("        --phpstan-compat          PHPStan exact compatibility mode");
     println!("        --debug-log [FILE]        Enable debug logging (default: /tmp/rustor-analyze.log)");
     println!("    -v, --verbose                 Verbose output");

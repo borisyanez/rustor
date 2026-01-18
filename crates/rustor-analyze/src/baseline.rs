@@ -228,13 +228,19 @@ impl Baseline {
 
     /// Filter issues against the baseline
     pub fn filter(&self, issues: IssueCollection) -> IssueCollection {
+        self.filter_with_options(issues, false)
+    }
+
+    /// Filter issues against the baseline with options
+    /// If ignore_counts is true, baseline entries match unlimited times (not just `count` times)
+    pub fn filter_with_options(&self, issues: IssueCollection, ignore_counts: bool) -> IssueCollection {
         let debug = std::env::var("RUSTOR_DEBUG").is_ok();
         if debug {
-            eprintln!(">>> BASELINE FILTER START: {} baseline entries, {} issues to filter",
-                self.entries.len(), issues.len());
+            eprintln!(">>> BASELINE FILTER START: {} baseline entries, {} issues to filter (ignore_counts={})",
+                self.entries.len(), issues.len(), ignore_counts);
         }
 
-        // Track remaining counts for each entry
+        // Track remaining counts for each entry (only used if !ignore_counts)
         let mut remaining_counts: Vec<usize> = self.entries.iter().map(|e| e.count).collect();
         let mut filtered = IssueCollection::new();
 
@@ -245,7 +251,7 @@ impl Baseline {
 
             // Try to match against baseline entries
             for (i, entry) in self.entries.iter().enumerate() {
-                if remaining_counts[i] == 0 {
+                if !ignore_counts && remaining_counts[i] == 0 {
                     continue;
                 }
 
@@ -272,7 +278,9 @@ impl Baseline {
                 }
 
                 if message_matches && id_matches {
-                    remaining_counts[i] -= 1;
+                    if !ignore_counts {
+                        remaining_counts[i] -= 1;
+                    }
                     matched = true;
                     match_reason = "message+identifier";
                     break;
@@ -282,7 +290,9 @@ impl Baseline {
                 // PHPStan and rustor may have different message wording but same identifiers
                 if let (Some(entry_id), Some(issue_id)) = (&entry.identifier, &issue.identifier) {
                     if entry_id == issue_id {
-                        remaining_counts[i] -= 1;
+                        if !ignore_counts {
+                            remaining_counts[i] -= 1;
+                        }
                         matched = true;
                         match_reason = "identifier-only";
                         break;
