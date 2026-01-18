@@ -4,7 +4,7 @@ use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct UndefinedVariableCheck;
@@ -28,6 +28,8 @@ impl Check for UndefinedVariableCheck {
             file_path: ctx.file_path.to_path_buf(),
             scopes: vec![Scope::new()],
             issues: Vec::new(),
+            condition_assignments: HashMap::new(),
+            current_conditions: Vec::new(),
         };
 
         // Add superglobals to the global scope
@@ -106,6 +108,10 @@ struct VariableAnalyzer<'s> {
     file_path: PathBuf,
     scopes: Vec<Scope>,
     issues: Vec<Issue>,
+    /// Condition correlation tracking: maps condition text to variables assigned under that condition
+    condition_assignments: HashMap<String, HashSet<String>>,
+    /// Stack of current condition texts (for nested if statements)
+    current_conditions: Vec<String>,
 }
 
 impl<'s> VariableAnalyzer<'s> {
@@ -210,6 +216,45 @@ impl<'s> VariableAnalyzer<'s> {
         self.current_scope_mut().define_possibly(name);
     }
 
+    /// Get a normalized text representation of a condition expression for correlation tracking
+    fn get_condition_text<'a>(&self, expr: &Expression<'a>) -> String {
+        let span = expr.span();
+        self.source[span.start.offset as usize..span.end.offset as usize].to_string()
+    }
+
+    /// Record that a variable was assigned under the current condition(s)
+    fn record_conditional_assignment(&mut self, var_name: &str) {
+        for cond in &self.current_conditions {
+            self.condition_assignments
+                .entry(cond.clone())
+                .or_default()
+                .insert(var_name.to_string());
+        }
+    }
+
+    /// Check if a variable was assigned under any of the current conditions
+    fn is_defined_by_condition_correlation(&self, var_name: &str) -> bool {
+        for cond in &self.current_conditions {
+            if let Some(vars) = self.condition_assignments.get(cond) {
+                if vars.contains(var_name) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Push a condition onto the condition stack
+    fn push_condition<'a>(&mut self, expr: &Expression<'a>) {
+        let cond_text = self.get_condition_text(expr);
+        self.current_conditions.push(cond_text);
+    }
+
+    /// Pop a condition from the condition stack
+    fn pop_condition(&mut self) {
+        self.current_conditions.pop();
+    }
+
     /// Merge branch results: variables defined in all branches become definitely defined,
     /// variables defined in some branches become possibly defined.
     fn merge_branches(&mut self, before_snapshot: &HashSet<String>, branch_snapshots: Vec<HashSet<String>>) {
@@ -286,6 +331,9 @@ impl<'s> VariableAnalyzer<'s> {
                 let isset_checked_vars = self.get_isset_checked_vars(&if_stmt.condition);
                 let has_isset_pattern = !isset_checked_vars.is_empty();
 
+                // Pattern: if (isset($var)) { use($var); } - $var is defined within the true branch
+                let positive_isset_vars = self.get_positive_isset_vars(&if_stmt.condition);
+
                 // For negative control flow with early exit, don't check the condition
                 // because we know the variable will be defined after this point
                 if !has_early_exit {
@@ -297,6 +345,9 @@ impl<'s> VariableAnalyzer<'s> {
                     IfBody::Statement(stmt_body) => stmt_body.else_clause.is_some(),
                     IfBody::ColonDelimited(block) => block.else_clause.is_some(),
                 };
+
+                // Push condition for correlation tracking
+                self.push_condition(&if_stmt.condition);
 
                 // If this is negative control flow with early exit, skip the normal analysis
                 // because the branch that exits doesn't affect the state after the if
@@ -362,10 +413,24 @@ impl<'s> VariableAnalyzer<'s> {
                             self.current_scope_mut().defined.insert(var);
                         }
                     }
+                } else if !positive_isset_vars.is_empty() {
+                    // Pattern: if (isset($var)) { use($var); }
+                    // Within the true branch, variables checked by isset are guaranteed defined
+                    self.analyze_if_body_with_isset_vars(&if_stmt.body, has_else, &positive_isset_vars);
                 } else {
-                    // Normal if statement analysis
-                    self.analyze_if_body(&if_stmt.body, has_else);
+                    // Check for negated isset pattern: if (!isset($var)) { ... } else { use($var); }
+                    // Variables checked by !isset are defined in the ELSE branch
+                    let negated_isset_vars = self.get_isset_checked_vars(&if_stmt.condition);
+                    if !negated_isset_vars.is_empty() && has_else {
+                        self.analyze_if_body_with_negated_isset_vars(&if_stmt.body, &negated_isset_vars);
+                    } else {
+                        // Normal if statement analysis
+                        self.analyze_if_body(&if_stmt.body, has_else);
+                    }
                 }
+
+                // Pop condition after analyzing if body
+                self.pop_condition();
             }
             Statement::Foreach(foreach) => {
                 self.analyze_expression(&foreach.expression, false);
@@ -632,6 +697,195 @@ impl<'s> VariableAnalyzer<'s> {
         self.merge_branches(&before_snapshot, branch_snapshots);
     }
 
+    /// Analyze if body where the condition contains positive isset() checks.
+    /// Variables checked by isset() are marked as defined within the true branch.
+    fn analyze_if_body_with_isset_vars<'a>(
+        &mut self,
+        body: &IfBody<'a>,
+        has_else: bool,
+        isset_vars: &[String],
+    ) {
+        let before_snapshot = self.current_scope().snapshot();
+        let mut branch_snapshots = Vec::new();
+
+        // Mark isset variables as temporarily defined for the true branch
+        for var in isset_vars {
+            self.define(var.clone());
+        }
+
+        match body {
+            IfBody::Statement(stmt_body) => {
+                // Analyze 'if' branch (with isset vars defined)
+                self.analyze_statement(stmt_body.statement);
+                let if_has_early_exit = self.statement_has_early_exit(stmt_body.statement);
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for each subsequent branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches (isset vars NOT guaranteed here)
+                for else_if in stmt_body.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition, false);
+                    self.analyze_statement(else_if.statement);
+                    let elseif_has_early_exit = self.statement_has_early_exit(else_if.statement);
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    self.current_scope_mut().defined = before_snapshot.clone();
+                }
+
+                // Analyze 'else' branch (isset vars NOT guaranteed here)
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    self.analyze_statement(else_clause.statement);
+                    let has_exit = self.statement_has_early_exit(else_clause.statement);
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+            IfBody::ColonDelimited(block) => {
+                // Analyze 'if' branch (with isset vars defined)
+                let mut if_has_early_exit = false;
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                    if self.statement_has_early_exit(inner) {
+                        if_has_early_exit = true;
+                    }
+                }
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for each subsequent branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches
+                for else_if in block.else_if_clauses.iter() {
+                    self.analyze_expression(&else_if.condition, false);
+                    let mut elseif_has_early_exit = false;
+                    for inner in else_if.statements.iter() {
+                        self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            elseif_has_early_exit = true;
+                        }
+                    }
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    self.current_scope_mut().defined = before_snapshot.clone();
+                }
+
+                // Analyze 'else' branch
+                if let Some(else_clause) = &block.else_clause {
+                    let mut has_exit = false;
+                    for inner in else_clause.statements.iter() {
+                        self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            has_exit = true;
+                        }
+                    }
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+        }
+
+        // Reset to original state before merging
+        self.current_scope_mut().defined = before_snapshot.clone();
+
+        // Merge branch results
+        // If there's no else clause, we need to consider the "fall-through" path
+        if !has_else {
+            branch_snapshots.push(before_snapshot.clone());
+        }
+
+        self.merge_branches(&before_snapshot, branch_snapshots);
+    }
+
+    /// Analyze if body where the condition is !isset($var).
+    /// Variables checked by !isset() are marked as defined within the ELSE branch.
+    /// Pattern: if (!isset($var)) { ... } else { use($var); }
+    fn analyze_if_body_with_negated_isset_vars<'a>(
+        &mut self,
+        body: &IfBody<'a>,
+        negated_isset_vars: &[String],
+    ) {
+        let before_snapshot = self.current_scope().snapshot();
+        let mut branch_snapshots = Vec::new();
+
+        match body {
+            IfBody::Statement(stmt_body) => {
+                // Analyze 'if' branch (negated isset vars NOT defined here)
+                self.analyze_statement(stmt_body.statement);
+                let if_has_early_exit = self.statement_has_early_exit(stmt_body.statement);
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for else branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'else' branch (negated isset vars ARE defined here)
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    // Mark negated isset vars as defined for else branch
+                    for var in negated_isset_vars {
+                        self.define(var.clone());
+                    }
+
+                    self.analyze_statement(else_clause.statement);
+                    let has_exit = self.statement_has_early_exit(else_clause.statement);
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+            IfBody::ColonDelimited(block) => {
+                // Analyze 'if' branch (negated isset vars NOT defined here)
+                let mut if_has_early_exit = false;
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                    if self.statement_has_early_exit(inner) {
+                        if_has_early_exit = true;
+                    }
+                }
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for else branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'else' branch (negated isset vars ARE defined here)
+                if let Some(else_clause) = &block.else_clause {
+                    // Mark negated isset vars as defined for else branch
+                    for var in negated_isset_vars {
+                        self.define(var.clone());
+                    }
+
+                    let mut has_exit = false;
+                    for inner in else_clause.statements.iter() {
+                        self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            has_exit = true;
+                        }
+                    }
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+        }
+
+        // Reset to original state before merging
+        self.current_scope_mut().defined = before_snapshot.clone();
+
+        // Merge branch results
+        self.merge_branches(&before_snapshot, branch_snapshots);
+    }
+
     fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
         match body {
             ForeachBody::Statement(stmt) => {
@@ -742,21 +996,33 @@ impl<'s> VariableAnalyzer<'s> {
     }
 
     /// Check if a switch case has an early exit (return, throw, exit, die)
-    /// A case exits early if its last statement is an early exit
+    /// A case exits early if any statement in it is an early exit
     fn case_has_early_exit<'a>(&self, case: &SwitchCase<'a>) -> bool {
         let statements = case.statements();
-        if let Some(last_stmt) = statements.last() {
-            return self.statement_has_early_exit(last_stmt);
+        for stmt in statements.iter() {
+            if self.statement_has_early_exit(stmt) {
+                return true;
+            }
         }
         false
     }
 
     fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
-        if let Expression::Variable(var) = expr {
-            let name = &self.source[var.span().start.offset as usize..var.span().end.offset as usize];
-            return Some(name.to_string());
+        match expr {
+            Expression::Variable(var) => {
+                let name = &self.source[var.span().start.offset as usize..var.span().end.offset as usize];
+                Some(name.to_string())
+            }
+            // Handle reference expressions: &$var (represented as UnaryPrefix with Reference operator)
+            Expression::UnaryPrefix(unary) => {
+                if matches!(unary.operator, UnaryPrefixOperator::Reference(_)) {
+                    self.get_var_name(&unary.operand)
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
-        None
     }
 
     /// Extract variables being checked with isset pattern: !isset($var)
@@ -785,6 +1051,154 @@ impl<'s> VariableAnalyzer<'s> {
                 self.extract_isset_checked_vars(&binary.rhs, vars);
             }
             _ => {}
+        }
+    }
+
+    /// Extract variables from POSITIVE isset/!empty conditions: isset($var), isset($var['key']), !empty($var)
+    /// This is used for pattern: if (isset($adminRow['key'])) { use($adminRow); }
+    /// or: if (!empty($var)) { use($var); }
+    /// Within the true branch, $var is guaranteed to be defined.
+    fn get_positive_isset_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.extract_positive_isset_vars(condition, &mut vars, false);
+        vars
+    }
+
+    fn extract_positive_isset_vars<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>, negated: bool) {
+        match expr {
+            // Direct isset($var) or isset($var['key']) or isset($var->prop)
+            Expression::Construct(Construct::Isset(isset)) => {
+                if !negated {
+                    for value in isset.values.iter() {
+                        self.extract_base_variable(value, vars);
+                    }
+                }
+            }
+            // empty($var) - if negated (i.e., !empty($var)), the variable is defined
+            Expression::Construct(Construct::Empty(empty)) => {
+                if negated {
+                    // !empty($var) means $var is defined and truthy
+                    self.extract_base_variable(empty.value, vars);
+                }
+            }
+            // !isset($var) or !empty($var) - flip the negation
+            Expression::UnaryPrefix(unary) => {
+                // Check if this is a negation operator
+                let span = unary.operator.span();
+                let op = &self.source[span.start.offset as usize..span.end.offset as usize];
+                if op == "!" {
+                    self.extract_positive_isset_vars(&unary.operand, vars, !negated);
+                }
+            }
+            // isset($a) && isset($b) - both must be true, include all
+            Expression::Binary(binary) => {
+                // For AND conditions with isset, both sides contribute
+                let op_span = binary.operator.span();
+                let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+                if op == "&&" && !negated {
+                    self.extract_positive_isset_vars(&binary.lhs, vars, negated);
+                    self.extract_positive_isset_vars(&binary.rhs, vars, negated);
+                }
+                // For OR conditions, we can't guarantee either side
+            }
+            // Parenthesized expression
+            Expression::Parenthesized(paren) => {
+                self.extract_positive_isset_vars(&paren.expression, vars, negated);
+            }
+            _ => {}
+        }
+    }
+
+    /// Extract the base variable from an expression like $var, $var['key'], $var->prop
+    fn extract_base_variable<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>) {
+        match expr {
+            Expression::Variable(var) => {
+                let name = &self.source[var.span().start.offset as usize..var.span().end.offset as usize];
+                if !vars.contains(&name.to_string()) {
+                    vars.push(name.to_string());
+                }
+            }
+            // $var['key'] - extract $var
+            Expression::ArrayAccess(access) => {
+                self.extract_base_variable(&access.array, vars);
+            }
+            // $var->prop - extract $var
+            Expression::Access(Access::Property(access)) => {
+                self.extract_base_variable(&access.object, vars);
+            }
+            // $var?->prop - extract $var
+            Expression::Access(Access::NullSafeProperty(access)) => {
+                self.extract_base_variable(&access.object, vars);
+            }
+            _ => {}
+        }
+    }
+
+    /// Define all variables in a list() expression
+    /// Handles: list($a, $b) = ..., list($a, list($b, $c)) = ..., list('key' => $a) = ...
+    fn define_list_variables<'a>(&mut self, list: &mago_syntax::ast::List<'a>) {
+        for elem in list.elements.iter() {
+            match elem {
+                ArrayElement::Value(val) => {
+                    // Can be a variable or nested list
+                    self.define_list_element(&val.value);
+                }
+                ArrayElement::KeyValue(kv) => {
+                    // list('key' => $var) - the key is not a definition, only the value is
+                    self.define_list_element(&kv.value);
+                }
+                ArrayElement::Missing(_) => {
+                    // list(, $b) - skipped element
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Define a variable from a list element (can be variable, nested list, or array access)
+    fn define_list_element<'a>(&mut self, expr: &Expression<'a>) {
+        match expr {
+            Expression::Variable(var) => {
+                let name = &self.source[var.span().start.offset as usize..var.span().end.offset as usize];
+                self.define(name.to_string());
+            }
+            Expression::List(nested_list) => {
+                // Nested list: list($a, list($b, $c)) = ...
+                self.define_list_variables(nested_list);
+            }
+            Expression::Array(nested_arr) => {
+                // Nested array destructuring: [$a, [$b, $c]] = ...
+                self.define_array_destructuring_variables(nested_arr);
+            }
+            Expression::ArrayAccess(access) => {
+                // list($arr['key']) = ... - defines $arr (or extends it)
+                // Just analyze as assignment LHS
+                self.analyze_expression(expr, true);
+            }
+            _ => {
+                // For any other LHS expression, treat as assignment target
+                self.analyze_expression(expr, true);
+            }
+        }
+    }
+
+    /// Define all variables in a short array destructuring: [$a, $b] = ...
+    fn define_array_destructuring_variables<'a>(&mut self, arr: &mago_syntax::ast::Array<'a>) {
+        for elem in arr.elements.iter() {
+            match elem {
+                ArrayElement::Value(val) => {
+                    // Can be a variable, nested array, or nested list
+                    self.define_list_element(&val.value);
+                }
+                ArrayElement::KeyValue(kv) => {
+                    // ['key' => $var] - the key is not a definition, only the value is
+                    self.define_list_element(&kv.value);
+                }
+                ArrayElement::Missing(_) => {
+                    // [, $b] - skipped element
+                }
+                _ => {}
+            }
         }
     }
 
@@ -910,12 +1324,18 @@ impl<'s> VariableAnalyzer<'s> {
                 // If this is the left side of an assignment, it defines the variable
                 if is_assignment_lhs {
                     self.define(name.to_string());
+                    // Record this assignment under current conditions for correlation tracking
+                    self.record_conditional_assignment(name);
                 } else if !name.starts_with("$$") {
                     // Check if it's defined or possibly defined
                     // IMPORTANT: Check is_defined FIRST to avoid false positives when a variable
                     // is definitely defined in the current scope but possibly defined in an outer scope
                     if !self.is_defined(name) {
-                        if self.is_possibly_defined(name) {
+                        // Also check condition correlation: if the variable was assigned under the same
+                        // condition we're currently in, it's guaranteed to be defined
+                        if self.is_defined_by_condition_correlation(name) {
+                            // Variable is defined via condition correlation - no error
+                        } else if self.is_possibly_defined(name) {
                             // Variable is defined in some branches but not all
                             let (line, col) = self.get_line_col(var.span().start.offset as usize);
                             self.issues.push(
@@ -949,7 +1369,30 @@ impl<'s> VariableAnalyzer<'s> {
                 // First analyze RHS (before LHS is defined)
                 self.analyze_expression(&assign.rhs, false);
                 // Then analyze LHS as assignment target
-                self.analyze_expression(&assign.lhs, true);
+                // Handle list() assignments: list($a, $b) = $array
+                if let Expression::List(list) = &*assign.lhs {
+                    self.define_list_variables(list);
+                } else if let Expression::Array(arr) = &*assign.lhs {
+                    // Handle short array destructuring: [$a, $b] = $array (PHP 7.1+)
+                    self.define_array_destructuring_variables(arr);
+                } else {
+                    self.analyze_expression(&assign.lhs, true);
+                }
+            }
+            Expression::List(list) => {
+                // When list() appears in non-assignment context, analyze its elements
+                for elem in list.elements.iter() {
+                    match elem {
+                        ArrayElement::Value(val) => {
+                            self.analyze_expression(&val.value, is_assignment_lhs);
+                        }
+                        ArrayElement::KeyValue(kv) => {
+                            self.analyze_expression(&kv.key, false);
+                            self.analyze_expression(&kv.value, is_assignment_lhs);
+                        }
+                        _ => {}
+                    }
+                }
             }
             Expression::Closure(closure) => {
                 self.push_closure_scope();
@@ -1010,15 +1453,55 @@ impl<'s> VariableAnalyzer<'s> {
                 if matches!(binary.operator, BinaryOperator::NullCoalesce(_)) {
                     // Skip checking LHS for undefined, only analyze RHS
                     self.analyze_expression(&binary.rhs, false);
+                } else if matches!(binary.operator, BinaryOperator::And(_) | BinaryOperator::LowAnd(_)) {
+                    // Short-circuit && evaluation: if LHS has isset($var), $var is defined for RHS
+                    // Pattern: isset($var['key']) && $var['key'] == 'value'
+                    let isset_vars = self.get_positive_isset_vars(&binary.lhs);
+
+                    // Analyze LHS first
+                    self.analyze_expression(&binary.lhs, false);
+
+                    // Mark isset vars as defined for RHS analysis
+                    if !isset_vars.is_empty() {
+                        let before_defined = self.current_scope().defined.clone();
+                        for var in &isset_vars {
+                            self.current_scope_mut().defined.insert(var.clone());
+                        }
+
+                        // Analyze RHS with isset vars defined
+                        self.analyze_expression(&binary.rhs, false);
+
+                        // Restore original defined state (isset only guarantees for RHS, not after)
+                        self.current_scope_mut().defined = before_defined;
+                    } else {
+                        self.analyze_expression(&binary.rhs, false);
+                    }
                 } else {
                     self.analyze_expression(&binary.lhs, false);
                     self.analyze_expression(&binary.rhs, false);
                 }
             }
             Expression::Conditional(ternary) => {
+                // Check if condition has isset() - variables are defined in the "then" branch
+                let isset_vars = self.get_positive_isset_vars(&ternary.condition);
+
                 self.analyze_expression(&ternary.condition, false);
+
                 if let Some(then) = &ternary.then {
-                    self.analyze_expression(then, false);
+                    if !isset_vars.is_empty() {
+                        // Mark isset vars as defined for "then" branch analysis
+                        let before_defined = self.current_scope().defined.clone();
+                        for var in &isset_vars {
+                            self.current_scope_mut().defined.insert(var.clone());
+                        }
+
+                        self.analyze_expression(then, false);
+
+                        // Restore original defined state
+                        self.current_scope_mut().defined = before_defined;
+                    } else {
+                        self.analyze_expression(then, false);
+                    }
                 }
                 self.analyze_expression(&ternary.r#else, false);
             }
