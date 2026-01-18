@@ -279,7 +279,8 @@ impl<'s> VariableAnalyzer<'s> {
             Statement::If(if_stmt) => {
                 // Negative control flow: if (!$var) { return; } means $var is defined after
                 let checked_vars = self.get_undefined_checked_vars(&if_stmt.condition);
-                let has_early_exit = !checked_vars.is_empty() && self.body_has_early_exit(&if_stmt.body);
+                let body_exits = self.body_has_early_exit(&if_stmt.body);
+                let has_early_exit = !checked_vars.is_empty() && body_exits;
 
                 // Pattern: if (!isset($var)) { $var = ...; } means $var is defined after
                 let isset_checked_vars = self.get_isset_checked_vars(&if_stmt.condition);
@@ -325,7 +326,7 @@ impl<'s> VariableAnalyzer<'s> {
                     for var in checked_vars {
                         if self.current_scope().is_possibly_defined(&var) {
                             self.current_scope_mut().possibly_defined.remove(&var);
-                            self.define(var);
+                            self.define(var.clone());
                         }
                     }
                 } else if has_isset_pattern && !has_else {
@@ -874,7 +875,14 @@ impl<'s> VariableAnalyzer<'s> {
                     return true;
                 }
 
-                // Check for exit() or die() calls
+                // Check for exit and die as language constructs
+                if let Expression::Construct(construct) = &expr_stmt.expression {
+                    if matches!(construct, Construct::Exit(_) | Construct::Die(_)) {
+                        return true;
+                    }
+                }
+
+                // Check for exit() or die() calls (fallback, though they should be constructs)
                 if let Expression::Call(Call::Function(call)) = &expr_stmt.expression {
                     let func_name = match &*call.function {
                         Expression::Identifier(ident) => {

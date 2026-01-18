@@ -74,11 +74,29 @@ impl<'s> SymbolCollector<'s> {
         &self.source[span.start.offset as usize..span.end.offset as usize]
     }
 
-    /// Qualify a name with the current namespace
+    /// Qualify a name with the current namespace, checking use aliases first
     fn qualify_name(&self, name: &str) -> String {
         if name.starts_with('\\') {
-            name[1..].to_string()
-        } else if let Some(ns) = &self.current_namespace {
+            return name[1..].to_string();
+        }
+
+        // Check if the first part of the name is an alias (case-insensitive)
+        let first_part = name.split('\\').next().unwrap_or(name);
+        let first_part_lower = first_part.to_lowercase();
+
+        for (alias_key, fqn) in &self.current_aliases {
+            if alias_key.to_lowercase() == first_part_lower {
+                if name.contains('\\') {
+                    let rest = &name[first_part.len()..];
+                    return format!("{}{}", fqn, rest);
+                } else {
+                    return fqn.clone();
+                }
+            }
+        }
+
+        // No alias found, prepend namespace
+        if let Some(ns) = &self.current_namespace {
             format!("{}\\{}", ns, name)
         } else {
             name.to_string()

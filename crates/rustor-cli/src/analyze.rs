@@ -112,9 +112,20 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
 
     // Apply baseline filtering from explicit --baseline flag
     if let Some(baseline_path) = &args.baseline {
+        if std::env::var("RUSTOR_DEBUG").is_ok() {
+            eprintln!("[CLI] Baseline path specified: {}", baseline_path.display());
+            eprintln!("[CLI] Baseline path exists: {}", baseline_path.exists());
+        }
         if baseline_path.exists() {
             let baseline = Baseline::load(baseline_path)?;
+            if std::env::var("RUSTOR_DEBUG").is_ok() {
+                eprintln!("[CLI] Loaded {} baseline entries", baseline.len());
+                eprintln!("[CLI] Filtering {} issues", issues.len());
+            }
             issues = baseline.filter(issues);
+            if std::env::var("RUSTOR_DEBUG").is_ok() {
+                eprintln!("[CLI] After filtering: {} issues", issues.len());
+            }
             if args.verbose {
                 println!("{}: Applied baseline from {}", "Info".bold(), baseline_path.display());
             }

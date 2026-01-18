@@ -228,9 +228,14 @@ impl Baseline {
 
     /// Filter issues against the baseline
     pub fn filter(&self, issues: IssueCollection) -> IssueCollection {
+        let debug = std::env::var("RUSTOR_DEBUG").is_ok();
+        if debug {
+            eprintln!(">>> BASELINE FILTER START: {} baseline entries, {} issues to filter",
+                self.entries.len(), issues.len());
+        }
+
         // Track remaining counts for each entry
         let mut remaining_counts: Vec<usize> = self.entries.iter().map(|e| e.count).collect();
-
         let mut filtered = IssueCollection::new();
 
         for issue in issues.into_issues() {
@@ -245,18 +250,32 @@ impl Baseline {
                 }
 
                 // Check path match
-                if !entry.matches_path(&file_path) {
+                let path_matches = entry.matches_path(&file_path);
+                if !path_matches {
                     continue;
                 }
 
                 // Strategy 1: Exact message match (with optional identifier)
-                if entry.matches_message(&issue.message) {
-                    if entry.matches_identifier(issue.identifier.as_deref()) {
-                        remaining_counts[i] -= 1;
-                        matched = true;
-                        match_reason = "message+identifier";
-                        break;
-                    }
+                let message_matches = entry.matches_message(&issue.message);
+                let id_matches = entry.matches_identifier(issue.identifier.as_deref());
+
+                // Debug: log when checking entries that might match apiDownPayment
+                if debug && entry.message.contains("apiDownPayment") && issue.message.contains("apiDownPayment") {
+                    eprintln!("[baseline] APIDOWNPAYMENT entry {} for {}:{} (remaining_count={})",
+                        i, file_path, issue.line, remaining_counts[i]);
+                    eprintln!("  Entry: message=\"{}\"", entry.message);
+                    eprintln!("  Issue: message=\"{}\"", issue.message);
+                    eprintln!("  Entry id={:?}, Issue id={:?}", entry.identifier, issue.identifier);
+                    eprintln!("  path_matches={}, message_matches={}, id_matches={}",
+                        path_matches, message_matches, id_matches);
+                    eprintln!("  WILL FILTER: {}", message_matches && id_matches && remaining_counts[i] > 0);
+                }
+
+                if message_matches && id_matches {
+                    remaining_counts[i] -= 1;
+                    matched = true;
+                    match_reason = "message+identifier";
+                    break;
                 }
 
                 // Strategy 2: Identifier-only match (for cross-tool compatibility)
@@ -272,6 +291,14 @@ impl Baseline {
             }
 
             if matched {
+                if std::env::var("RUSTOR_DEBUG").is_ok() {
+                    eprintln!(">>> BASELINE FILTERED ({}): {}:{} - {}",
+                        match_reason,
+                        file_path,
+                        issue.line,
+                        &issue.message[..issue.message.len().min(60)]
+                    );
+                }
                 logging::log(&format!(
                     "BASELINE FILTERED ({}): {}:{} - {}",
                     match_reason,
@@ -284,6 +311,10 @@ impl Baseline {
             }
         }
 
+        if std::env::var("RUSTOR_DEBUG").is_ok() {
+            eprintln!(">>> BASELINE FILTER: {} issues in, {} issues out",
+                self.entries.len(), filtered.len());
+        }
         filtered
     }
 

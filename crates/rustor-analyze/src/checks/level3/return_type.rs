@@ -60,6 +60,15 @@ impl<'s> ReturnTypeAnalyzer<'s> {
         &self.source[span.start.offset as usize..span.end.offset as usize]
     }
 
+    /// Log debug message (only when RUSTOR_DEBUG is set)
+    #[inline]
+    fn debug_log(&self, _msg: &str) {
+        #[cfg(debug_assertions)]
+        if std::env::var("RUSTOR_DEBUG").is_ok() {
+            eprintln!("[return_type] {}", _msg);
+        }
+    }
+
     fn get_line_col(&self, offset: usize) -> (usize, usize) {
         let mut line = 1;
         let mut col = 1;
@@ -110,18 +119,29 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                 // Restore previous class context
                 self.current_class = prev_class;
             }
-            Statement::Namespace(ns) => match &ns.body {
-                NamespaceBody::Implicit(body) => {
-                    for inner in body.statements.iter() {
-                        self.analyze_statement(inner);
+            Statement::Namespace(ns) => {
+                // Extract and set the namespace name
+                if let Some(name) = &ns.name {
+                    let ns_name = self.get_span_text(&name.span()).to_string();
+                    self.debug_log(&format!("Entering namespace: {}", ns_name));
+                    self.current_namespace = Some(ns_name);
+                }
+
+                match &ns.body {
+                    NamespaceBody::Implicit(body) => {
+                        for inner in body.statements.iter() {
+                            self.analyze_statement(inner);
+                        }
+                    }
+                    NamespaceBody::BraceDelimited(body) => {
+                        for inner in body.statements.iter() {
+                            self.analyze_statement(inner);
+                        }
+                        // Reset namespace after brace-delimited block
+                        self.current_namespace = None;
                     }
                 }
-                NamespaceBody::BraceDelimited(body) => {
-                    for inner in body.statements.iter() {
-                        self.analyze_statement(inner);
-                    }
-                }
-            },
+            }
             Statement::Block(block) => {
                 for inner in block.statements.iter() {
                     self.analyze_statement(inner);
@@ -535,9 +555,27 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             let resolved_expected = self.resolve_type_name(expected);
             let resolved_actual = self.resolve_type_name(actual);
 
+            self.debug_log(&format!(
+                "Checking type hierarchy: {} (resolved: {}) implements {} (resolved: {})?",
+                actual, resolved_actual, expected, resolved_expected
+            ));
+
             if self.is_subtype_of(&resolved_actual, &resolved_expected, symbol_table) {
+                self.debug_log(&format!("  -> YES, {} is subtype of {}", resolved_actual, resolved_expected));
                 return true;
+            } else {
+                // Debug: check if the class exists in symbol table
+                if let Some(class_info) = symbol_table.get_class(&resolved_actual) {
+                    self.debug_log(&format!(
+                        "  -> Class {} found. Parent: {:?}, Interfaces: {:?}",
+                        resolved_actual, class_info.parent, class_info.interfaces
+                    ));
+                } else {
+                    self.debug_log(&format!("  -> Class {} NOT found in symbol table", resolved_actual));
+                }
             }
+        } else {
+            self.debug_log("  -> No symbol table available");
         }
 
         false
@@ -555,7 +593,12 @@ impl<'s> ReturnTypeAnalyzer<'s> {
 
         // Use symbol table to resolve with file aliases
         if let Some(symbol_table) = self.symbol_table {
-            return symbol_table.resolve_class_name(type_name, &self.file_path, self.current_namespace.as_deref());
+            let resolved = symbol_table.resolve_class_name(type_name, &self.file_path, self.current_namespace.as_deref());
+            self.debug_log(&format!(
+                "resolve_type_name: {} -> {} (namespace: {:?}, file: {})",
+                type_name, resolved, self.current_namespace, self.file_path.display()
+            ));
+            return resolved;
         }
 
         type_name.to_string()

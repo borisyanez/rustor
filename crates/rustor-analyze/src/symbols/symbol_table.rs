@@ -128,15 +128,20 @@ impl SymbolTable {
             return name[1..].to_string();
         }
 
-        // Check file aliases
+        // Check file aliases (case-insensitive lookup since PHP class names are case-insensitive)
         if let Some(aliases) = self.get_aliases(file) {
             let first_part = name.split('\\').next().unwrap_or(name);
-            if let Some(fqn) = aliases.get(first_part) {
-                if name.contains('\\') {
-                    let rest = &name[first_part.len()..];
-                    return format!("{}{}", fqn, rest);
-                } else {
-                    return fqn.clone();
+            let first_part_lower = first_part.to_lowercase();
+
+            // Case-insensitive alias lookup
+            for (alias_key, fqn) in aliases {
+                if alias_key.to_lowercase() == first_part_lower {
+                    if name.contains('\\') {
+                        let rest = &name[first_part.len()..];
+                        return format!("{}{}", fqn, rest);
+                    } else {
+                        return fqn.clone();
+                    }
                 }
             }
         }
@@ -151,16 +156,44 @@ impl SymbolTable {
 
     /// Register PHP built-in classes and functions
     fn register_builtins(&mut self) {
-        // Register common built-in classes
+        // Register common built-in classes with inheritance
+        // Format: (name, kind, parent, interfaces)
+        let builtin_classes_with_hierarchy: &[(&str, ClassKind, Option<&str>, &[&str])] = &[
+            ("stdClass", ClassKind::Class, None, &[]),
+            ("Exception", ClassKind::Class, None, &["Throwable"]),
+            ("Error", ClassKind::Class, None, &["Throwable"]),
+            ("TypeError", ClassKind::Class, Some("Error"), &[]),
+            ("ArgumentCountError", ClassKind::Class, Some("TypeError"), &[]),
+            ("ValueError", ClassKind::Class, Some("Error"), &[]),
+            ("RuntimeException", ClassKind::Class, Some("Exception"), &[]),
+            ("LogicException", ClassKind::Class, Some("Exception"), &[]),
+            ("InvalidArgumentException", ClassKind::Class, Some("LogicException"), &[]),
+            ("OutOfBoundsException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("OutOfRangeException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("UnexpectedValueException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("DomainException", ClassKind::Class, Some("LogicException"), &[]),
+            ("LengthException", ClassKind::Class, Some("LogicException"), &[]),
+            ("RangeException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("OverflowException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("UnderflowException", ClassKind::Class, Some("RuntimeException"), &[]),
+            ("BadMethodCallException", ClassKind::Class, Some("BadFunctionCallException"), &[]),
+            ("BadFunctionCallException", ClassKind::Class, Some("LogicException"), &[]),
+        ];
+
+        for (name, kind, parent, interfaces) in builtin_classes_with_hierarchy {
+            let mut info = ClassInfo::from_fqn(*name);
+            info.kind = *kind;
+            if let Some(p) = parent {
+                info.parent = Some(p.to_string());
+            }
+            for iface in *interfaces {
+                info.interfaces.push(iface.to_string());
+            }
+            self.register_class(info);
+        }
+
+        // Register other built-in classes without specific hierarchy
         let builtin_classes = [
-            ("stdClass", ClassKind::Class),
-            ("Exception", ClassKind::Class),
-            ("Error", ClassKind::Class),
-            ("TypeError", ClassKind::Class),
-            ("ArgumentCountError", ClassKind::Class),
-            ("ValueError", ClassKind::Class),
-            ("RuntimeException", ClassKind::Class),
-            ("InvalidArgumentException", ClassKind::Class),
             ("DateTime", ClassKind::Class),
             ("DateTimeImmutable", ClassKind::Class),
             ("DateTimeZone", ClassKind::Class),
