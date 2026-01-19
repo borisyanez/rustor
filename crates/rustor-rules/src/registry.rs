@@ -403,6 +403,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::string_contains::StringContainsRule::with_config(&get_config("string_contains"))));
         registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
+        registry.register(Box::new(super::utf8_decode_encode::Utf8DecodeEncodeRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
