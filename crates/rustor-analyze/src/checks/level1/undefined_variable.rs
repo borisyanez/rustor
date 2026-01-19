@@ -1980,6 +1980,16 @@ impl<'s> VariableAnalyzer<'s> {
                     false
                 };
 
+                // Check for condition correlation: if the ternary condition matches
+                // a previously-seen if condition, variables defined under that condition
+                // are also defined in the ternary's "then" branch
+                // Pattern: if ($cond) { $var = X; } ... $cond ? use($var) : null
+                let ternary_cond_text = self.normalize_condition(&self.get_condition_text(&ternary.condition));
+                let correlated_vars: Vec<String> = self.condition_assignments
+                    .get(&ternary_cond_text)
+                    .map(|vars| vars.iter().cloned().collect())
+                    .unwrap_or_default();
+
                 // If self-guarding, don't report the condition variable as undefined
                 // (the ternary handles undefined like isset does)
                 if is_self_guarding {
@@ -1990,10 +2000,13 @@ impl<'s> VariableAnalyzer<'s> {
                 }
 
                 if let Some(then) = &ternary.then {
-                    if !isset_vars.is_empty() {
-                        // Mark isset vars as defined for "then" branch analysis
+                    if !isset_vars.is_empty() || !correlated_vars.is_empty() {
+                        // Mark isset vars and correlated vars as defined for "then" branch analysis
                         let before_defined = self.current_scope().defined.clone();
                         for var in &isset_vars {
+                            self.current_scope_mut().defined.insert(var.clone());
+                        }
+                        for var in &correlated_vars {
                             self.current_scope_mut().defined.insert(var.clone());
                         }
 
