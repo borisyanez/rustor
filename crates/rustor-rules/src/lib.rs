@@ -99,6 +99,9 @@ pub mod multi_dirname;
 pub mod stringify_define;
 pub mod array_merge_simple;
 pub mod random_function;
+pub mod remove_get_class_no_args;
+pub mod rounding_mode_enum;
+pub mod dynamic_class_const_fetch;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -172,3 +175,6 @@ pub use multi_dirname::check_multi_dirname;
 pub use stringify_define::check_stringify_define;
 pub use array_merge_simple::check_array_merge_simple;
 pub use random_function::check_random_function;
+pub use remove_get_class_no_args::check_remove_get_class_no_args;
+pub use rounding_mode_enum::check_rounding_mode_enum;
+pub use dynamic_class_const_fetch::check_dynamic_class_const_fetch;

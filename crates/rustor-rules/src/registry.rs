@@ -436,6 +436,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::stringify_define::StringifyDefineRule));
         registry.register(Box::new(super::array_merge_simple::ArrayMergeSimpleRule));
         registry.register(Box::new(super::random_function::RandomFunctionRule));
+        registry.register(Box::new(super::remove_get_class_no_args::RemoveGetClassNoArgsRule));
+        registry.register(Box::new(super::rounding_mode_enum::RoundingModeEnumRule));
+        registry.register(Box::new(super::dynamic_class_const_fetch::DynamicClassConstFetchRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
