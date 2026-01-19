@@ -416,6 +416,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::simplify_in_array_values::SimplifyInArrayValuesRule));
         registry.register(Box::new(super::double_negation_to_cast::DoubleNegationToCastRule));
         registry.register(Box::new(super::simplify_func_get_args_count::SimplifyFuncGetArgsCountRule));
+        registry.register(Box::new(super::array_key_exists_to_coalesce::ArrayKeyExistsToCoalesceRule));
+        registry.register(Box::new(super::simplify_empty_array_check::SimplifyEmptyArrayCheckRule));
+        registry.register(Box::new(super::remove_concat_autocast::RemoveConcatAutocastRule));
+        registry.register(Box::new(super::common_not_equal::CommonNotEqualRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

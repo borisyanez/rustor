@@ -79,6 +79,10 @@ pub mod settype_to_cast;
 pub mod simplify_in_array_values;
 pub mod double_negation_to_cast;
 pub mod simplify_func_get_args_count;
+pub mod array_key_exists_to_coalesce;
+pub mod simplify_empty_array_check;
+pub mod remove_concat_autocast;
+pub mod common_not_equal;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -132,3 +136,7 @@ pub use settype_to_cast::check_settype_to_cast;
 pub use simplify_in_array_values::check_simplify_in_array_values;
 pub use double_negation_to_cast::check_double_negation_to_cast;
 pub use simplify_func_get_args_count::check_simplify_func_get_args_count;
+pub use array_key_exists_to_coalesce::check_array_key_exists_to_coalesce;
+pub use simplify_empty_array_check::check_simplify_empty_array_check;
+pub use remove_concat_autocast::check_remove_concat_autocast;
+pub use common_not_equal::check_common_not_equal;
