@@ -428,6 +428,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::join_string_concat::JoinStringConcatRule));
         registry.register(Box::new(super::sensitive_define::SensitiveDefineRule));
         registry.register(Box::new(super::flip_negated_ternary_instanceof::FlipNegatedTernaryInstanceofRule));
+        registry.register(Box::new(super::foreach_to_array_all::ForeachToArrayAllRule));
+        registry.register(Box::new(super::foreach_to_array_any::ForeachToArrayAnyRule));
+        registry.register(Box::new(super::foreach_to_array_find::ForeachToArrayFindRule));
+        registry.register(Box::new(super::foreach_to_array_find_key::ForeachToArrayFindKeyRule));
         registry.register(Box::new(super::simplify_tautology_ternary::SimplifyTautologyTernaryRule));
         registry.register(Box::new(super::dirname_file_to_dir::DirnameFileToDirRule));
         registry.register(Box::new(super::ternary_implode_to_implode::TernaryImplodeToImplodeRule));
