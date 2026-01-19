@@ -465,6 +465,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::split_double_assign::SplitDoubleAssignRule));
         registry.register(Box::new(super::split_grouped_class_constants::SplitGroupedClassConstantsRule));
         registry.register(Box::new(super::split_grouped_properties::SplitGroupedPropertiesRule));
+        registry.register(Box::new(super::func_call_to_const_fetch::FuncCallToConstFetchRule::with_config(&get_config("func_call_to_const_fetch"))));
+        registry.register(Box::new(super::func_call_to_new::FuncCallToNewRule::with_config(&get_config("func_call_to_new"))));
+        registry.register(Box::new(super::const_fetch_to_class_const_fetch::ConstFetchToClassConstFetchRule::with_config(&get_config("const_fetch_to_class_const_fetch"))));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

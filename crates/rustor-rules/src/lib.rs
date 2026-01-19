@@ -125,6 +125,9 @@ pub mod simplify_quote_escape;
 pub mod split_double_assign;
 pub mod split_grouped_class_constants;
 pub mod split_grouped_properties;
+pub mod func_call_to_const_fetch;
+pub mod func_call_to_new;
+pub mod const_fetch_to_class_const_fetch;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
