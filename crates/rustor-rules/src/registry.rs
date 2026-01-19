@@ -459,6 +459,12 @@ impl RuleRegistry {
         registry.register(Box::new(super::ternary_to_elvis::TernaryToElvisRule));
         registry.register(Box::new(super::remove_zero_break_continue::RemoveZeroBreakContinueRule));
         registry.register(Box::new(super::get_called_class_to_static::GetCalledClassToStaticRule));
+        registry.register(Box::new(super::post_to_pre_increment::PostToPreIncrementRule));
+        registry.register(Box::new(super::separate_multi_use_imports::SeparateMultiUseImportsRule));
+        registry.register(Box::new(super::simplify_quote_escape::SimplifyQuoteEscapeRule));
+        registry.register(Box::new(super::split_double_assign::SplitDoubleAssignRule));
+        registry.register(Box::new(super::split_grouped_class_constants::SplitGroupedClassConstantsRule));
+        registry.register(Box::new(super::split_grouped_properties::SplitGroupedPropertiesRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

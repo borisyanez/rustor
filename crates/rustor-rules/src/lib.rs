@@ -119,6 +119,12 @@ pub mod remove_reference_from_call;
 pub mod ternary_to_elvis;
 pub mod remove_zero_break_continue;
 pub mod get_called_class_to_static;
+pub mod post_to_pre_increment;
+pub mod separate_multi_use_imports;
+pub mod simplify_quote_escape;
+pub mod split_double_assign;
+pub mod split_grouped_class_constants;
+pub mod split_grouped_properties;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
