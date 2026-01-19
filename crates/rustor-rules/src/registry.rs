@@ -471,6 +471,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::func_call_to_static_call::FuncCallToStaticCallRule::with_config(&get_config("func_call_to_static_call"))));
         registry.register(Box::new(super::string_to_class_constant::StringToClassConstantRule::with_config(&get_config("string_to_class_constant"))));
         registry.register(Box::new(super::new_to_static_call::NewToStaticCallRule::with_config(&get_config("new_to_static_call"))));
+        registry.register(Box::new(super::static_call_to_new::StaticCallToNewRule::with_config(&get_config("static_call_to_new"))));
+        registry.register(Box::new(super::static_call_to_func_call::StaticCallToFuncCallRule::with_config(&get_config("static_call_to_func_call"))));
+        registry.register(Box::new(super::scalar_value_to_const_fetch::ScalarValueToConstFetchRule::with_config(&get_config("scalar_value_to_const_fetch"))));
+        registry.register(Box::new(super::attribute_key_to_class_const_fetch::AttributeKeyToClassConstFetchRule::with_config(&get_config("attribute_key_to_class_const_fetch"))));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

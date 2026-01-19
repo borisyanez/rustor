@@ -131,6 +131,10 @@ pub mod const_fetch_to_class_const_fetch;
 pub mod func_call_to_static_call;
 pub mod string_to_class_constant;
 pub mod new_to_static_call;
+pub mod static_call_to_new;
+pub mod static_call_to_func_call;
+pub mod scalar_value_to_const_fetch;
+pub mod attribute_key_to_class_const_fetch;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
