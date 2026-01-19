@@ -200,6 +200,78 @@ impl Baseline {
         Baseline { entries }
     }
 
+    /// Generate a baseline from issues, merging with an existing baseline
+    ///
+    /// If an existing baseline is provided:
+    /// - Preserves all existing entries
+    /// - Adds new entries for issues not already covered
+    /// - Useful for incrementally building a baseline
+    pub fn generate_with_existing(existing: Option<&Baseline>, issues: &IssueCollection) -> Self {
+        let new_baseline = Self::generate(issues);
+
+        match existing {
+            Some(existing) => {
+                // Start with existing entries
+                let mut merged_entries = existing.entries.clone();
+
+                // Add new entries that don't already exist
+                for new_entry in new_baseline.entries {
+                    // Check if entry already exists by comparing:
+                    // 1. Same file path
+                    // 2. Same message pattern (either exact match or regex match)
+                    let already_exists = existing.entries.iter().any(|e| {
+                        if e.path != new_entry.path {
+                            return false;
+                        }
+                        // Compare messages directly (both are regex patterns like #^...$#)
+                        if e.message == new_entry.message {
+                            return true;
+                        }
+                        // Also check if identifiers match (for cross-tool compatibility)
+                        if let (Some(existing_id), Some(new_id)) = (&e.identifier, &new_entry.identifier) {
+                            if existing_id == new_id {
+                                return true;
+                            }
+                        }
+                        false
+                    });
+
+                    if !already_exists {
+                        merged_entries.push(new_entry);
+                    }
+                }
+
+                // Sort for consistent output
+                merged_entries.sort_by(|a, b| {
+                    a.path.cmp(&b.path).then_with(|| a.message.cmp(&b.message))
+                });
+
+                Baseline { entries: merged_entries }
+            }
+            None => new_baseline,
+        }
+    }
+
+    /// Merge another baseline into this one
+    ///
+    /// Adds entries from `other` that don't already exist in `self`.
+    pub fn merge(&mut self, other: &Baseline) {
+        for entry in &other.entries {
+            let already_exists = self.entries.iter().any(|e| {
+                e.path == entry.path && e.message == entry.message
+            });
+
+            if !already_exists {
+                self.entries.push(entry.clone());
+            }
+        }
+
+        // Sort for consistent output
+        self.entries.sort_by(|a, b| {
+            a.path.cmp(&b.path).then_with(|| a.message.cmp(&b.message))
+        });
+    }
+
     /// Save baseline to a file (PHPStan NEON format)
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
         let content = self.to_neon();
@@ -516,5 +588,105 @@ parameters:
             escape_regex("foo().bar[]"),
             "foo\\(\\)\\.bar\\[\\]"
         );
+    }
+
+    #[test]
+    fn test_generate_with_existing() {
+        // Create an existing baseline with one entry
+        let existing = Baseline {
+            entries: vec![BaselineEntry::new(
+                "#^Existing error$#".to_string(),
+                1,
+                "existing.php".to_string(),
+                Some("existing.id".to_string()),
+            )],
+        };
+
+        // Create new issues - one that matches existing, one that's new
+        let mut issues = IssueCollection::new();
+        issues.add(Issue::error(
+            "new.id",
+            "New error",
+            PathBuf::from("new.php"),
+            10,
+            1,
+        ).with_identifier("new.id"));
+
+        // Generate with existing baseline
+        let merged = Baseline::generate_with_existing(Some(&existing), &issues);
+
+        // Should have both entries
+        assert_eq!(merged.entries.len(), 2);
+
+        // Existing entry should be preserved
+        assert!(merged.entries.iter().any(|e| e.path == "existing.php"));
+
+        // New entry should be added
+        assert!(merged.entries.iter().any(|e| e.path == "new.php"));
+    }
+
+    #[test]
+    fn test_generate_with_existing_no_duplicates() {
+        // Create an existing baseline
+        let existing = Baseline {
+            entries: vec![BaselineEntry::new(
+                "#^Variable \\$foo might not be defined\\.$#".to_string(),
+                1,
+                "test.php".to_string(),
+                Some("variable.undefined".to_string()),
+            )],
+        };
+
+        // Create issue with same message
+        let mut issues = IssueCollection::new();
+        issues.add(Issue::error(
+            "variable.undefined",
+            "Variable $foo might not be defined.",
+            PathBuf::from("test.php"),
+            10,
+            1,
+        ).with_identifier("variable.undefined"));
+
+        // Generate with existing baseline
+        let merged = Baseline::generate_with_existing(Some(&existing), &issues);
+
+        // Should still have only one entry (no duplicate)
+        assert_eq!(merged.entries.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_baseline() {
+        let mut baseline1 = Baseline {
+            entries: vec![BaselineEntry::new(
+                "#^Error 1$#".to_string(),
+                1,
+                "file1.php".to_string(),
+                None,
+            )],
+        };
+
+        let baseline2 = Baseline {
+            entries: vec![
+                BaselineEntry::new(
+                    "#^Error 1$#".to_string(),
+                    1,
+                    "file1.php".to_string(),
+                    None,
+                ),
+                BaselineEntry::new(
+                    "#^Error 2$#".to_string(),
+                    1,
+                    "file2.php".to_string(),
+                    None,
+                ),
+            ],
+        };
+
+        baseline1.merge(&baseline2);
+
+        // Should have 2 entries (1 original + 1 new, no duplicate)
+        assert_eq!(baseline1.entries.len(), 2);
+        assert!(baseline1.entries.iter().any(|e| e.path == "file1.php"));
+        assert!(baseline1.entries.iter().any(|e| e.path == "file2.php"));
     }
 }

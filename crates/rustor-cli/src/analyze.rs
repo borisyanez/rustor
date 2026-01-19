@@ -167,14 +167,54 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
 
     // Generate baseline if requested
     if let Some(baseline_output) = &args.generate_baseline {
-        let baseline = Baseline::generate(&issues);
+        // Load existing baseline if --baseline was specified, to merge with it
+        let existing_baseline = if let Some(baseline_path) = &args.baseline {
+            if baseline_path.exists() {
+                match Baseline::load(baseline_path) {
+                    Ok(b) => {
+                        if args.verbose {
+                            println!("{}: Merging with existing baseline ({} entries)",
+                                     "Info".bold(), b.len());
+                        }
+                        Some(b)
+                    }
+                    Err(e) => {
+                        eprintln!("{}: Failed to load existing baseline: {}",
+                                  "Warning".yellow(), e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Generate baseline, merging with existing if available
+        let baseline = Baseline::generate_with_existing(existing_baseline.as_ref(), &issues);
+        let new_count = baseline.entries.len();
+        let existing_count = existing_baseline.map(|b| b.len()).unwrap_or(0);
+
         baseline.save(baseline_output)?;
-        println!(
-            "{}: Generated baseline with {} entries to {}",
-            "Done".green(),
-            baseline.entries.len(),
-            baseline_output.display()
-        );
+
+        if existing_count > 0 {
+            println!(
+                "{}: Generated baseline with {} entries ({} existing + {} new) to {}",
+                "Done".green(),
+                new_count,
+                existing_count,
+                new_count.saturating_sub(existing_count),
+                baseline_output.display()
+            );
+        } else {
+            println!(
+                "{}: Generated baseline with {} entries to {}",
+                "Done".green(),
+                new_count,
+                baseline_output.display()
+            );
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
