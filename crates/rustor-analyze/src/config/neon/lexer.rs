@@ -151,7 +151,9 @@ impl<'a> Lexer<'a> {
                     // End of string
                     break;
                 }
-            } else if ch == '\\' {
+            } else if ch == '\\' && quote == '"' {
+                // Backslash escapes only work in double-quoted strings
+                // In single-quoted strings, backslash is literal
                 if let Some(escaped) = self.advance() {
                     match escaped {
                         'n' => result.push('\n'),
@@ -203,7 +205,37 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        result
+        // NEON multi-line strings strip common leading indentation
+        Self::strip_common_indent(&result)
+    }
+
+    /// Strip common leading indentation from multi-line string (NEON behavior)
+    fn strip_common_indent(s: &str) -> String {
+        let lines: Vec<&str> = s.lines().collect();
+        if lines.is_empty() {
+            return String::new();
+        }
+
+        // Find minimum indentation (tabs/spaces) among non-empty lines
+        let min_indent = lines.iter()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                line.chars().take_while(|c| *c == '\t' || *c == ' ').count()
+            })
+            .min()
+            .unwrap_or(0);
+
+        // Strip that many chars from the start of each line
+        lines.iter()
+            .map(|line| {
+                if line.len() >= min_indent {
+                    &line[min_indent..]
+                } else {
+                    line.trim_start()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn read_identifier(&mut self) -> String {

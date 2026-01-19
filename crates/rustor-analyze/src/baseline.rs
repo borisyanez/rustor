@@ -288,13 +288,13 @@ impl Baseline {
             // otherwise use single-quoted string
             if entry.message.contains('\n') {
                 // Multi-line NEON string format: '''...'''
-                // Escape backslashes and single quotes within the message
-                let escaped = entry.message
-                    .replace('\\', "\\\\")
-                    .replace('\'', "''");
+                // In triple-quoted strings, content is literal (no escaping needed)
+                // Add proper indentation (4 tabs) for each line to match PHPStan format
                 output.push_str("\t\t\tmessage: '''\n");
-                for line in escaped.lines() {
-                    output.push_str(&format!("\t\t\t\t{}\n", line));
+                for line in entry.message.lines() {
+                    if !line.is_empty() {
+                        output.push_str(&format!("\t\t\t\t{}\n", line));
+                    }
                 }
                 output.push_str("\t\t\t'''\n");
             } else {
@@ -443,12 +443,11 @@ fn escape_regex(s: &str) -> String {
 /// Escape special characters for NEON single-quoted string
 fn escape_neon_string(s: &str) -> String {
     // In NEON single-quoted strings:
-    // - Backslashes need escaping as \\ (for regex patterns to work)
     // - Single quotes need escaping as ''
     // - Newlines are not allowed (replace with space)
     // - Tabs should be replaced with spaces
-    s.replace('\\', "\\\\")
-        .replace('\'', "''")
+    // - Backslashes are literal (no escaping needed)
+    s.replace('\'', "''")
         .replace('\n', " ")
         .replace('\r', "")
         .replace('\t', " ")
