@@ -128,6 +128,9 @@ pub mod split_grouped_properties;
 pub mod func_call_to_const_fetch;
 pub mod func_call_to_new;
 pub mod const_fetch_to_class_const_fetch;
+pub mod func_call_to_static_call;
+pub mod string_to_class_constant;
+pub mod new_to_static_call;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
