@@ -70,6 +70,10 @@ pub mod sprintf_positional;
 pub mod string_contains;
 pub mod string_starts_ends;
 pub mod type_cast;
+pub mod is_countable;
+pub mod simplify_strpos_lower;
+pub mod unnecessary_ternary;
+pub mod unwrap_sprintf;
 pub mod utf8_decode_encode;
 
 // Re-export the Rule trait, registry, and metadata types
@@ -115,4 +119,8 @@ pub use sprintf_positional::check_sprintf_positional;
 pub use string_contains::check_string_contains;
 pub use string_starts_ends::check_string_starts_ends;
 pub use type_cast::check_type_cast;
+pub use is_countable::check_is_countable;
+pub use simplify_strpos_lower::check_simplify_strpos_lower;
+pub use unnecessary_ternary::check_unnecessary_ternary;
+pub use unwrap_sprintf::check_unwrap_sprintf;
 pub use utf8_decode_encode::check_utf8_decode_encode;

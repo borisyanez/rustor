@@ -408,6 +408,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::string_starts_ends::StringStartsEndsRule));
         registry.register(Box::new(super::type_cast::TypeCastRule));
         registry.register(Box::new(super::utf8_decode_encode::Utf8DecodeEncodeRule));
+        registry.register(Box::new(super::is_countable::IsCountableRule));
+        registry.register(Box::new(super::simplify_strpos_lower::SimplifyStrposLowerRule));
+        registry.register(Box::new(super::unnecessary_ternary::UnnecessaryTernaryRule));
+        registry.register(Box::new(super::unwrap_sprintf::UnwrapSprintfRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
