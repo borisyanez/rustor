@@ -167,13 +167,15 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
 
     // Generate baseline if requested
     if let Some(baseline_output) = &args.generate_baseline {
-        // Load existing baseline if --baseline was specified, to merge with it
+        // Load existing baseline to merge with it
+        // Priority: 1) --baseline flag, 2) output file if it already exists
         let existing_baseline = if let Some(baseline_path) = &args.baseline {
+            // Explicit --baseline flag takes priority
             if baseline_path.exists() {
                 match Baseline::load(baseline_path) {
                     Ok(b) => {
                         if args.verbose {
-                            println!("{}: Merging with existing baseline ({} entries)",
+                            println!("{}: Merging with existing baseline from --baseline ({} entries)",
                                      "Info".bold(), b.len());
                         }
                         Some(b)
@@ -186,6 +188,22 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<ExitCode> {
                 }
             } else {
                 None
+            }
+        } else if baseline_output.exists() {
+            // No --baseline flag, but output file exists - merge with it
+            match Baseline::load(baseline_output) {
+                Ok(b) => {
+                    if args.verbose {
+                        println!("{}: Merging with existing baseline at output path ({} entries)",
+                                 "Info".bold(), b.len());
+                    }
+                    Some(b)
+                }
+                Err(e) => {
+                    eprintln!("{}: Failed to load existing baseline at {}: {}",
+                              "Warning".yellow(), baseline_output.display(), e);
+                    None
+                }
             }
         } else {
             None
