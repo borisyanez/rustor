@@ -1,6 +1,6 @@
 //! Rule extractor - builds RectorRule from parsed PHP files
 
-use crate::pattern_detector::{detect_pattern, detect_pattern_from_samples};
+use crate::pattern_detector::{detect_pattern_from_samples, detect_pattern_with_ast};
 use crate::php_parser::{extract_category, extract_php_version, parse_rule_file};
 use crate::{ImportResult, RectorRule, RulePattern};
 use std::fs;
@@ -69,9 +69,9 @@ pub fn extract_rule_from_file(path: &Path) -> Result<Option<RectorRule>, String>
     // Determine PHP version from category if applicable
     let min_php_version = extract_php_version(&category);
 
-    // Detect pattern from refactor body
+    // Detect pattern from refactor body using AST analysis + regex fallback
     let mut pattern = if let Some(ref body) = parsed.refactor_body {
-        detect_pattern(body, &parsed.node_types)
+        detect_pattern_with_ast(body, &parsed.node_types)
     } else {
         RulePattern::Unknown
     };

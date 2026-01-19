@@ -5,6 +5,7 @@
 //! 2. Extract rule patterns and metadata
 //! 3. Generate equivalent rustor Rust rules or YAML rules
 
+pub mod ast_analyzer;
 pub mod ast_mapper;
 pub mod codegen;
 pub mod pattern_detector;

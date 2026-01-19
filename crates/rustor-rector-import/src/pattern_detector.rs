@@ -1,7 +1,101 @@
 //! Pattern detector - analyzes refactor() body to detect rule patterns
 
+use crate::ast_analyzer::{analyze_php, detect_pattern_from_ast, DetectedPattern};
 use crate::RulePattern;
 use regex::Regex;
+
+/// Detect the pattern using AST analysis first, then fall back to regex
+pub fn detect_pattern_with_ast(refactor_body: &str, node_types: &[String]) -> RulePattern {
+    // Wrap the refactor body in a minimal PHP context for AST parsing
+    let php_code = format!("<?php\nclass R {{\n    public function refactor() {{\n{}\n    }}\n}}", refactor_body);
+
+    // Try AST-based detection first
+    let analysis = analyze_php(&php_code);
+    if let Some(detected) = detect_pattern_from_ast(&analysis) {
+        match detected {
+            DetectedPattern::FunctionRename { from, to } => {
+                // Check if it's a known alias
+                if is_known_alias(&from, &to) {
+                    return RulePattern::FunctionAlias { from, to };
+                }
+                return RulePattern::FunctionRename { from, to };
+            }
+            DetectedPattern::FunctionToComparison {
+                func,
+                operator,
+                compare_value,
+            } => {
+                return RulePattern::FunctionToComparison {
+                    func,
+                    operator,
+                    compare_value,
+                };
+            }
+            DetectedPattern::FunctionToCast { func, cast_type } => {
+                return RulePattern::FunctionToCast { func, cast_type };
+            }
+            DetectedPattern::FunctionToOperator { func, operator } => {
+                return RulePattern::FunctionToOperator {
+                    func,
+                    operator,
+                    arg_positions: vec![0, 1],
+                };
+            }
+            DetectedPattern::FunctionToClassConstant { func } => {
+                return RulePattern::FunctionToClassConstant { func };
+            }
+            DetectedPattern::FunctionToInstanceof { func } => {
+                return RulePattern::FunctionToInstanceof { func };
+            }
+            DetectedPattern::FunctionNoArgsToFunction { from, to } => {
+                return RulePattern::FunctionNoArgsToFunction { from, to };
+            }
+            DetectedPattern::TernaryToCoalesce => {
+                return RulePattern::TernaryToCoalesce {
+                    condition_func: "isset".to_string(),
+                };
+            }
+            DetectedPattern::StrContains => {
+                return RulePattern::StrContains;
+            }
+            DetectedPattern::StrStartsWith => {
+                return RulePattern::StrStartsWith;
+            }
+            DetectedPattern::StrEndsWith => {
+                return RulePattern::StrEndsWith;
+            }
+        }
+    }
+
+    // Fall back to regex-based detection
+    detect_pattern(refactor_body, node_types)
+}
+
+/// Check if a function rename is a known alias
+fn is_known_alias(from: &str, to: &str) -> bool {
+    let aliases = [
+        ("sizeof", "count"),
+        ("key_exists", "array_key_exists"),
+        ("pos", "current"),
+        ("join", "implode"),
+        ("chop", "rtrim"),
+        ("strchr", "strstr"),
+        ("split", "preg_split"),
+        ("spliti", "preg_split"),
+        ("is_double", "is_float"),
+        ("is_integer", "is_int"),
+        ("is_long", "is_int"),
+        ("is_real", "is_float"),
+        ("is_writeable", "is_writable"),
+        ("fputs", "fwrite"),
+        ("close", "closedir"),
+        ("show_source", "highlight_file"),
+        ("doubleval", "floatval"),
+        ("ini_alter", "ini_set"),
+    ];
+
+    aliases.iter().any(|(a, b)| a == &from && b == &to)
+}
 
 /// Detect the pattern used in a Rector rule's refactor() method
 pub fn detect_pattern(refactor_body: &str, node_types: &[String]) -> RulePattern {

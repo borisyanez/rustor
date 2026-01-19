@@ -9,6 +9,12 @@ name = "rustor-import-rector"
 path = "src/main.rs"
 
 [dependencies]
+# PHP AST parsing
+mago-syntax = "1.0"
+mago-span = "1.0"
+mago-database = "1.0"
+bumpalo = "3.16"
+
 # Parsing and pattern matching
 regex = "1.10"
 
