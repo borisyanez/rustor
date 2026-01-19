@@ -195,6 +195,7 @@ impl Preset {
                 "constructor_promotion",
                 "first_class_callables",
                 "get_class_this",
+                "get_debug_type",
                 "list_short_syntax",
                 "isset_coalesce",
                 "empty_coalesce",
@@ -381,6 +382,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
         registry.register(Box::new(super::first_class_callables::FirstClassCallablesRule));
         registry.register(Box::new(super::get_class_this::GetClassThisRule));
+        registry.register(Box::new(super::get_debug_type::GetDebugTypeRule));
         registry.register(Box::new(super::implode_order::ImplodeOrderRule));
         registry.register(Box::new(super::is_null::IsNullRule));
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
