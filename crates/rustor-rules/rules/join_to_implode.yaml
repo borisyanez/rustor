@@ -1,6 +1,6 @@
 # Replace join($glue, $arr) with implode($glue, $arr)
 # join() is an alias of implode() - use the canonical name
-name: join_to_implode
+name: yaml_join_to_implode
 description: "Replace join() with implode() (canonical function name)"
 category: code_quality
 min_php: "5.4"

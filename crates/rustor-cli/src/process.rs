@@ -46,6 +46,18 @@ pub fn process_file_with_skip(
     rule_configs: &RuleConfigs,
     skip_rules: &HashSet<String>,
 ) -> Result<Option<ProcessResult>> {
+    // Create a registry from config (for backwards compatibility)
+    let registry = RuleRegistry::new_with_config(rule_configs);
+    process_file_with_registry(path, enabled_rules, &registry, skip_rules)
+}
+
+/// Process a single PHP file with an existing registry and skip rules
+pub fn process_file_with_registry(
+    path: &Path,
+    enabled_rules: &HashSet<String>,
+    registry: &RuleRegistry,
+    skip_rules: &HashSet<String>,
+) -> Result<Option<ProcessResult>> {
     let source_code = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
@@ -62,8 +74,7 @@ pub fn process_file_with_skip(
         return Ok(None); // Signal parse error by returning None
     }
 
-    // Apply enabled refactoring rules using the registry with config
-    let registry = RuleRegistry::new_with_config(rule_configs);
+    // Apply enabled refactoring rules using the provided registry
     let edits = registry.check_all(program, &source_code, enabled_rules);
 
     if edits.is_empty() {

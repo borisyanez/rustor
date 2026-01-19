@@ -351,4 +351,12 @@ mod tests {
         assert!(Replacer::evaluate_condition("$x.exists", &bindings));
         assert!(!Replacer::evaluate_condition("$y.exists", &bindings));
     }
+
+    #[test]
+    fn test_spread_template_substitution() {
+        // Test that spread captures like $args are properly substituted
+        let bindings = make_bindings(&[("args", "',', $arr")]);
+        let result = Replacer::substitute_template("implode($args)", &bindings);
+        assert_eq!(result, "implode(',', $arr)");
+    }
 }

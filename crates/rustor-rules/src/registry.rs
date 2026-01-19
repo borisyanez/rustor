@@ -4,6 +4,7 @@ use mago_syntax::ast::Program;
 use rustor_core::Edit;
 use std::collections::HashSet;
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 /// PHP version for filtering rules by minimum requirement
@@ -346,6 +347,7 @@ pub trait ConfigurableRule: Rule {
 /// Registry of all available refactoring rules
 pub struct RuleRegistry {
     rules: Vec<Box<dyn Rule>>,
+    yaml_rule_dirs: Vec<std::path::PathBuf>,
 }
 
 impl RuleRegistry {
@@ -358,7 +360,10 @@ impl RuleRegistry {
     pub fn new_with_config(configs: &RuleConfigs) -> Self {
         use std::collections::HashMap;
 
-        let mut registry = Self { rules: Vec::new() };
+        let mut registry = Self {
+            rules: Vec::new(),
+            yaml_rule_dirs: Vec::new(),
+        };
 
         // Helper to get config for a rule or empty map
         let get_config = |name: &str| -> HashMap<String, ConfigValue> {
@@ -525,6 +530,82 @@ impl RuleRegistry {
         }
         edits
     }
+
+    /// Load YAML rules from a directory and add them to the registry
+    ///
+    /// Returns the number of rules loaded, or an error if loading failed.
+    pub fn load_yaml_rules_from_dir(&mut self, dir: &Path) -> Result<usize, String> {
+        use super::yaml_rules::load_rules_from_dir;
+
+        match load_rules_from_dir(dir) {
+            Ok(interpreters) => {
+                let count = interpreters.len();
+                for interpreter in interpreters {
+                    self.register(Box::new(interpreter));
+                }
+                self.yaml_rule_dirs.push(dir.to_path_buf());
+                Ok(count)
+            }
+            Err(e) => Err(format!("Failed to load YAML rules from {}: {}", dir.display(), e)),
+        }
+    }
+
+    /// Load YAML rules from a single file and add them to the registry
+    pub fn load_yaml_rules_from_file(&mut self, path: &Path) -> Result<usize, String> {
+        use super::yaml_rules::load_rules_from_file;
+
+        match load_rules_from_file(path) {
+            Ok(interpreters) => {
+                let count = interpreters.len();
+                for interpreter in interpreters {
+                    self.register(Box::new(interpreter));
+                }
+                Ok(count)
+            }
+            Err(e) => Err(format!("Failed to load YAML rules from {}: {}", path.display(), e)),
+        }
+    }
+
+    /// Load YAML rules from a string and add them to the registry
+    pub fn load_yaml_rules_from_string(&mut self, yaml: &str) -> Result<usize, String> {
+        use super::yaml_rules::load_rules_from_string;
+
+        match load_rules_from_string(yaml) {
+            Ok(interpreters) => {
+                let count = interpreters.len();
+                for interpreter in interpreters {
+                    self.register(Box::new(interpreter));
+                }
+                Ok(count)
+            }
+            Err(e) => Err(format!("Failed to parse YAML rules: {}", e)),
+        }
+    }
+
+    /// Load bundled YAML rules from the crate's rules directory
+    ///
+    /// This loads rules shipped with rustor-rules.
+    pub fn load_bundled_yaml_rules(&mut self) -> Result<usize, String> {
+        // Try to find the rules directory relative to the manifest
+        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules");
+
+        if rules_dir.is_dir() {
+            self.load_yaml_rules_from_dir(&rules_dir)
+        } else {
+            // Rules directory not found - this is OK in release builds
+            Ok(0)
+        }
+    }
+
+    /// Get the list of YAML rule directories that have been loaded
+    pub fn yaml_rule_dirs(&self) -> &[std::path::PathBuf] {
+        &self.yaml_rule_dirs
+    }
+
+    /// Get the total number of rules in the registry
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
 }
 
 /// Rule information for display
@@ -539,5 +620,108 @@ pub struct RuleInfo {
 impl Default for RuleRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registry_load_bundled_yaml_rules() {
+        let mut registry = RuleRegistry::new();
+        let initial_count = registry.rule_count();
+
+        let loaded = registry.load_bundled_yaml_rules().expect("Failed to load bundled YAML rules");
+
+        // We have 5 bundled YAML rules
+        assert_eq!(loaded, 5, "Expected 5 bundled YAML rules");
+        assert_eq!(registry.rule_count(), initial_count + 5);
+
+        // Check that the rules are accessible by name
+        let all_names = registry.all_names();
+        assert!(all_names.contains(&"is_null_to_comparison"));
+        assert!(all_names.contains(&"sizeof_to_count"));
+        assert!(all_names.contains(&"strpos_to_str_contains"));
+        assert!(all_names.contains(&"array_push_to_assignment"));
+        assert!(all_names.contains(&"yaml_join_to_implode"));
+    }
+
+    #[test]
+    fn test_registry_load_yaml_from_string() {
+        let mut registry = RuleRegistry::new();
+        let initial_count = registry.rule_count();
+
+        let yaml = r#"
+name: test_yaml_rule
+description: "A test rule loaded from string"
+category: code_quality
+
+match:
+  node: FuncCall
+  name: old_test_func
+  args:
+    - capture: $arg
+
+replace: "new_test_func($arg)"
+
+tests:
+  - input: "old_test_func($x)"
+    output: "new_test_func($x)"
+"#;
+
+        let loaded = registry.load_yaml_rules_from_string(yaml).expect("Failed to load YAML rule from string");
+
+        assert_eq!(loaded, 1);
+        assert_eq!(registry.rule_count(), initial_count + 1);
+        assert!(registry.all_names().contains(&"test_yaml_rule"));
+    }
+
+    #[test]
+    fn test_yaml_rule_check_integration() {
+        use bumpalo::Bump;
+        use mago_database::file::FileId;
+        use mago_syntax::parser::parse_file_content;
+
+        let mut registry = RuleRegistry::new();
+        registry.load_bundled_yaml_rules().unwrap();
+
+        // Test that sizeof_to_count rule works through the registry
+        let code = "<?php sizeof($arr);";
+        let bump = Bump::new();
+        let file_id = FileId::new("test.php");
+        let (program, _) = parse_file_content(&bump, file_id, code);
+
+        let mut enabled = HashSet::new();
+        enabled.insert("sizeof_to_count".to_string());
+
+        let edits = registry.check_all(program, code, &enabled);
+
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].replacement, "count($arr)");
+    }
+
+    #[test]
+    fn test_yaml_rule_join_to_implode() {
+        use bumpalo::Bump;
+        use mago_database::file::FileId;
+        use mago_syntax::parser::parse_file_content;
+
+        let mut registry = RuleRegistry::new();
+        registry.load_bundled_yaml_rules().unwrap();
+
+        // Test that yaml_join_to_implode rule works with spread capture
+        let code = "<?php join(',', $arr);";
+        let bump = Bump::new();
+        let file_id = FileId::new("test.php");
+        let (program, _) = parse_file_content(&bump, file_id, code);
+
+        let mut enabled = HashSet::new();
+        enabled.insert("yaml_join_to_implode".to_string());
+
+        let edits = registry.check_all(program, code, &enabled);
+
+        assert_eq!(edits.len(), 1, "Should find one edit");
+        assert_eq!(edits[0].replacement, "implode(',', $arr)", "Should replace with implode and preserve args");
     }
 }

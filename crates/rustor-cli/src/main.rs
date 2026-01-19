@@ -39,7 +39,7 @@ use std::sync::Mutex;
 use cache::{hash_file, hash_rules, Cache};
 use config::Config;
 use output::{EditInfo, OutputFormat, Reporter};
-use process::{process_file_with_skip, write_file};
+use process::{process_file_with_registry, process_file_with_skip, write_file};
 use rustor_rules::{Category, PhpVersion, Preset, RuleConfigs, RuleRegistry};
 
 #[derive(Parser)]
@@ -103,6 +103,14 @@ struct Cli {
     /// Use a preset rule configuration (recommended, performance, modernize, all)
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
+
+    /// Load additional YAML rules from a directory
+    #[arg(long, value_name = "DIR")]
+    yaml_rules: Option<PathBuf>,
+
+    /// Load bundled YAML rules shipped with rustor
+    #[arg(long)]
+    bundled_yaml_rules: bool,
 
     /// Disable caching (always re-process all files)
     #[arg(long)]
@@ -251,7 +259,35 @@ fn run() -> Result<ExitCode> {
     let rule_configs: RuleConfigs = config.rules.to_rule_configs();
 
     // Create rule registry with configuration
-    let registry = RuleRegistry::new_with_config(&rule_configs);
+    let mut registry = RuleRegistry::new_with_config(&rule_configs);
+
+    // Load YAML rules if requested
+    if cli.bundled_yaml_rules {
+        match registry.load_bundled_yaml_rules() {
+            Ok(count) => {
+                if cli.verbose && output_format == OutputFormat::Text {
+                    println!("{}: {} rules", "Loaded bundled YAML rules".bold(), count);
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: {}", "Warning".yellow(), e);
+            }
+        }
+    }
+
+    if let Some(yaml_dir) = &cli.yaml_rules {
+        match registry.load_yaml_rules_from_dir(yaml_dir) {
+            Ok(count) => {
+                if cli.verbose && output_format == OutputFormat::Text {
+                    println!("{}: {} rules from {}", "Loaded YAML rules".bold(), count, yaml_dir.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: {}", "Error".red(), e);
+                return Ok(ExitCode::FAILURE);
+            }
+        }
+    }
 
     // Handle --list-rules
     if cli.list_rules {
@@ -585,7 +621,7 @@ fn run() -> Result<ExitCode> {
             }
 
             // Cache miss - process the file
-            let result = process_file_to_result(path, &enabled_rules, &rule_configs, &config);
+            let result = process_file_to_result(path, &enabled_rules, &registry, &config);
 
             // Update cache with result
             if use_cache {
@@ -759,7 +795,7 @@ enum FileResult {
 fn process_file_to_result(
     path: &PathBuf,
     enabled_rules: &HashSet<String>,
-    rule_configs: &RuleConfigs,
+    registry: &RuleRegistry,
     config: &Config,
 ) -> FileResult {
     // Check if all rules should be skipped for this path
@@ -770,7 +806,7 @@ fn process_file_to_result(
     // Get rules to skip for this specific path
     let skip_rules = config.skipped_rules_for_path(path);
 
-    match process_file_with_skip(path, enabled_rules, rule_configs, &skip_rules) {
+    match process_file_with_registry(path, enabled_rules, registry, &skip_rules) {
         Ok(Some(result)) => {
             if result.edits.is_empty() {
                 FileResult::NoChanges

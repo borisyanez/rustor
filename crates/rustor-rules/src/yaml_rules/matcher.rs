@@ -455,15 +455,41 @@ impl<'s> PatternMatcher<'s> {
         for pattern in patterns {
             match pattern {
                 ArgPattern::Capture { capture } => {
-                    if arg_idx >= args.len() {
-                        return None;
+                    // Check if this is a spread capture (ends with ...)
+                    if capture.ends_with("...") {
+                        // Treat as spread capture - capture all remaining arguments
+                        let name = capture.strip_prefix('$').unwrap_or(capture);
+                        let name = name.strip_suffix("...").unwrap_or(name);
+                        let remaining: Vec<_> = args[arg_idx..]
+                            .iter()
+                            .map(|a| self.span_text(&a.value().span()))
+                            .collect();
+                        let text = remaining.join(", ");
+                        // Use the span from first remaining arg to last
+                        if let Some(first) = args.get(arg_idx) {
+                            if let Some(last) = args.last() {
+                                let first_span = first.value().span();
+                                let last_span = last.value().span();
+                                let span = Span {
+                                    file_id: first_span.file_id,
+                                    start: first_span.start,
+                                    end: last_span.end,
+                                };
+                                bindings.insert(name.to_string(), text, span);
+                            }
+                        }
+                        break; // Spread consumes all remaining
+                    } else {
+                        if arg_idx >= args.len() {
+                            return None;
+                        }
+                        let arg = args[arg_idx];
+                        let name = capture.strip_prefix('$').unwrap_or(capture);
+                        let arg_span = arg.value().span();
+                        let text = self.span_text(&arg_span);
+                        bindings.insert(name.to_string(), text.to_string(), arg_span);
+                        arg_idx += 1;
                     }
-                    let arg = args[arg_idx];
-                    let name = capture.strip_prefix('$').unwrap_or(capture);
-                    let arg_span = arg.value().span();
-                    let text = self.span_text(&arg_span);
-                    bindings.insert(name.to_string(), text.to_string(), arg_span);
-                    arg_idx += 1;
                 }
                 ArgPattern::Literal { literal } => {
                     if arg_idx >= args.len() {
@@ -477,7 +503,9 @@ impl<'s> PatternMatcher<'s> {
                 }
                 ArgPattern::Spread { capture } => {
                     // Capture all remaining arguments
+                    // Strip both $ prefix and ... suffix from name
                     let name = capture.strip_prefix('$').unwrap_or(capture);
+                    let name = name.strip_suffix("...").unwrap_or(name);
                     let remaining: Vec<_> = args[arg_idx..]
                         .iter()
                         .map(|a| self.span_text(&a.value().span()))
@@ -864,6 +892,41 @@ mod tests {
             let bindings = bindings.unwrap();
             assert!(bindings.contains("expr"));
             assert_eq!(bindings.get_text("expr"), Some("$x"));
+        }
+    }
+
+    #[test]
+    fn test_match_func_call_spread() {
+        let (source, program) = parse_expr("join(',', $arr)");
+        let matcher = PatternMatcher::new(&source);
+
+        let pattern = NodePattern {
+            node: "FuncCall".to_string(),
+            name: Some(StringOrCapture::Literal("join".to_string())),
+            args: vec![ArgPattern::Spread {
+                capture: "$args...".to_string(),
+            }],
+            class: None,
+            method: None,
+            object: None,
+            operator: None,
+            left: None,
+            right: None,
+            condition: None,
+            then: None,
+            else_branch: None,
+            syntax: None,
+            items: None,
+        };
+
+        // Get the expression from the parsed program
+        if let Some(Statement::Expression(stmt)) = program.statements.first() {
+            let bindings = matcher.match_node_pattern(&pattern, &stmt.expression);
+            assert!(bindings.is_some(), "Pattern should match");
+            let bindings = bindings.unwrap();
+            assert!(bindings.contains("args"), "Should capture 'args'");
+            let text = bindings.get_text("args").unwrap();
+            assert_eq!(text, "',', $arr", "Spread should capture all args joined");
         }
     }
 }
