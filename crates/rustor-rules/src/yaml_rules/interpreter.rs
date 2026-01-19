@@ -164,6 +164,7 @@ impl Rule for YamlRuleInterpreter {
                 "8.2" => Some(PhpVersion::Php82),
                 "8.3" => Some(PhpVersion::Php83),
                 "8.4" => Some(PhpVersion::Php84),
+                "8.5" => Some(PhpVersion::Php85),
                 _ => None,
             }
         })
@@ -173,7 +174,7 @@ impl Rule for YamlRuleInterpreter {
         match self.rule.category.to_lowercase().as_str() {
             "performance" => Category::Performance,
             "modernization" | "modernize" | "php70" | "php71" | "php72" | "php73" | "php74"
-            | "php80" | "php81" | "php82" | "php83" | "php84" => Category::Modernization,
+            | "php80" | "php81" | "php82" | "php83" | "php84" | "php85" => Category::Modernization,
             "compatibility" => Category::Compatibility,
             _ => Category::Simplification,
         }

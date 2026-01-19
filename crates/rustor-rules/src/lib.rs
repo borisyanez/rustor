@@ -35,6 +35,7 @@ pub mod yaml_rules;
 
 pub mod imported;
 
+pub mod array_first_last;
 pub mod array_key_first_last;
 pub mod array_push;
 pub mod arrow_functions;
@@ -44,6 +45,7 @@ pub mod class_constructor;
 pub mod class_on_object;
 pub mod constructor_promotion;
 pub mod empty_coalesce;
+pub mod explicit_nullable_param;
 pub mod filter_var_to_addslashes;
 pub mod first_class_callables;
 pub mod get_class_this;
@@ -122,6 +124,7 @@ pub use yaml_rules::{
 };
 
 // Re-export check functions (for backwards compatibility)
+pub use array_first_last::check_array_first_last;
 pub use array_key_first_last::check_array_key_first_last;
 pub use array_push::check_array_push;
 pub use arrow_functions::check_arrow_functions;
@@ -130,6 +133,7 @@ pub use array_syntax::check_array_syntax;
 pub use class_constructor::check_class_constructor;
 pub use constructor_promotion::check_constructor_promotion;
 pub use empty_coalesce::check_empty_coalesce;
+pub use explicit_nullable_param::check_explicit_nullable_param;
 pub use first_class_callables::check_first_class_callables;
 pub use class_on_object::check_class_on_object;
 pub use filter_var_to_addslashes::check_filter_var_to_addslashes;

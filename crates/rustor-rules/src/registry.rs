@@ -23,6 +23,7 @@ pub enum PhpVersion {
     Php82,
     Php83,
     Php84,
+    Php85,
 }
 
 impl PhpVersion {
@@ -41,6 +42,7 @@ impl PhpVersion {
             PhpVersion::Php82 => "8.2",
             PhpVersion::Php83 => "8.3",
             PhpVersion::Php84 => "8.4",
+            PhpVersion::Php85 => "8.5",
         }
     }
 }
@@ -69,7 +71,8 @@ impl FromStr for PhpVersion {
             "8.2" => Ok(PhpVersion::Php82),
             "8.3" => Ok(PhpVersion::Php83),
             "8.4" => Ok(PhpVersion::Php84),
-            _ => Err(format!("Invalid PHP version: {}. Valid versions: 5.4, 5.5, 5.6, 7.0-7.4, 8.0-8.4", s)),
+            "8.5" => Ok(PhpVersion::Php85),
+            _ => Err(format!("Invalid PHP version: {}. Valid versions: 5.4, 5.5, 5.6, 7.0-7.4, 8.0-8.5", s)),
         }
     }
 }
@@ -372,6 +375,7 @@ impl RuleRegistry {
         };
 
         // Register all built-in rules (configurable rules use their config)
+        registry.register(Box::new(super::array_first_last::ArrayFirstLastRule));
         registry.register(Box::new(super::array_key_first_last::ArrayKeyFirstLastRule));
         registry.register(Box::new(super::array_push::ArrayPushRule));
         registry.register(Box::new(super::array_syntax::ArraySyntaxRule));
@@ -381,6 +385,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::class_on_object::ClassOnObjectRule));
         registry.register(Box::new(super::constructor_promotion::ConstructorPromotionRule));
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
+        registry.register(Box::new(super::explicit_nullable_param::ExplicitNullableParamRule));
         registry.register(Box::new(super::filter_var_to_addslashes::FilterVarToAddslashesRule));
         registry.register(Box::new(super::first_class_callables::FirstClassCallablesRule));
         registry.register(Box::new(super::get_class_this::GetClassThisRule));
