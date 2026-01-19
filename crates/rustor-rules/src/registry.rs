@@ -434,6 +434,8 @@ impl RuleRegistry {
         registry.register(Box::new(super::mktime_to_time::MktimeToTimeRule));
         registry.register(Box::new(super::multi_dirname::MultiDirnameRule));
         registry.register(Box::new(super::stringify_define::StringifyDefineRule));
+        registry.register(Box::new(super::array_merge_simple::ArrayMergeSimpleRule));
+        registry.register(Box::new(super::random_function::RandomFunctionRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

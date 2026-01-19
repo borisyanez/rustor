@@ -97,6 +97,8 @@ pub mod strlen_to_empty_string;
 pub mod mktime_to_time;
 pub mod multi_dirname;
 pub mod stringify_define;
+pub mod array_merge_simple;
+pub mod random_function;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -168,3 +170,5 @@ pub use strlen_to_empty_string::check_strlen_to_empty_string;
 pub use mktime_to_time::check_mktime_to_time;
 pub use multi_dirname::check_multi_dirname;
 pub use stringify_define::check_stringify_define;
+pub use array_merge_simple::check_array_merge_simple;
+pub use random_function::check_random_function;
