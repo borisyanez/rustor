@@ -442,6 +442,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::replace_http_server_vars::ReplaceHttpServerVarsRule));
         registry.register(Box::new(super::class_constant_to_self_class::ClassConstantToSelfClassRule));
         registry.register(Box::new(super::remove_reference_from_call::RemoveReferenceFromCallRule));
+        registry.register(Box::new(super::ternary_to_elvis::TernaryToElvisRule));
+        registry.register(Box::new(super::remove_zero_break_continue::RemoveZeroBreakContinueRule));
+        registry.register(Box::new(super::get_called_class_to_static::GetCalledClassToStaticRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

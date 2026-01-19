@@ -105,6 +105,9 @@ pub mod dynamic_class_const_fetch;
 pub mod replace_http_server_vars;
 pub mod class_constant_to_self_class;
 pub mod remove_reference_from_call;
+pub mod ternary_to_elvis;
+pub mod remove_zero_break_continue;
+pub mod get_called_class_to_static;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -184,3 +187,6 @@ pub use dynamic_class_const_fetch::check_dynamic_class_const_fetch;
 pub use replace_http_server_vars::check_replace_http_server_vars;
 pub use class_constant_to_self_class::check_class_constant_to_self_class;
 pub use remove_reference_from_call::check_remove_reference_from_call;
+pub use ternary_to_elvis::check_ternary_to_elvis;
+pub use remove_zero_break_continue::check_remove_zero_break_continue;
+pub use get_called_class_to_static::check_get_called_class_to_static;
