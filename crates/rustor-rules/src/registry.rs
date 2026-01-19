@@ -378,11 +378,14 @@ impl RuleRegistry {
         registry.register(Box::new(super::arrow_functions::ArrowFunctionsRule));
         registry.register(Box::new(super::assign_coalesce::AssignCoalesceRule));
         registry.register(Box::new(super::class_constructor::ClassConstructorRule));
+        registry.register(Box::new(super::class_on_object::ClassOnObjectRule));
         registry.register(Box::new(super::constructor_promotion::ConstructorPromotionRule));
         registry.register(Box::new(super::empty_coalesce::EmptyCoalesceRule));
+        registry.register(Box::new(super::filter_var_to_addslashes::FilterVarToAddslashesRule));
         registry.register(Box::new(super::first_class_callables::FirstClassCallablesRule));
         registry.register(Box::new(super::get_class_this::GetClassThisRule));
         registry.register(Box::new(super::get_debug_type::GetDebugTypeRule));
+        registry.register(Box::new(super::hebrevc_to_nl2br_hebrev::HebrevcToNl2brHebrevRule));
         registry.register(Box::new(super::implode_order::ImplodeOrderRule));
         registry.register(Box::new(super::is_null::IsNullRule));
         registry.register(Box::new(super::isset_coalesce::IssetCoalesceRule));
@@ -395,6 +398,7 @@ impl RuleRegistry {
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::redundant_type_check::RedundantTypeCheckRule));
         registry.register(Box::new(super::rename_class::RenameClassRule::with_config(&get_config("rename_class"))));
+        registry.register(Box::new(super::restore_include_path::RestoreIncludePathRule));
         registry.register(Box::new(super::rename_function::RenameFunctionRule::with_config(&get_config("rename_function"))));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
