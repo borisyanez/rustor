@@ -402,9 +402,14 @@ impl RuleRegistry {
         registry.register(Box::new(super::pow_to_operator::PowToOperatorRule));
         registry.register(Box::new(super::readonly_properties::ReadonlyPropertiesRule));
         registry.register(Box::new(super::redundant_type_check::RedundantTypeCheckRule));
+        registry.register(Box::new(super::rename_attribute::RenameAttributeRule::with_config(&get_config("rename_attribute"))));
         registry.register(Box::new(super::rename_class::RenameClassRule::with_config(&get_config("rename_class"))));
+        registry.register(Box::new(super::rename_class_const::RenameClassConstRule::with_config(&get_config("rename_class_const"))));
+        registry.register(Box::new(super::rename_constant::RenameConstantRule::with_config(&get_config("rename_constant"))));
         registry.register(Box::new(super::restore_include_path::RestoreIncludePathRule));
         registry.register(Box::new(super::rename_function::RenameFunctionRule::with_config(&get_config("rename_function"))));
+        registry.register(Box::new(super::rename_static_method::RenameStaticMethodRule::with_config(&get_config("rename_static_method"))));
+        registry.register(Box::new(super::rename_string::RenameStringRule::with_config(&get_config("rename_string"))));
         registry.register(Box::new(super::single_in_array_to_compare::SingleInArrayToCompareRule));
         registry.register(Box::new(super::sizeof::SizeofRule));
         registry.register(Box::new(super::switch_negated_ternary::SwitchNegatedTernaryRule));
