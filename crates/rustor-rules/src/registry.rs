@@ -412,6 +412,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::simplify_strpos_lower::SimplifyStrposLowerRule));
         registry.register(Box::new(super::unnecessary_ternary::UnnecessaryTernaryRule));
         registry.register(Box::new(super::unwrap_sprintf::UnwrapSprintfRule));
+        registry.register(Box::new(super::settype_to_cast::SettypeToCastRule));
+        registry.register(Box::new(super::simplify_in_array_values::SimplifyInArrayValuesRule));
+        registry.register(Box::new(super::double_negation_to_cast::DoubleNegationToCastRule));
+        registry.register(Box::new(super::simplify_func_get_args_count::SimplifyFuncGetArgsCountRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {

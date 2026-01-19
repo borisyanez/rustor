@@ -75,6 +75,10 @@ pub mod simplify_strpos_lower;
 pub mod unnecessary_ternary;
 pub mod unwrap_sprintf;
 pub mod utf8_decode_encode;
+pub mod settype_to_cast;
+pub mod simplify_in_array_values;
+pub mod double_negation_to_cast;
+pub mod simplify_func_get_args_count;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -124,3 +128,7 @@ pub use simplify_strpos_lower::check_simplify_strpos_lower;
 pub use unnecessary_ternary::check_unnecessary_ternary;
 pub use unwrap_sprintf::check_unwrap_sprintf;
 pub use utf8_decode_encode::check_utf8_decode_encode;
+pub use settype_to_cast::check_settype_to_cast;
+pub use simplify_in_array_values::check_simplify_in_array_values;
+pub use double_negation_to_cast::check_double_negation_to_cast;
+pub use simplify_func_get_args_count::check_simplify_func_get_args_count;
