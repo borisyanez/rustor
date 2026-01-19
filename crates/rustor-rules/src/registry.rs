@@ -431,6 +431,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::simplify_array_search::SimplifyArraySearchRule));
         registry.register(Box::new(super::version_compare_to_constant::VersionCompareToConstantRule));
         registry.register(Box::new(super::strlen_to_empty_string::StrlenToEmptyStringRule));
+        registry.register(Box::new(super::mktime_to_time::MktimeToTimeRule));
+        registry.register(Box::new(super::multi_dirname::MultiDirnameRule));
+        registry.register(Box::new(super::stringify_define::StringifyDefineRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
