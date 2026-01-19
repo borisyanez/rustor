@@ -102,6 +102,9 @@ pub mod random_function;
 pub mod remove_get_class_no_args;
 pub mod rounding_mode_enum;
 pub mod dynamic_class_const_fetch;
+pub mod replace_http_server_vars;
+pub mod class_constant_to_self_class;
+pub mod remove_reference_from_call;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -178,3 +181,6 @@ pub use random_function::check_random_function;
 pub use remove_get_class_no_args::check_remove_get_class_no_args;
 pub use rounding_mode_enum::check_rounding_mode_enum;
 pub use dynamic_class_const_fetch::check_dynamic_class_const_fetch;
+pub use replace_http_server_vars::check_replace_http_server_vars;
+pub use class_constant_to_self_class::check_class_constant_to_self_class;
+pub use remove_reference_from_call::check_remove_reference_from_call;

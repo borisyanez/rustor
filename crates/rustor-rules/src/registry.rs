@@ -439,6 +439,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::remove_get_class_no_args::RemoveGetClassNoArgsRule));
         registry.register(Box::new(super::rounding_mode_enum::RoundingModeEnumRule));
         registry.register(Box::new(super::dynamic_class_const_fetch::DynamicClassConstFetchRule));
+        registry.register(Box::new(super::replace_http_server_vars::ReplaceHttpServerVarsRule));
+        registry.register(Box::new(super::class_constant_to_self_class::ClassConstantToSelfClassRule));
+        registry.register(Box::new(super::remove_reference_from_call::RemoveReferenceFromCallRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
