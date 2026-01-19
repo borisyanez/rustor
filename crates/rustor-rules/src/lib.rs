@@ -90,6 +90,10 @@ pub mod simplify_tautology_ternary;
 pub mod dirname_file_to_dir;
 pub mod ternary_implode_to_implode;
 pub mod dirname_dir_concat;
+pub mod strict_array_search;
+pub mod simplify_array_search;
+pub mod version_compare_to_constant;
+pub mod strlen_to_empty_string;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -154,3 +158,7 @@ pub use simplify_tautology_ternary::check_simplify_tautology_ternary;
 pub use dirname_file_to_dir::check_dirname_file_to_dir;
 pub use ternary_implode_to_implode::check_ternary_implode_to_implode;
 pub use dirname_dir_concat::check_dirname_dir_concat;
+pub use strict_array_search::check_strict_array_search;
+pub use simplify_array_search::check_simplify_array_search;
+pub use version_compare_to_constant::check_version_compare_to_constant;
+pub use strlen_to_empty_string::check_strlen_to_empty_string;

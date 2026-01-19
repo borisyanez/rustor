@@ -427,6 +427,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::dirname_file_to_dir::DirnameFileToDirRule));
         registry.register(Box::new(super::ternary_implode_to_implode::TernaryImplodeToImplodeRule));
         registry.register(Box::new(super::dirname_dir_concat::DirnameDirConcatRule));
+        registry.register(Box::new(super::strict_array_search::StrictArraySearchRule));
+        registry.register(Box::new(super::simplify_array_search::SimplifyArraySearchRule));
+        registry.register(Box::new(super::version_compare_to_constant::VersionCompareToConstantRule));
+        registry.register(Box::new(super::strlen_to_empty_string::StrlenToEmptyStringRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
