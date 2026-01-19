@@ -111,11 +111,20 @@ impl<'s, 'c> RenameClassChecker<'s, 'c> {
 
     fn check_statement(&mut self, stmt: &Statement<'_>) {
         match stmt {
+            Statement::Use(use_stmt) => {
+                self.check_use(use_stmt);
+            }
             Statement::Class(class) => {
                 self.check_class(class);
             }
             Statement::Interface(iface) => {
                 self.check_interface(iface);
+            }
+            Statement::Trait(trait_def) => {
+                self.check_trait(trait_def);
+            }
+            Statement::Enum(enum_def) => {
+                self.check_enum(enum_def);
             }
             Statement::Function(func) => {
                 self.check_function_like_params(&func.parameter_list);
@@ -206,6 +215,12 @@ impl<'s, 'c> RenameClassChecker<'s, 'c> {
                         self.check_hint(hint);
                     }
                 }
+                ClassLikeMember::TraitUse(trait_use) => {
+                    // Check trait references in `use TraitName;`
+                    for trait_name in trait_use.trait_names.iter() {
+                        self.check_identifier(trait_name);
+                    }
+                }
                 _ => {}
             }
         }
@@ -227,6 +242,140 @@ impl<'s, 'c> RenameClassChecker<'s, 'c> {
                     self.check_hint(&ret.hint);
                 }
             }
+        }
+    }
+
+    fn check_trait(&mut self, trait_def: &Trait<'_>) {
+        // Check members
+        for member in trait_def.members.iter() {
+            match member {
+                ClassLikeMember::Method(method) => {
+                    self.check_function_like_params(&method.parameter_list);
+                    if let Some(ref ret) = method.return_type_hint {
+                        self.check_hint(&ret.hint);
+                    }
+                    if let MethodBody::Concrete(ref body) = method.body {
+                        self.check_block(body);
+                    }
+                }
+                ClassLikeMember::Property(Property::Plain(prop)) => {
+                    if let Some(ref hint) = prop.hint {
+                        self.check_hint(hint);
+                    }
+                }
+                ClassLikeMember::TraitUse(trait_use) => {
+                    // Check trait references in `use TraitName;`
+                    for trait_name in trait_use.trait_names.iter() {
+                        self.check_identifier(trait_name);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_enum(&mut self, enum_def: &Enum<'_>) {
+        // Check implements
+        if let Some(ref implements) = enum_def.implements {
+            for iface in implements.types.iter() {
+                self.check_name_span(iface.span());
+            }
+        }
+
+        // Check members
+        for member in enum_def.members.iter() {
+            match member {
+                ClassLikeMember::Method(method) => {
+                    self.check_function_like_params(&method.parameter_list);
+                    if let Some(ref ret) = method.return_type_hint {
+                        self.check_hint(&ret.hint);
+                    }
+                    if let MethodBody::Concrete(ref body) = method.body {
+                        self.check_block(body);
+                    }
+                }
+                ClassLikeMember::TraitUse(trait_use) => {
+                    for trait_name in trait_use.trait_names.iter() {
+                        self.check_identifier(trait_name);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_use(&mut self, use_stmt: &Use<'_>) {
+        match &use_stmt.items {
+            UseItems::Sequence(seq) => {
+                // use Foo, Bar;
+                for item in seq.items.iter() {
+                    self.check_use_item(item, None);
+                }
+            }
+            UseItems::TypedSequence(typed_seq) => {
+                // use function foo, bar; or use const FOO, BAR;
+                // Only process class/interface imports, not function/const
+                if typed_seq.r#type.is_function() || typed_seq.r#type.is_const() {
+                    return; // Skip function and const imports
+                }
+                for item in typed_seq.items.iter() {
+                    self.check_use_item(item, None);
+                }
+            }
+            UseItems::TypedList(typed_list) => {
+                // use function Namespace\{foo, bar};
+                // Skip function and const imports
+                if typed_list.r#type.is_function() || typed_list.r#type.is_const() {
+                    return;
+                }
+                let namespace = self.get_text(typed_list.namespace.span()).to_string();
+                for item in typed_list.items.iter() {
+                    self.check_use_item(item, Some(&namespace));
+                }
+            }
+            UseItems::MixedList(mixed_list) => {
+                // use Namespace\{Foo, function bar, const BAZ};
+                let namespace = self.get_text(mixed_list.namespace.span()).to_string();
+                for maybe_typed in mixed_list.items.iter() {
+                    // Skip function and const items
+                    if let Some(ref use_type) = maybe_typed.r#type {
+                        if use_type.is_function() || use_type.is_const() {
+                            continue;
+                        }
+                    }
+                    self.check_use_item(&maybe_typed.item, Some(&namespace));
+                }
+            }
+        }
+    }
+
+    fn check_use_item(&mut self, item: &UseItem<'_>, namespace_prefix: Option<&str>) {
+        let name_text = self.get_text(item.name.span());
+
+        // Build the full class name for lookup
+        let full_name = if let Some(ns) = namespace_prefix {
+            format!("{}\\{}", ns, name_text)
+        } else {
+            name_text.to_string()
+        };
+
+        // Try to find a mapping
+        // First try the full name, then just the class name part
+        let new_name = self.find_mapping(&full_name)
+            .or_else(|| {
+                // Try just the last part (class name) for simple mappings
+                let class_part = name_text.rsplit('\\').next().unwrap_or(name_text);
+                self.find_mapping(class_part)
+            });
+
+        if let Some(new_name) = new_name {
+            // If renaming, we need to replace the entire name in the use statement
+            // The new name might have a different namespace structure
+            self.edits.push(Edit::new(
+                item.name.span(),
+                new_name.clone(),
+                format!("Rename use {} to {}", full_name, new_name),
+            ));
         }
     }
 
@@ -836,6 +985,166 @@ $fn = function(OldClass $obj): OldClass {
 $fn = fn(OldClass $obj): OldClass => $obj;
 "#;
         let config = make_config(&[("OldClass", "NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 2);
+    }
+
+    // ==================== Traits ====================
+
+    #[test]
+    fn test_trait_use() {
+        let source = r#"<?php
+class MyClass {
+    use OldTrait;
+}
+"#;
+        let config = make_config(&[("OldTrait", "NewTrait")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("use NewTrait;"));
+    }
+
+    #[test]
+    fn test_trait_use_multiple() {
+        let source = r#"<?php
+class MyClass {
+    use OldTrait, AnotherOldTrait;
+}
+"#;
+        let config = make_config(&[("OldTrait", "NewTrait"), ("AnotherOldTrait", "AnotherNewTrait")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 2);
+    }
+
+    #[test]
+    fn test_trait_method_types() {
+        let source = r#"<?php
+trait MyTrait {
+    public function process(OldClass $obj): OldClass {
+        return $obj;
+    }
+}
+"#;
+        let config = make_config(&[("OldClass", "NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 2);
+    }
+
+    // ==================== Enums ====================
+
+    #[test]
+    fn test_enum_implements() {
+        let source = r#"<?php
+enum Status implements OldInterface {
+    case Active;
+    case Inactive;
+}
+"#;
+        let config = make_config(&[("OldInterface", "NewInterface")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("implements NewInterface"));
+    }
+
+    #[test]
+    fn test_enum_method_types() {
+        let source = r#"<?php
+enum Status {
+    case Active;
+
+    public function process(OldClass $obj): OldClass {
+        return $obj;
+    }
+}
+"#;
+        let config = make_config(&[("OldClass", "NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 2);
+    }
+
+    // ==================== Use Statements ====================
+
+    #[test]
+    fn test_use_simple() {
+        let source = r#"<?php
+use OldClass;
+"#;
+        let config = make_config(&[("OldClass", "NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("use NewClass;"));
+    }
+
+    #[test]
+    fn test_use_fully_qualified() {
+        let source = r#"<?php
+use App\Services\OldClass;
+"#;
+        let config = make_config(&[("App\\Services\\OldClass", "App\\Services\\NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("use App\\Services\\NewClass;"));
+    }
+
+    #[test]
+    fn test_use_multiple() {
+        let source = r#"<?php
+use OldClass, AnotherOld;
+"#;
+        let config = make_config(&[("OldClass", "NewClass"), ("AnotherOld", "AnotherNew")]);
+        let edits = check_php_with_config(source, &config);
+        assert_eq!(edits.len(), 2);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("NewClass"));
+        assert!(result.contains("AnotherNew"));
+    }
+
+    #[test]
+    fn test_use_with_alias_keeps_alias() {
+        let source = r#"<?php
+use OldClass as Alias;
+$obj = new Alias();
+"#;
+        let config = make_config(&[("OldClass", "NewClass")]);
+        let edits = check_php_with_config(source, &config);
+        // Should only rename the use statement import, not the alias usage
+        assert_eq!(edits.len(), 1);
+        let result = transform_with_config(source, &config);
+        assert!(result.contains("use NewClass as Alias;"));
+        // Alias usage should remain unchanged
+        assert!(result.contains("new Alias()"));
+    }
+
+    #[test]
+    fn test_use_skip_function_import() {
+        let source = r#"<?php
+use function oldFunc;
+"#;
+        let config = make_config(&[("oldFunc", "newFunc")]);
+        let edits = check_php_with_config(source, &config);
+        assert!(edits.is_empty(), "Should not rename function imports");
+    }
+
+    #[test]
+    fn test_use_skip_const_import() {
+        let source = r#"<?php
+use const OLD_CONST;
+"#;
+        let config = make_config(&[("OLD_CONST", "NEW_CONST")]);
+        let edits = check_php_with_config(source, &config);
+        assert!(edits.is_empty(), "Should not rename const imports");
+    }
+
+    #[test]
+    fn test_use_grouped() {
+        let source = r#"<?php
+use App\{OldClass, OldService};
+"#;
+        let config = make_config(&[("OldClass", "NewClass"), ("OldService", "NewService")]);
         let edits = check_php_with_config(source, &config);
         assert_eq!(edits.len(), 2);
     }
