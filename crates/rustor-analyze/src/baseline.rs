@@ -284,9 +284,21 @@ impl Baseline {
 
         for entry in &self.entries {
             output.push_str("\t\t-\n");
-            // Escape message for NEON
-            let escaped_message = escape_neon_string(&entry.message);
-            output.push_str(&format!("\t\t\tmessage: '{}'\n", escaped_message));
+            // Use multi-line string format if message contains newlines,
+            // otherwise use single-quoted string
+            if entry.message.contains('\n') {
+                // Multi-line NEON string format: '''...'''
+                // Escape single quotes within the message
+                let escaped = entry.message.replace('\'', "''");
+                output.push_str("\t\t\tmessage: '''\n");
+                for line in escaped.lines() {
+                    output.push_str(&format!("\t\t\t\t{}\n", line));
+                }
+                output.push_str("\t\t\t'''\n");
+            } else {
+                let escaped_message = escape_neon_string(&entry.message);
+                output.push_str(&format!("\t\t\tmessage: '{}'\n", escaped_message));
+            }
             if let Some(ref id) = entry.identifier {
                 output.push_str(&format!("\t\t\tidentifier: {}\n", id));
             }
@@ -428,8 +440,14 @@ fn escape_regex(s: &str) -> String {
 
 /// Escape special characters for NEON single-quoted string
 fn escape_neon_string(s: &str) -> String {
-    // In NEON single-quoted strings, only ' needs escaping as ''
+    // In NEON single-quoted strings:
+    // - Single quotes need escaping as ''
+    // - Newlines are not allowed (replace with space)
+    // - Tabs should be replaced with spaces
     s.replace('\'', "''")
+        .replace('\n', " ")
+        .replace('\r', "")
+        .replace('\t', " ")
 }
 
 #[cfg(test)]
