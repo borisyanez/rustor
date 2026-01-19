@@ -3,7 +3,7 @@
 //! This crate provides tools to:
 //! 1. Parse Rector PHP rule files
 //! 2. Extract rule patterns and metadata
-//! 3. Generate equivalent rustor Rust rules
+//! 3. Generate equivalent rustor Rust rules or YAML rules
 
 pub mod ast_mapper;
 pub mod codegen;
@@ -12,6 +12,7 @@ pub mod php_parser;
 pub mod report;
 pub mod rule_extractor;
 pub mod templates;
+pub mod yaml_codegen;
 
 use serde::{Deserialize, Serialize};
 

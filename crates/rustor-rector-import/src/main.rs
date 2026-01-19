@@ -96,6 +96,29 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Generate YAML rules from Rector (easier to review and modify)
+    GenerateYaml {
+        /// Path to Rector repository
+        #[arg(short = 'r', long)]
+        rector_path: PathBuf,
+
+        /// Output directory for generated YAML rules
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Dry run - don't write files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Show generated YAML for review
+        #[arg(long)]
+        show_yaml: bool,
+    },
+
     /// Analyze a single Rector rule file
     Analyze {
         /// Path to Rector rule file
@@ -116,6 +139,9 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Generate { rector_path, output, category, auto_only, dry_run }) => {
             cmd_generate(&rector_path, &output, category.as_deref(), auto_only, dry_run)?;
+        }
+        Some(Commands::GenerateYaml { rector_path, output, category, dry_run, show_yaml }) => {
+            cmd_generate_yaml(&rector_path, &output, category.as_deref(), dry_run, show_yaml)?;
         }
         Some(Commands::Analyze { file }) => {
             cmd_analyze(&file)?;
@@ -290,6 +316,102 @@ fn cmd_generate(
     }
 
     Ok(())
+}
+
+/// Generate YAML rules
+fn cmd_generate_yaml(
+    rector_path: &PathBuf,
+    output: &PathBuf,
+    category: Option<&str>,
+    dry_run: bool,
+    show_yaml: bool,
+) -> anyhow::Result<()> {
+    use rustor_rector_import::yaml_codegen::generate_yaml_rule;
+
+    println!("{}", "Scanning Rector repository...".blue());
+
+    let result = if let Some(cat) = category {
+        extract_rules_from_category(rector_path, cat)
+    } else {
+        extract_rules_from_repo(rector_path)
+    };
+
+    println!(
+        "{} Found {} rules ({} auto-generatable)",
+        "→".blue(),
+        result.rules.len(),
+        result.auto_generatable_count()
+    );
+
+    // Only generate auto-generatable rules for YAML
+    let rules_to_generate: Vec<_> = result.rules.iter()
+        .filter(|r| r.pattern.is_auto_generatable())
+        .collect();
+
+    if rules_to_generate.is_empty() {
+        println!("{}", "No auto-generatable rules found".yellow());
+        return Ok(());
+    }
+
+    println!("{} Generating {} YAML rules...", "→".blue(), rules_to_generate.len());
+
+    let mut generated = Vec::new();
+    let mut skipped = Vec::new();
+
+    for rule in &rules_to_generate {
+        if let Some(yaml) = generate_yaml_rule(rule) {
+            let filename = format!("{}.yaml", to_snake_case(&rule.name.replace("Rector", "")));
+
+            if show_yaml {
+                println!("\n{} {}", "=".repeat(60).dimmed(), "");
+                println!("{}: {}", "File".bold(), filename);
+                println!("{}", "=".repeat(60).dimmed());
+                println!("{}", yaml);
+            } else if dry_run {
+                println!("  {} {}", "✓".green(), filename);
+            }
+
+            generated.push((filename, yaml, rule.name.clone()));
+        } else {
+            skipped.push(&rule.name);
+        }
+    }
+
+    // Summary
+    println!("\n{}", "Generation Summary".bold().underline());
+    println!("  {} YAML rules generated", generated.len().to_string().green());
+    if !skipped.is_empty() {
+        println!("  {} rules skipped (complex patterns)", skipped.len().to_string().yellow());
+    }
+
+    if dry_run {
+        println!("\n{}", "Dry run - no files written".yellow());
+    } else if !generated.is_empty() {
+        // Create output directory
+        fs::create_dir_all(output)?;
+
+        // Write files
+        for (filename, yaml, _name) in &generated {
+            let path = output.join(filename);
+            fs::write(&path, yaml)?;
+        }
+
+        println!("\n{} {} rules written to: {}", "✓".green(), generated.len(), output.display());
+    }
+
+    Ok(())
+}
+
+/// Convert CamelCase to snake_case
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(c.to_ascii_lowercase());
+    }
+    result
 }
 
 /// Analyze a single rule file

@@ -200,4 +200,55 @@ replace: "x"
         let result = load_rules_from_string(yaml);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_parse_simple_ternary() {
+        let yaml = r#"
+name: test_ternary
+description: "test"
+category: code_quality
+min_php: "5.4"
+
+match:
+  node: Ternary
+  condition:
+    capture: $cond
+  then:
+    same_as: $cond
+  else:
+    capture: $default
+
+replace: "$cond ?: $default"
+
+tests: []
+"#;
+        let rules = load_rules_from_string(yaml).unwrap();
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_nested_binary_op() {
+        let yaml = r#"
+name: test_nested
+description: "test"
+category: code_quality
+min_php: "5.4"
+
+match:
+  node: Ternary
+  condition:
+    node: BinaryOp
+    operator: "!=="
+    left:
+      capture: $obj
+    right:
+      capture: $null
+
+replace: "test"
+
+tests: []
+"#;
+        let rules = load_rules_from_string(yaml).unwrap();
+        assert_eq!(rules.len(), 1);
+    }
 }
