@@ -420,6 +420,10 @@ impl RuleRegistry {
         registry.register(Box::new(super::simplify_empty_array_check::SimplifyEmptyArrayCheckRule));
         registry.register(Box::new(super::remove_concat_autocast::RemoveConcatAutocastRule));
         registry.register(Box::new(super::common_not_equal::CommonNotEqualRule));
+        registry.register(Box::new(super::join_string_concat::JoinStringConcatRule));
+        registry.register(Box::new(super::sensitive_define::SensitiveDefineRule));
+        registry.register(Box::new(super::flip_negated_ternary_instanceof::FlipNegatedTernaryInstanceofRule));
+        registry.register(Box::new(super::simplify_tautology_ternary::SimplifyTautologyTernaryRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
