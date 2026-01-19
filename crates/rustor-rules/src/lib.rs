@@ -87,6 +87,9 @@ pub mod join_string_concat;
 pub mod sensitive_define;
 pub mod flip_negated_ternary_instanceof;
 pub mod simplify_tautology_ternary;
+pub mod dirname_file_to_dir;
+pub mod ternary_implode_to_implode;
+pub mod dirname_dir_concat;
 
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
@@ -148,3 +151,6 @@ pub use join_string_concat::check_join_string_concat;
 pub use sensitive_define::check_sensitive_define;
 pub use flip_negated_ternary_instanceof::check_flip_negated_ternary_instanceof;
 pub use simplify_tautology_ternary::check_simplify_tautology_ternary;
+pub use dirname_file_to_dir::check_dirname_file_to_dir;
+pub use ternary_implode_to_implode::check_ternary_implode_to_implode;
+pub use dirname_dir_concat::check_dirname_dir_concat;

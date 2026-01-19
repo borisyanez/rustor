@@ -424,6 +424,9 @@ impl RuleRegistry {
         registry.register(Box::new(super::sensitive_define::SensitiveDefineRule));
         registry.register(Box::new(super::flip_negated_ternary_instanceof::FlipNegatedTernaryInstanceofRule));
         registry.register(Box::new(super::simplify_tautology_ternary::SimplifyTautologyTernaryRule));
+        registry.register(Box::new(super::dirname_file_to_dir::DirnameFileToDirRule));
+        registry.register(Box::new(super::ternary_implode_to_implode::TernaryImplodeToImplodeRule));
+        registry.register(Box::new(super::dirname_dir_concat::DirnameDirConcatRule));
 
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
