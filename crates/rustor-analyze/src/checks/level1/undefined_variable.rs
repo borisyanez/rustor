@@ -30,6 +30,7 @@ impl Check for UndefinedVariableCheck {
             issues: Vec::new(),
             condition_assignments: HashMap::new(),
             current_conditions: Vec::new(),
+            inverse_condition_assignments: HashMap::new(),
         };
 
         // Add superglobals to the global scope
@@ -112,6 +113,9 @@ struct VariableAnalyzer<'s> {
     condition_assignments: HashMap<String, HashSet<String>>,
     /// Stack of current condition texts (for nested if statements)
     current_conditions: Vec<String>,
+    /// Tracks variables assigned under specific conditions at statement level (for inverse condition detection)
+    /// Maps normalized condition text -> set of variables assigned in if body
+    inverse_condition_assignments: HashMap<String, HashSet<String>>,
 }
 
 impl<'s> VariableAnalyzer<'s> {
@@ -255,6 +259,79 @@ impl<'s> VariableAnalyzer<'s> {
         self.current_conditions.pop();
     }
 
+    /// Normalize a condition text for comparison (removes whitespace differences)
+    fn normalize_condition(&self, text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Record that variables were assigned under a specific condition (for inverse condition tracking)
+    fn record_inverse_condition_assignment(&mut self, condition: &str, vars: &HashSet<String>) {
+        let normalized = self.normalize_condition(condition);
+        self.inverse_condition_assignments
+            .entry(normalized)
+            .or_default()
+            .extend(vars.iter().cloned());
+    }
+
+    /// Extract the base condition from an inverse OR pattern: !$cond || ...
+    /// Returns the base condition text if this is an inverse pattern, None otherwise
+    fn extract_inverse_base_condition<'a>(&self, condition: &Expression<'a>) -> Option<String> {
+        // Pattern: !$cond || ... or (!$cond) || ...
+        if let Expression::Binary(binary) = condition {
+            let op_span = binary.operator.span();
+            let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+
+            if op == "||" || op == "or" {
+                // Check if LHS is !$something
+                if let Some(base_cond) = self.extract_negated_condition(&binary.lhs) {
+                    return Some(base_cond);
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract the base condition from a negated expression: !$cond -> $cond
+    fn extract_negated_condition<'a>(&self, expr: &Expression<'a>) -> Option<String> {
+        match expr {
+            Expression::UnaryPrefix(unary) => {
+                let op_span = unary.operator.span();
+                let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+                if op == "!" {
+                    // Return the inner expression's text
+                    let inner_span = unary.operand.span();
+                    let inner_text = &self.source[inner_span.start.offset as usize..inner_span.end.offset as usize];
+                    return Some(self.normalize_condition(inner_text));
+                }
+            }
+            Expression::Parenthesized(paren) => {
+                return self.extract_negated_condition(&paren.expression);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Check if a variable should be considered defined due to inverse condition pattern
+    /// Pattern: if ($cond) { $var = X; } if (!$cond || ...) { $var = Y; } -> $var is defined
+    fn check_inverse_condition_defines(&self, var_name: &str) -> bool {
+        // Check if the variable was assigned under some condition AND
+        // we have a complementary assignment recorded
+        for (cond, vars) in &self.inverse_condition_assignments {
+            if vars.contains(var_name) {
+                // Check if there's a complementary condition that also assigns this var
+                // This is tracked separately when we process complementary ifs
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get variables newly assigned in a block compared to before state
+    fn get_newly_assigned_vars(&self, before: &HashSet<String>, after: &HashSet<String>) -> HashSet<String> {
+        after.difference(before).cloned().collect()
+    }
+
     /// Merge branch results: variables defined in all branches become definitely defined,
     /// variables defined in some branches become possibly defined.
     fn merge_branches(&mut self, before_snapshot: &HashSet<String>, branch_snapshots: Vec<HashSet<String>>) {
@@ -327,6 +404,17 @@ impl<'s> VariableAnalyzer<'s> {
                 let body_exits = self.body_has_early_exit(&if_stmt.body);
                 let has_early_exit = !checked_vars.is_empty() && body_exits;
 
+                // Pattern: if (is_null($var)) { return; } means $var is defined after
+                // is_null() on an undefined variable returns true, so if we pass this check,
+                // the variable is defined (and not null)
+                let is_null_checked_vars = self.get_is_null_checked_vars(&if_stmt.condition);
+                let has_is_null_early_exit = !is_null_checked_vars.is_empty() && body_exits;
+
+                // Pattern: if (!$var) { return; } means $var is defined (and truthy) after
+                // This is similar to is_null but for general falsy checks
+                let falsy_checked_vars = self.get_falsy_checked_vars(&if_stmt.condition);
+                let has_falsy_early_exit = !falsy_checked_vars.is_empty() && body_exits;
+
                 // Pattern: if (!isset($var)) { $var = ...; } means $var is defined after
                 let isset_checked_vars = self.get_isset_checked_vars(&if_stmt.condition);
                 let has_isset_pattern = !isset_checked_vars.is_empty();
@@ -334,9 +422,24 @@ impl<'s> VariableAnalyzer<'s> {
                 // Pattern: if (isset($var)) { use($var); } - $var is defined within the true branch
                 let positive_isset_vars = self.get_positive_isset_vars(&if_stmt.condition);
 
+                // Check for inverse condition pattern: if (!$cond || ...) where we saw if ($cond) before
+                let inverse_base_cond = self.extract_inverse_base_condition(&if_stmt.condition);
+                let previously_assigned_vars: HashSet<String> = if let Some(ref base_cond) = inverse_base_cond {
+                    self.inverse_condition_assignments
+                        .get(base_cond)
+                        .cloned()
+                        .unwrap_or_default()
+                } else {
+                    HashSet::new()
+                };
+
+                // Get condition text for tracking
+                let condition_text = self.normalize_condition(&self.get_condition_text(&if_stmt.condition));
+
                 // For negative control flow with early exit, don't check the condition
                 // because we know the variable will be defined after this point
-                if !has_early_exit {
+                // Also skip for is_null() and falsy checks since they handle undefined variables
+                if !has_early_exit && !has_is_null_early_exit && !has_falsy_early_exit {
                     self.analyze_expression(&if_stmt.condition, false);
                 }
 
@@ -346,18 +449,38 @@ impl<'s> VariableAnalyzer<'s> {
                     IfBody::ColonDelimited(block) => block.else_clause.is_some(),
                 };
 
+                // Check if there's an else or elseif clause (for falsy guard pattern)
+                let has_else_or_elseif = match &if_stmt.body {
+                    IfBody::Statement(stmt_body) => {
+                        stmt_body.else_clause.is_some() || !stmt_body.else_if_clauses.is_empty()
+                    }
+                    IfBody::ColonDelimited(block) => {
+                        block.else_clause.is_some() || !block.else_if_clauses.is_empty()
+                    }
+                };
+
+                // Save state before analyzing if body (for inverse condition tracking)
+                let before_if_state = self.current_scope().defined.clone();
+                let before_if_possibly = self.current_scope().possibly_defined.clone();
+
+                // ALWAYS mark positive isset vars as defined for if body analysis
+                // This handles patterns like: if (isset($a) && !isset($b)) { use($a); }
+                // The $a should be considered defined inside the if body
+                for var in &positive_isset_vars {
+                    self.current_scope_mut().defined.insert(var.clone());
+                }
+
                 // Push condition for correlation tracking
                 self.push_condition(&if_stmt.condition);
 
-                // If this is negative control flow with early exit, skip the normal analysis
-                // because the branch that exits doesn't affect the state after the if
-                if has_early_exit {
+                // If this is is_null() with early exit, handle similarly to isset pattern
+                // Pattern: if (is_null($var)) { return; } -> $var is defined after
+                if has_is_null_early_exit {
+                    // Don't check the condition for undefined vars (is_null handles undefined)
                     // Just analyze the body for other errors, but don't merge branches
-                    // Save the current state
                     let before_state = self.current_scope().defined.clone();
                     let before_possibly = self.current_scope().possibly_defined.clone();
 
-                    // Analyze the body
                     match &if_stmt.body {
                         IfBody::Statement(stmt_body) => {
                             self.analyze_statement(stmt_body.statement);
@@ -373,12 +496,72 @@ impl<'s> VariableAnalyzer<'s> {
                     self.current_scope_mut().defined = before_state;
                     self.current_scope_mut().possibly_defined = before_possibly;
 
-                    // Now promote the checked variables to definitely defined
+                    // Promote the is_null-checked variables to definitely defined
+                    // If we pass is_null($var), then $var is defined (and not null)
+                    for var in is_null_checked_vars {
+                        if self.current_scope().is_possibly_defined(&var) {
+                            self.current_scope_mut().possibly_defined.remove(&var);
+                        }
+                        self.define(var.clone());
+                    }
+
+                    // Pop condition and skip the rest of the if handling
+                    self.pop_condition();
+                    return;
+                }
+
+                // If this is falsy check (!$var) with early exit, handle similarly
+                // Pattern: if (!$var) { return; } -> $var is defined (and truthy) after
+                if has_falsy_early_exit {
+                    // Don't check the condition for undefined vars (falsy check handles undefined)
+                    let before_state = self.current_scope().defined.clone();
+                    let before_possibly = self.current_scope().possibly_defined.clone();
+
+                    match &if_stmt.body {
+                        IfBody::Statement(stmt_body) => {
+                            self.analyze_statement(stmt_body.statement);
+                        }
+                        IfBody::ColonDelimited(block) => {
+                            for inner in block.statements.iter() {
+                                self.analyze_statement(inner);
+                            }
+                        }
+                    }
+
+                    // Restore the state (the exit branch doesn't contribute)
+                    self.current_scope_mut().defined = before_state;
+                    self.current_scope_mut().possibly_defined = before_possibly;
+
+                    // Promote the falsy-checked variables to definitely defined
+                    // If we pass !$var check (meaning $var is truthy), then $var is defined
+                    for var in falsy_checked_vars {
+                        if self.current_scope().is_possibly_defined(&var) {
+                            self.current_scope_mut().possibly_defined.remove(&var);
+                        }
+                        self.define(var.clone());
+                    }
+
+                    // Pop condition and skip the rest of the if handling
+                    self.pop_condition();
+                    return;
+                }
+
+                // If this is negative control flow with early exit, analyze normally but also
+                // promote the checked variables after. The if body exits, so elseif/else branches
+                // define variables that will be definitely defined after the if statement.
+                if has_early_exit {
+                    // Analyze the full if/elseif/else structure normally
+                    // The analyze_if_body function already handles early exits by not including
+                    // their snapshots in the merge
+                    self.analyze_if_body(&if_stmt.body, has_else);
+
+                    // Additionally promote the checked variables to definitely defined
+                    // Pattern: if (!$var) { return; } means $var is defined after
                     for var in checked_vars {
                         if self.current_scope().is_possibly_defined(&var) {
                             self.current_scope_mut().possibly_defined.remove(&var);
-                            self.define(var.clone());
                         }
+                        self.define(var.clone());
                     }
                 } else if has_isset_pattern && !has_else {
                     // Pattern: if (!isset($var)) { $var = ...; }
@@ -423,6 +606,10 @@ impl<'s> VariableAnalyzer<'s> {
                     let negated_isset_vars = self.get_isset_checked_vars(&if_stmt.condition);
                     if !negated_isset_vars.is_empty() && has_else {
                         self.analyze_if_body_with_negated_isset_vars(&if_stmt.body, &negated_isset_vars);
+                    } else if !falsy_checked_vars.is_empty() && has_else_or_elseif {
+                        // Pattern: if (!$var) { ... } elseif/else { use($var); }
+                        // Variables checked by !$var are defined in the ELSE/ELSEIF branches
+                        self.analyze_if_body_with_negated_falsy_vars(&if_stmt.body, &falsy_checked_vars);
                     } else {
                         // Normal if statement analysis
                         self.analyze_if_body(&if_stmt.body, has_else);
@@ -431,6 +618,48 @@ impl<'s> VariableAnalyzer<'s> {
 
                 // Pop condition after analyzing if body
                 self.pop_condition();
+
+                // Track variables assigned in this if body for inverse condition detection
+                // Include both definitely and possibly defined variables
+                let after_if_defined = self.current_scope().defined.clone();
+                let after_if_possibly = self.current_scope().possibly_defined.clone();
+                let newly_defined = self.get_newly_assigned_vars(&before_if_state, &after_if_defined);
+                let mut newly_assigned_in_if: HashSet<String> = newly_defined;
+                // Also include newly possibly-defined variables (those assigned in if without else)
+                for var in &after_if_possibly {
+                    if !before_if_state.contains(var) && !before_if_possibly.contains(var) {
+                        newly_assigned_in_if.insert(var.clone());
+                    }
+                }
+
+                // Record the assignments under this condition for future inverse condition checks
+                if !newly_assigned_in_if.is_empty() && !has_else {
+                    self.record_inverse_condition_assignment(&condition_text, &newly_assigned_in_if);
+                }
+
+                // If this is an inverse condition pattern, promote variables that were assigned
+                // in both the original condition and this inverse condition to definitely defined
+                if !previously_assigned_vars.is_empty() {
+                    for var in &previously_assigned_vars {
+                        // If this var was assigned in BOTH the original if($cond) and this if(!$cond || ...)
+                        // then it's guaranteed to be defined
+                        // Check: was it assigned in this if body?
+                        // - It's in newly_assigned_in_if (newly defined or possibly defined)
+                        // - OR it was already possibly defined and this if also assigns it
+                        // - OR it's already definitely defined
+                        let was_reassigned_in_this_if = {
+                            // The var is in after_if_defined or after_if_possibly
+                            // and the if body contains an assignment to it
+                            after_if_defined.contains(var) || after_if_possibly.contains(var)
+                        };
+
+                        if was_reassigned_in_this_if {
+                            // Promote from possibly_defined to defined
+                            self.current_scope_mut().possibly_defined.remove(var);
+                            self.define(var.clone());
+                        }
+                    }
+                }
             }
             Statement::Foreach(foreach) => {
                 self.analyze_expression(&foreach.expression, false);
@@ -886,6 +1115,124 @@ impl<'s> VariableAnalyzer<'s> {
         self.merge_branches(&before_snapshot, branch_snapshots);
     }
 
+    /// Analyze if body where the condition is !$var
+    /// Pattern: if (!$var) { ... } else { use($var); }
+    /// The falsy-checked variables are defined in ELSE/ELSEIF branches
+    fn analyze_if_body_with_negated_falsy_vars<'a>(
+        &mut self,
+        body: &IfBody<'a>,
+        falsy_vars: &[String],
+    ) {
+        let before_snapshot = self.current_scope().snapshot();
+        let mut branch_snapshots = Vec::new();
+
+        match body {
+            IfBody::Statement(stmt_body) => {
+                // Analyze 'if' branch (falsy vars NOT defined here - var is falsy/undefined)
+                self.analyze_statement(stmt_body.statement);
+                let if_has_early_exit = self.statement_has_early_exit(stmt_body.statement);
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for else branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches (falsy vars ARE defined here - !$var was false)
+                for else_if in stmt_body.else_if_clauses.iter() {
+                    // Mark falsy vars as defined for elseif branch
+                    for var in falsy_vars {
+                        self.define(var.clone());
+                    }
+
+                    self.analyze_expression(&else_if.condition, false);
+                    self.analyze_statement(else_if.statement);
+                    let elseif_has_early_exit = self.statement_has_early_exit(else_if.statement);
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    self.current_scope_mut().defined = before_snapshot.clone();
+                }
+
+                // Analyze 'else' branch (falsy vars ARE defined here)
+                if let Some(else_clause) = &stmt_body.else_clause {
+                    // Mark falsy vars as defined for else branch
+                    for var in falsy_vars {
+                        self.define(var.clone());
+                    }
+
+                    self.analyze_statement(else_clause.statement);
+                    let has_exit = self.statement_has_early_exit(else_clause.statement);
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+            IfBody::ColonDelimited(block) => {
+                // Analyze 'if' branch (falsy vars NOT defined here)
+                let mut if_has_early_exit = false;
+                for inner in block.statements.iter() {
+                    self.analyze_statement(inner);
+                    if self.statement_has_early_exit(inner) {
+                        if_has_early_exit = true;
+                    }
+                }
+                if !if_has_early_exit {
+                    branch_snapshots.push(self.current_scope().snapshot());
+                }
+
+                // Reset to before state for else branch
+                self.current_scope_mut().defined = before_snapshot.clone();
+
+                // Analyze 'elseif' branches (falsy vars ARE defined here)
+                for else_if in block.else_if_clauses.iter() {
+                    // Mark falsy vars as defined for elseif branch
+                    for var in falsy_vars {
+                        self.define(var.clone());
+                    }
+
+                    self.analyze_expression(&else_if.condition, false);
+                    let mut elseif_has_early_exit = false;
+                    for inner in else_if.statements.iter() {
+                        self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            elseif_has_early_exit = true;
+                        }
+                    }
+                    if !elseif_has_early_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                    self.current_scope_mut().defined = before_snapshot.clone();
+                }
+
+                // Analyze 'else' branch (falsy vars ARE defined here)
+                if let Some(else_clause) = &block.else_clause {
+                    // Mark falsy vars as defined for else branch
+                    for var in falsy_vars {
+                        self.define(var.clone());
+                    }
+
+                    let mut has_exit = false;
+                    for inner in else_clause.statements.iter() {
+                        self.analyze_statement(inner);
+                        if self.statement_has_early_exit(inner) {
+                            has_exit = true;
+                        }
+                    }
+                    if !has_exit {
+                        branch_snapshots.push(self.current_scope().snapshot());
+                    }
+                }
+            }
+        }
+
+        // Reset to original state before merging
+        self.current_scope_mut().defined = before_snapshot.clone();
+
+        // Merge branch results
+        self.merge_branches(&before_snapshot, branch_snapshots);
+    }
+
     fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
         match body {
             ForeachBody::Statement(stmt) => {
@@ -1202,6 +1549,85 @@ impl<'s> VariableAnalyzer<'s> {
         }
     }
 
+    /// Extract variables checked by !$var (falsy check) in a condition
+    /// Pattern: if (!$var) { return; } -> after this, $var is defined and truthy
+    fn get_falsy_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.extract_falsy_checked_vars(condition, &mut vars);
+        vars
+    }
+
+    fn extract_falsy_checked_vars<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>) {
+        match expr {
+            // Pattern: !$var
+            Expression::UnaryPrefix(unary) => {
+                let op_span = unary.operator.span();
+                let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+                if op == "!" {
+                    // Check if operand is a simple variable
+                    if let Some(var_name) = self.get_var_name(&unary.operand) {
+                        vars.push(var_name);
+                    }
+                }
+            }
+            // Pattern: !$a || !$b
+            Expression::Binary(binary) => {
+                let op_span = binary.operator.span();
+                let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+                if op == "||" || op == "or" {
+                    self.extract_falsy_checked_vars(&binary.lhs, vars);
+                    self.extract_falsy_checked_vars(&binary.rhs, vars);
+                }
+            }
+            Expression::Parenthesized(paren) => {
+                self.extract_falsy_checked_vars(&paren.expression, vars);
+            }
+            _ => {}
+        }
+    }
+
+    /// Extract variables checked by is_null($var) in a condition
+    /// Pattern: if (is_null($var)) { return; } -> after this, $var is defined
+    fn get_is_null_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.extract_is_null_checked_vars(condition, &mut vars);
+        vars
+    }
+
+    fn extract_is_null_checked_vars<'a>(&self, expr: &Expression<'a>, vars: &mut Vec<String>) {
+        match expr {
+            // Pattern: is_null($var)
+            Expression::Call(Call::Function(call)) => {
+                let func_name = match &*call.function {
+                    Expression::Identifier(ident) => {
+                        self.get_span_text(&ident.span())
+                    }
+                    _ => return,
+                };
+                if func_name == "is_null" && !call.argument_list.arguments.is_empty() {
+                    if let Some(arg) = call.argument_list.arguments.first() {
+                        if let Some(var_name) = self.get_var_name(arg.value()) {
+                            vars.push(var_name);
+                        }
+                    }
+                }
+            }
+            // Pattern: is_null($a) || is_null($b)
+            Expression::Binary(binary) => {
+                let op_span = binary.operator.span();
+                let op = &self.source[op_span.start.offset as usize..op_span.end.offset as usize];
+                if op == "||" || op == "or" {
+                    self.extract_is_null_checked_vars(&binary.lhs, vars);
+                    self.extract_is_null_checked_vars(&binary.rhs, vars);
+                }
+            }
+            Expression::Parenthesized(paren) => {
+                self.extract_is_null_checked_vars(&paren.expression, vars);
+            }
+            _ => {}
+        }
+    }
+
     /// Extract variables being checked for undefined/empty/false in a condition
     /// Returns variables from patterns like: !$var, empty($var), !isset($var), !$var || !$other
     fn get_undefined_checked_vars<'a>(&self, condition: &Expression<'a>) -> Vec<String> {
@@ -1306,6 +1732,25 @@ impl<'s> VariableAnalyzer<'s> {
                     };
                     return func_name == "exit" || func_name == "die";
                 }
+
+                // Check for static method calls that exit (e.g., Result::setErrorAndExit())
+                if let Expression::Call(Call::StaticMethod(call)) = &expr_stmt.expression {
+                    let method_name = self.get_span_text(&call.method.span());
+                    // Methods ending with "AndExit" or "Exit" are considered exits
+                    if method_name.ends_with("AndExit") || method_name.ends_with("Exit") {
+                        return true;
+                    }
+                }
+
+                // Check for instance method calls that exit (e.g., $this->exitWithError())
+                if let Expression::Call(Call::Method(call)) = &expr_stmt.expression {
+                    let method_name = self.get_span_text(&call.method.span());
+                    // Methods ending with "AndExit" or "Exit" are considered exits
+                    if method_name.ends_with("AndExit") || method_name.ends_with("Exit") {
+                        return true;
+                    }
+                }
+
                 false
             }
             _ => false,
@@ -1476,6 +1921,41 @@ impl<'s> VariableAnalyzer<'s> {
                     } else {
                         self.analyze_expression(&binary.rhs, false);
                     }
+                } else if matches!(binary.operator, BinaryOperator::Or(_) | BinaryOperator::LowOr(_)) {
+                    // Short-circuit || evaluation: if LHS is !$cond and $cond previously assigned $var,
+                    // then $var is defined for RHS evaluation
+                    // Pattern: !$resending || $documentText === 'not found'
+                    // If $resending was true, $documentText was defined, and RHS is evaluated with it defined
+
+                    // Check if LHS is a negated condition that we've seen before
+                    let inverse_base = self.extract_negated_condition(&binary.lhs);
+                    let vars_from_inverse: HashSet<String> = if let Some(ref base_cond) = inverse_base {
+                        self.inverse_condition_assignments
+                            .get(base_cond)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        HashSet::new()
+                    };
+
+                    // Analyze LHS first
+                    self.analyze_expression(&binary.lhs, false);
+
+                    // If we have inverse condition vars, mark them as defined for RHS
+                    if !vars_from_inverse.is_empty() {
+                        let before_defined = self.current_scope().defined.clone();
+                        for var in &vars_from_inverse {
+                            self.current_scope_mut().defined.insert(var.clone());
+                        }
+
+                        // Analyze RHS with inverse condition vars defined
+                        self.analyze_expression(&binary.rhs, false);
+
+                        // Restore original defined state
+                        self.current_scope_mut().defined = before_defined;
+                    } else {
+                        self.analyze_expression(&binary.rhs, false);
+                    }
                 } else {
                     self.analyze_expression(&binary.lhs, false);
                     self.analyze_expression(&binary.rhs, false);
@@ -1485,7 +1965,29 @@ impl<'s> VariableAnalyzer<'s> {
                 // Check if condition has isset() - variables are defined in the "then" branch
                 let isset_vars = self.get_positive_isset_vars(&ternary.condition);
 
-                self.analyze_expression(&ternary.condition, false);
+                // Check if condition is a simple variable that guards itself
+                // Pattern: $var ? $var : default - the variable guards its own usage
+                let condition_var = self.get_var_name(&ternary.condition);
+                let is_self_guarding = if let Some(ref cond_var) = condition_var {
+                    if let Some(then) = &ternary.then {
+                        // Check if then branch uses the same variable
+                        self.get_var_name(then) == Some(cond_var.clone())
+                    } else {
+                        // Elvis operator: $var ?: default
+                        true
+                    }
+                } else {
+                    false
+                };
+
+                // If self-guarding, don't report the condition variable as undefined
+                // (the ternary handles undefined like isset does)
+                if is_self_guarding {
+                    // Skip analyzing the condition for this specific variable
+                    // The truthy check guards the usage
+                } else {
+                    self.analyze_expression(&ternary.condition, false);
+                }
 
                 if let Some(then) = &ternary.then {
                     if !isset_vars.is_empty() {
@@ -1493,6 +1995,18 @@ impl<'s> VariableAnalyzer<'s> {
                         let before_defined = self.current_scope().defined.clone();
                         for var in &isset_vars {
                             self.current_scope_mut().defined.insert(var.clone());
+                        }
+
+                        self.analyze_expression(then, false);
+
+                        // Restore original defined state
+                        self.current_scope_mut().defined = before_defined;
+                    } else if is_self_guarding {
+                        // The condition variable is defined in the "then" branch
+                        // because we only reach here if the condition was truthy
+                        let before_defined = self.current_scope().defined.clone();
+                        if let Some(ref cond_var) = condition_var {
+                            self.current_scope_mut().defined.insert(cond_var.clone());
                         }
 
                         self.analyze_expression(then, false);

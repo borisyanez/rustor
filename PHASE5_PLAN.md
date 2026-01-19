@@ -2,14 +2,27 @@
 
 ## Implementation Results (2026-01-18)
 
-### Final Status: 74% Reduction Achieved
+### Final Status: 53% Reduction in Phase 5.1 (79% Total)
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Rustor errors | 74 | 19 | **-55 (74%)** |
-| PHPStan errors | 53 | 53 | unchanged |
+| Metric | Before Phase 5 | After Phase 5.0 | After Phase 5.1 | Change |
+|--------|----------------|-----------------|-----------------|--------|
+| Rustor errors | 74 | 19 | **16** | **-58 (78%)** |
+| PHPStan errors | 53 | 53 | 53 | unchanged |
 
-### Implemented Features
+### Phase 5.1: Inverse Condition Detection (2026-01-18)
+
+| Feature | Status | Impact |
+|---------|--------|--------|
+| **Inverse condition pattern** | ✅ Complete | |
+| - `if($cond) { $var=X; } if(!$cond \|\| ...) { $var=Y; }` | ✅ | ~8 errors |
+| - Track condition->variable assignments | ✅ | |
+| - Detect negated conditions in OR expressions | ✅ | |
+| **OR short-circuit evaluation** | ✅ Complete | |
+| - `!$cond \|\| $var === X` - $var defined for RHS | ✅ | ~4 errors |
+| **is_null() guard pattern** | ✅ Complete | |
+| - `if(is_null($var)) { return; }` - $var defined after | ✅ | ~11 errors |
+
+### Phase 5.0: Initial Control Flow Enhancement
 
 | Feature | Status | Impact |
 |---------|--------|--------|
@@ -30,17 +43,14 @@
 | - Reference foreach `&$var` | ✅ | ~1 error |
 | - Negated isset else: `if(!isset($var)) else use($var)` | ✅ | ~1 error |
 
-### Remaining 19 Errors
+### Remaining 16 Errors
 
-Most are the **inverse condition** pattern which requires more sophisticated analysis:
-```php
-if ($condition) { $var = ...; }
-if (!$condition || $var === ...) { $var = ...; }
-use($var);  // Always defined but hard to prove statically
-```
+- 2 `return.type` errors (different check category)
+- 14 `variable.undefined` errors - various edge cases requiring deeper analysis
 
-### Commit
-- `d8318e5`: feat(undefined-variable): Enhance control flow analysis for 74% error reduction
+### Commits
+- Phase 5.1: feat(undefined-variable): Add inverse condition and is_null guard detection
+- Phase 5.0: `d8318e5`: feat(undefined-variable): Enhance control flow analysis for 74% error reduction
 
 ---
 
