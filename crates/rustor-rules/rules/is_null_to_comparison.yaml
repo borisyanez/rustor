@@ -1,0 +1,25 @@
+# Replace is_null($x) with $x === null
+# This transformation improves performance by avoiding function call overhead.
+name: is_null_to_comparison
+description: "Replace is_null($x) with $x === null for better performance"
+category: code_quality
+min_php: "5.4"
+
+match:
+  node: FuncCall
+  name: is_null
+  args:
+    - capture: $expr
+    - no_more: true
+
+replace: "$expr === null"
+
+tests:
+  - input: "is_null($x)"
+    output: "$x === null"
+  - input: "is_null($obj->prop)"
+    output: "$obj->prop === null"
+  - input: "is_null($arr['key'])"
+    output: "$arr['key'] === null"
+  - input: "is_null()"
+    skip: true  # no argument, should not match

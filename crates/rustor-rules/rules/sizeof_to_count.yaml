@@ -1,0 +1,20 @@
+# Replace sizeof($arr) with count($arr)
+# sizeof() is an alias of count() - use the canonical name
+name: sizeof_to_count
+description: "Replace sizeof() with count() (canonical function name)"
+category: code_quality
+min_php: "5.4"
+
+match:
+  node: FuncCall
+  name: sizeof
+  args:
+    - capture: $arr
+
+replace: "count($arr)"
+
+tests:
+  - input: "sizeof($arr)"
+    output: "count($arr)"
+  - input: "sizeof($obj->items)"
+    output: "count($obj->items)"

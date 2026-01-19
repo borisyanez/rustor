@@ -11,8 +11,27 @@
 //! - pow_to_operator: Convert pow($x, $n) to $x ** $n
 //! - sizeof: Convert sizeof($x) to count($x)
 //! - type_cast: Convert strval/intval/floatval to cast syntax
+//!
+//! # YAML Rules
+//!
+//! Rules can also be defined in YAML format for easy authoring:
+//!
+//! ```yaml
+//! name: is_null_to_comparison
+//! description: Replace is_null($x) with $x === null
+//! match:
+//!   node: FuncCall
+//!   name: is_null
+//!   args:
+//!     - capture: $expr
+//! replace: "$expr === null"
+//! tests:
+//!   - input: "is_null($x)"
+//!     output: "$x === null"
+//! ```
 
 pub mod registry;
+pub mod yaml_rules;
 
 pub mod imported;
 
@@ -51,6 +70,12 @@ pub mod type_cast;
 pub use registry::{
     Category, ConfigOption, ConfigOptionType, ConfigValue, ConfigurableRule, PhpVersion, Preset,
     Rule, RuleConfigs, RuleInfo, RuleRegistry,
+};
+
+// Re-export yaml_rules types
+pub use yaml_rules::{
+    YamlRule, YamlRuleInterpreter, MatchPattern, Replacement, TestCase,
+    load_rules_from_file, load_rules_from_dir, load_rules_from_string,
 };
 
 // Re-export check functions (for backwards compatibility)

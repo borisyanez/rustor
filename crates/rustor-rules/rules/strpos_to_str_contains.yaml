@@ -1,0 +1,37 @@
+# Replace strpos($haystack, $needle) !== false with str_contains($haystack, $needle)
+# str_contains() was introduced in PHP 8.0 and is more readable
+name: strpos_to_str_contains
+description: "Replace strpos() !== false with str_contains() (PHP 8.0+)"
+category: modernization
+min_php: "8.0"
+
+match:
+  any:
+    - node: BinaryOp
+      operator: "!=="
+      left:
+        node: FuncCall
+        name: strpos
+        args:
+          - capture: $haystack
+          - capture: $needle
+      right:
+        node: LiteralFalse
+    - node: BinaryOp
+      operator: "!="
+      left:
+        node: FuncCall
+        name: strpos
+        args:
+          - capture: $haystack
+          - capture: $needle
+      right:
+        node: LiteralFalse
+
+replace: "str_contains($haystack, $needle)"
+
+tests:
+  - input: "strpos($str, 'needle') !== false"
+    output: "str_contains($str, 'needle')"
+  - input: "strpos($haystack, $needle) != false"
+    output: "str_contains($haystack, $needle)"

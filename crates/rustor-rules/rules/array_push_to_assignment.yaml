@@ -1,0 +1,24 @@
+# Replace array_push($arr, $val) with $arr[] = $val
+# Direct assignment is faster and more idiomatic
+name: array_push_to_assignment
+description: "Replace array_push($arr, $val) with $arr[] = $val for better performance"
+category: performance
+min_php: "5.4"
+
+match:
+  node: FuncCall
+  name: array_push
+  args:
+    - capture: $array
+    - capture: $value
+    - no_more: true  # only matches single-value push
+
+replace: "$array[] = $value"
+
+tests:
+  - input: "array_push($arr, $item)"
+    output: "$arr[] = $item"
+  - input: "array_push($arr, 'value')"
+    output: "$arr[] = 'value'"
+  - input: "array_push($arr, 1, 2, 3)"
+    skip: true  # multiple values not supported
