@@ -377,6 +377,78 @@ pub const PHP_BUILTIN_FUNCTIONS: &[&str] = &[
     "sprintf", "sscanf", "fprintf", "fscanf",
     "array_walk", "array_walk_recursive",
     "__halt_compiler",
+
+    // Apache/CGI functions
+    "apache_request_headers", "apache_response_headers", "apache_getenv", "apache_setenv",
+    "apache_note", "apache_lookup_uri", "apache_child_terminate", "apache_get_version",
+    "apache_get_modules", "apache_reset_timeout", "getallheaders", "virtual",
+
+    // Filter functions
+    "filter_var", "filter_input", "filter_var_array", "filter_input_array",
+    "filter_has_var", "filter_id", "filter_list",
+
+    // Ctype functions
+    "ctype_alpha", "ctype_alnum", "ctype_cntrl", "ctype_digit", "ctype_graph",
+    "ctype_lower", "ctype_print", "ctype_punct", "ctype_space", "ctype_upper", "ctype_xdigit",
+
+    // Network functions
+    "fsockopen", "pfsockopen", "socket_get_status", "socket_set_blocking", "socket_set_timeout",
+    "stream_socket_client", "stream_socket_server", "stream_socket_enable_crypto",
+    "stream_socket_get_name", "stream_socket_pair", "stream_socket_recvfrom",
+    "stream_socket_sendto", "stream_socket_shutdown",
+
+    // SimpleXML functions
+    "simplexml_load_string", "simplexml_load_file", "simplexml_import_dom",
+
+    // iconv functions
+    "iconv", "iconv_strlen", "iconv_strpos", "iconv_strrpos", "iconv_substr",
+    "iconv_mime_encode", "iconv_mime_decode", "iconv_mime_decode_headers",
+    "iconv_get_encoding", "iconv_set_encoding",
+
+    // Deprecated/removed functions (still commonly used in legacy code)
+    "utf8_decode", "utf8_encode", "each", "create_function",
+    "ereg", "eregi", "ereg_replace", "eregi_replace", "split", "spliti", "sql_regcase",
+
+    // XML functions
+    "xml_parser_create", "xml_parser_create_ns", "xml_parser_free", "xml_parse",
+    "xml_parse_into_struct", "xml_get_current_byte_index", "xml_get_current_column_number",
+    "xml_get_current_line_number", "xml_get_error_code", "xml_error_string",
+    "xml_parser_get_option", "xml_parser_set_option", "xml_set_character_data_handler",
+    "xml_set_default_handler", "xml_set_element_handler", "xml_set_end_namespace_decl_handler",
+    "xml_set_external_entity_ref_handler", "xml_set_notation_decl_handler", "xml_set_object",
+    "xml_set_processing_instruction_handler", "xml_set_start_namespace_decl_handler",
+    "xml_set_unparsed_entity_decl_handler",
+
+    // libxml functions
+    "libxml_clear_errors", "libxml_disable_entity_loader", "libxml_get_errors",
+    "libxml_get_last_error", "libxml_set_external_entity_loader", "libxml_set_streams_context",
+    "libxml_use_internal_errors",
+
+    // DOM functions
+    "dom_import_simplexml",
+
+    // Internationalization (intl) functions
+    "intl_error_name", "intl_get_error_code", "intl_get_error_message", "intl_is_failure",
+
+    // FTP functions
+    "ftp_connect", "ftp_ssl_connect", "ftp_login", "ftp_pwd", "ftp_cdup", "ftp_chdir",
+    "ftp_exec", "ftp_raw", "ftp_mkdir", "ftp_rmdir", "ftp_chmod", "ftp_alloc", "ftp_nlist",
+    "ftp_rawlist", "ftp_mlsd", "ftp_systype", "ftp_pasv", "ftp_get", "ftp_fget", "ftp_put",
+    "ftp_fput", "ftp_append", "ftp_size", "ftp_mdtm", "ftp_rename", "ftp_delete", "ftp_site",
+    "ftp_close", "ftp_set_option", "ftp_get_option", "ftp_nb_get", "ftp_nb_fget",
+    "ftp_nb_put", "ftp_nb_fput", "ftp_nb_continue", "ftp_quit",
+
+    // LDAP functions
+    "ldap_connect", "ldap_unbind", "ldap_bind", "ldap_sasl_bind",
+    "ldap_search", "ldap_list", "ldap_read", "ldap_count_entries", "ldap_first_entry",
+    "ldap_next_entry", "ldap_get_entries", "ldap_first_attribute", "ldap_next_attribute",
+    "ldap_get_attributes", "ldap_get_values", "ldap_get_values_len", "ldap_get_dn",
+    "ldap_explode_dn", "ldap_dn2ufn", "ldap_add", "ldap_delete", "ldap_modify",
+    "ldap_modify_batch", "ldap_mod_add", "ldap_mod_replace", "ldap_mod_del",
+    "ldap_compare", "ldap_rename", "ldap_errno", "ldap_error", "ldap_err2str",
+    "ldap_close", "ldap_free_result", "ldap_set_option", "ldap_get_option",
+    "ldap_start_tls", "ldap_escape", "ldap_control_paged_result", "ldap_control_paged_result_response",
+    "ldap_parse_result", "ldap_exop", "ldap_exop_passwd", "ldap_exop_whoami", "ldap_exop_refresh",
 ];
 
 /// PHP built-in classes (comprehensive list)
@@ -541,6 +613,19 @@ pub const PHP_BUILTIN_CLASSES: &[&str] = &[
 
     // InflateContext/DeflateContext
     "InflateContext", "DeflateContext",
+
+    // PHP Extensions (not always available but are actual PHP extensions)
+    "Memcached", "Memcache", "Redis", "RedisCluster", "RedisArray",
+    "Imagick", "ImagickDraw", "ImagickPixel", "ImagickPixelIterator", "ImagickKernel",
+    "Decimal", "Decimal\\Decimal",
+    "MongoDB\\Driver\\Manager", "MongoDB\\Driver\\Query", "MongoDB\\Driver\\Command",
+    "MongoDB\\Driver\\Cursor", "MongoDB\\Driver\\BulkWrite",
+
+    // RecursiveIteratorIterator (SPL, often missed from list)
+    "RecursiveIteratorIterator",
+
+    // Random (short form used in PHP 8.2+)
+    "Randomizer",
 ];
 
 #[cfg(test)]

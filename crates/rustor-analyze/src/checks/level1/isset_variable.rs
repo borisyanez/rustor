@@ -44,8 +44,8 @@ impl Check for IssetVariableCheck {
 /// A scope containing defined variables
 #[derive(Debug, Clone)]
 struct Scope {
-    /// Variables that are definitely defined in all code paths
-    defined: HashSet<String>,
+    /// Variables that are definitely non-nullable (assigned from non-null literals)
+    definitely_non_nullable: HashSet<String>,
     /// Whether $this is available in this scope
     has_this: bool,
 }
@@ -53,17 +53,21 @@ struct Scope {
 impl Scope {
     fn new() -> Self {
         Self {
-            defined: HashSet::new(),
+            definitely_non_nullable: HashSet::new(),
             has_this: false,
         }
     }
 
-    fn define(&mut self, name: String) {
-        self.defined.insert(name);
+    fn define_non_nullable(&mut self, name: String) {
+        self.definitely_non_nullable.insert(name);
     }
 
-    fn is_defined(&self, name: &str) -> bool {
-        self.defined.contains(name)
+    fn undefine(&mut self, name: &str) {
+        self.definitely_non_nullable.remove(name);
+    }
+
+    fn is_definitely_non_nullable(&self, name: &str) -> bool {
+        self.definitely_non_nullable.contains(name)
     }
 }
 
@@ -113,34 +117,55 @@ impl<'s> IssetAnalyzer<'s> {
     }
 
     fn define_superglobals(&mut self) {
-        let superglobals = [
-            "$GLOBALS",
-            "$_SERVER",
-            "$_GET",
-            "$_POST",
-            "$_FILES",
-            "$_COOKIE",
-            "$_SESSION",
-            "$_REQUEST",
-            "$_ENV",
-        ];
-        for var in &superglobals {
-            self.current_scope_mut().define(var.to_string());
+        // Superglobals themselves are non-nullable (the arrays always exist)
+        // BUT their contents/keys can be missing, so isset($_GET['key']) is valid
+        // Don't mark them as non-nullable since isset() on superglobals is checking keys
+        // not the superglobal itself
+    }
+
+    fn define_non_nullable(&mut self, name: String) {
+        self.current_scope_mut().define_non_nullable(name);
+    }
+
+    fn undefine(&mut self, name: &str) {
+        // Remove from all scopes (variable could be reassigned to nullable)
+        for scope in self.scopes.iter_mut() {
+            scope.undefine(name);
         }
     }
 
-    fn define(&mut self, name: String) {
-        self.current_scope_mut().define(name);
-    }
-
-    fn is_defined(&self, name: &str) -> bool {
+    fn is_definitely_non_nullable(&self, name: &str) -> bool {
         // Check all scopes from innermost to outermost
         for scope in self.scopes.iter().rev() {
-            if scope.is_defined(name) {
+            if scope.is_definitely_non_nullable(name) {
                 return true;
             }
         }
         false
+    }
+
+    /// Check if an expression is a non-nullable literal
+    fn is_non_nullable_literal<'a>(&self, expr: &Expression<'a>) -> bool {
+        match expr {
+            // String, int, float literals are non-nullable
+            Expression::Literal(lit) => {
+                matches!(lit,
+                    Literal::Integer(_) |
+                    Literal::Float(_) |
+                    Literal::String(_) |
+                    Literal::True(_) |
+                    Literal::False(_)
+                )
+            }
+            // Array literals are non-nullable
+            Expression::Array(_) | Expression::LegacyArray(_) => true,
+            // 'new' expressions return non-null objects
+            Expression::Instantiation(_) => true,
+            // Parenthesized expression - check inner
+            Expression::Parenthesized(p) => self.is_non_nullable_literal(&p.expression),
+            // Everything else (function calls, method calls, etc.) could be nullable
+            _ => false,
+        }
     }
 
     fn get_var_name<'a>(&self, expr: &Expression<'a>) -> Option<String> {
@@ -161,11 +186,16 @@ impl<'s> IssetAnalyzer<'s> {
     fn analyze_statement<'a>(&mut self, stmt: &Statement<'a>) {
         match stmt {
             Statement::Expression(expr_stmt) => {
-                // Track assignments
+                // Track assignments - only mark as non-nullable if RHS is a non-null literal
                 if let Expression::Assignment(assign) = &expr_stmt.expression {
                     if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
                         let var_name = self.get_span_text(&var.span).to_string();
-                        self.define(var_name);
+                        if self.is_non_nullable_literal(&assign.rhs) {
+                            self.define_non_nullable(var_name);
+                        } else {
+                            // Variable could be null - remove from non-nullable set
+                            self.undefine(&var_name);
+                        }
                     }
                 }
                 self.analyze_expression(&expr_stmt.expression);
@@ -184,7 +214,11 @@ impl<'s> IssetAnalyzer<'s> {
                     if let Expression::Assignment(assign) = init {
                         if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
                             let var_name = self.get_span_text(&var.span).to_string();
-                            self.define(var_name);
+                            if self.is_non_nullable_literal(&assign.rhs) {
+                                self.define_non_nullable(var_name);
+                            } else {
+                                self.undefine(&var_name);
+                            }
                         }
                     }
                     self.analyze_expression(init);
@@ -199,28 +233,13 @@ impl<'s> IssetAnalyzer<'s> {
             }
             Statement::Foreach(foreach) => {
                 self.analyze_expression(&foreach.expression);
-                // Define the loop variables
-                if let ForeachTarget::KeyValue(kv) = &foreach.target {
-                    if let Some(key_name) = self.get_var_name(&kv.key) {
-                        self.define(key_name);
-                    }
-                    if let Some(value_name) = self.get_var_name(&kv.value) {
-                        self.define(value_name);
-                    }
-                } else if let ForeachTarget::Value(value) = &foreach.target {
-                    if let Some(name) = self.get_var_name(&value.value) {
-                        self.define(name);
-                    }
-                }
+                // Loop variables could be null depending on array contents - don't mark as non-nullable
                 self.analyze_foreach_body(&foreach.body);
             }
             Statement::Function(func) => {
                 self.push_scope();
-                // Define parameters
-                for param in func.parameter_list.parameters.iter() {
-                    let var_name = self.get_span_text(&param.variable.span).to_string();
-                    self.define(var_name);
-                }
+                // Parameters can be nullable - don't mark as non-nullable
+                // (would need type information to know if nullable)
                 for inner in func.body.statements.iter() {
                     self.analyze_statement(inner);
                 }
@@ -230,15 +249,12 @@ impl<'s> IssetAnalyzer<'s> {
                 for member in class.members.iter() {
                     if let ClassLikeMember::Method(method) = member {
                         self.push_scope();
-                        // $this is available in methods
+                        // $this is available in methods and is non-nullable
                         self.current_scope_mut().has_this = true;
-                        self.define("$this".to_string());
+                        self.define_non_nullable("$this".to_string());
 
-                        // Define parameters
-                        for param in method.parameter_list.parameters.iter() {
-                            let var_name = self.get_span_text(&param.variable.span).to_string();
-                            self.define(var_name);
-                        }
+                        // Parameters can be nullable - don't mark as non-nullable
+                        // (would need type information to know if nullable)
 
                         if let MethodBody::Concrete(body) = &method.body {
                             for stmt in body.statements.iter() {
@@ -285,9 +301,11 @@ impl<'s> IssetAnalyzer<'s> {
             // Check isset() construct
             Expression::Construct(Construct::Isset(isset)) => {
                 for value in isset.values.iter() {
-                    if let Some(var_name) = self.get_var_name(value) {
-                        // Check if variable is always defined
-                        if self.is_defined(&var_name) {
+                    // Only flag simple variable access, not array access like isset($arr['key'])
+                    if let Expression::Variable(Variable::Direct(var)) = value {
+                        let var_name = self.get_span_text(&var.span).to_string();
+                        // Check if variable was assigned a non-nullable value
+                        if self.is_definitely_non_nullable(&var_name) {
                             let (line, col) = self.get_line_col(value.span().start.offset as usize);
                             self.issues.push(
                                 Issue::error(
@@ -304,6 +322,7 @@ impl<'s> IssetAnalyzer<'s> {
                             );
                         }
                     }
+                    // Array access like isset($arr['key']) is always valid - skip
                 }
             }
             Expression::Binary(binary) => {

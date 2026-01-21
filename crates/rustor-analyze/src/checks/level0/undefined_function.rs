@@ -2,6 +2,7 @@
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
+use crate::symbols::SymbolTable;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -27,6 +28,7 @@ impl Check for UndefinedFunctionCheck {
             source: ctx.source,
             file_path: ctx.file_path.to_path_buf(),
             builtin_functions: ctx.builtin_functions,
+            symbol_table: ctx.symbol_table,
             defined_functions: HashSet::new(),
             issues: Vec::new(),
         };
@@ -45,6 +47,7 @@ struct UndefinedFunctionVisitor<'s> {
     source: &'s str,
     file_path: std::path::PathBuf,
     builtin_functions: &'s [&'static str],
+    symbol_table: Option<&'s SymbolTable>,
     defined_functions: HashSet<String>,
     issues: Vec<Issue>,
 }
@@ -93,9 +96,16 @@ impl<'s> UndefinedFunctionVisitor<'s> {
             return true;
         }
 
-        // Check user-defined functions
+        // Check user-defined functions in current file
         if self.defined_functions.contains(&lower_name) {
             return true;
+        }
+
+        // Check symbol table from autoload scanning
+        if let Some(st) = self.symbol_table {
+            if st.get_function(name).is_some() {
+                return true;
+            }
         }
 
         false

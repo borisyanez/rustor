@@ -136,6 +136,16 @@ pub mod static_call_to_func_call;
 pub mod scalar_value_to_const_fetch;
 pub mod attribute_key_to_class_const_fetch;
 
+// DeadCode rules
+pub mod simplify_mirror_assign;
+pub mod remove_and_true;
+pub mod simplify_if_else_with_same_content;
+pub mod remove_duplicated_array_key;
+pub mod remove_or_false;
+pub mod simplify_useless_concat;
+pub mod simplify_bool_identity;
+pub mod remove_or_true;
+
 // Re-export the Rule trait, registry, and metadata types
 pub use registry::{
     Category, ConfigOption, ConfigOptionType, ConfigValue, ConfigurableRule, PhpVersion, Preset,
@@ -223,3 +233,11 @@ pub use remove_reference_from_call::check_remove_reference_from_call;
 pub use ternary_to_elvis::check_ternary_to_elvis;
 pub use remove_zero_break_continue::check_remove_zero_break_continue;
 pub use get_called_class_to_static::check_get_called_class_to_static;
+pub use simplify_mirror_assign::check_simplify_mirror_assign;
+pub use remove_and_true::check_remove_and_true;
+pub use simplify_if_else_with_same_content::check_simplify_if_else_with_same_content;
+pub use remove_duplicated_array_key::check_remove_duplicated_array_key;
+pub use remove_or_false::check_remove_or_false;
+pub use simplify_useless_concat::check_simplify_useless_concat;
+pub use simplify_bool_identity::check_simplify_bool_identity;
+pub use remove_or_true::check_remove_or_true;

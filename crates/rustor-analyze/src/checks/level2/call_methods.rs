@@ -48,6 +48,8 @@ impl Check for CallMethodsCheck {
             symbol_table: ctx.symbol_table,
             issues: Vec::new(),
             check_arg_counts: true,
+            current_namespace: String::new(),
+            use_fqn_map: HashMap::new(),
         };
 
         // First pass: collect class methods
@@ -72,6 +74,10 @@ struct MethodCallVisitor<'s> {
     symbol_table: Option<&'s SymbolTable>,
     issues: Vec<Issue>,
     check_arg_counts: bool,
+    /// Current namespace for FQN resolution
+    current_namespace: String,
+    /// Map of imported class short names to FQN (short name lowercase -> FQN)
+    use_fqn_map: HashMap<String, String>,
 }
 
 impl<'s> MethodCallVisitor<'s> {
@@ -130,24 +136,129 @@ impl<'s> MethodCallVisitor<'s> {
                 self.class_names.insert(class_lower.clone(), original_name);
                 self.class_methods.insert(class_lower, methods);
             }
-            Statement::Namespace(ns) => match &ns.body {
-                NamespaceBody::Implicit(body) => {
-                    for inner in body.statements.iter() {
-                        self.collect_from_stmt(inner);
+            Statement::Namespace(ns) => {
+                // Extract namespace name
+                if let Some(ref name) = ns.name {
+                    let span = name.span();
+                    self.current_namespace = self.source[span.start.offset as usize..span.end.offset as usize].to_string();
+                }
+                match &ns.body {
+                    NamespaceBody::Implicit(body) => {
+                        for inner in body.statements.iter() {
+                            self.collect_from_stmt(inner);
+                        }
+                    }
+                    NamespaceBody::BraceDelimited(body) => {
+                        for inner in body.statements.iter() {
+                            self.collect_from_stmt(inner);
+                        }
                     }
                 }
-                NamespaceBody::BraceDelimited(body) => {
-                    for inner in body.statements.iter() {
-                        self.collect_from_stmt(inner);
-                    }
-                }
-            },
+            }
+            Statement::Use(use_stmt) => {
+                // Extract imports from use statement
+                self.collect_use_imports(use_stmt);
+            }
             Statement::Block(block) => {
                 for inner in block.statements.iter() {
                     self.collect_from_stmt(inner);
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Collect use imports from a use statement
+    fn collect_use_imports<'a>(&mut self, use_stmt: &Use<'a>) {
+        let use_span = use_stmt.span();
+        let use_text = &self.source[use_span.start.offset as usize..use_span.end.offset as usize];
+        self.extract_imports_from_use_text(use_text);
+    }
+
+    /// Parse use statement text and extract class aliases
+    fn extract_imports_from_use_text(&mut self, use_text: &str) {
+        // Remove 'use', 'function', 'const' keywords and semicolon
+        let text = use_text
+            .trim_start_matches("use")
+            .trim_start()
+            .trim_start_matches("function")
+            .trim_start_matches("const")
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+
+        // Handle grouped imports: Foo\{Bar, Baz as Qux}
+        if let Some(brace_start) = text.find('{') {
+            let prefix = text[..brace_start].trim().trim_end_matches('\\');
+            if let Some(brace_end) = text.find('}') {
+                let group_content = &text[brace_start + 1..brace_end];
+                for item in group_content.split(',') {
+                    let item = item.trim();
+                    // Handle "Bar as Baz" - use alias
+                    if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                        let class_part = item[..as_pos].trim();
+                        let alias = item[as_pos + 4..].trim();
+                        let fqn = format!("{}\\{}", prefix, class_part);
+                        self.use_fqn_map.insert(alias.to_lowercase(), fqn);
+                    } else {
+                        // Just "Bar" - use last segment
+                        let name = item.rsplit('\\').next().unwrap_or(item).trim();
+                        if !name.is_empty() {
+                            let fqn = format!("{}\\{}", prefix, item.trim());
+                            self.use_fqn_map.insert(name.to_lowercase(), fqn);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Simple import: Foo\Bar or Foo\Bar as Baz
+            if let Some(as_pos) = text.to_lowercase().find(" as ") {
+                let fqn = text[..as_pos].trim().to_string();
+                let alias = text[as_pos + 4..].trim();
+                self.use_fqn_map.insert(alias.to_lowercase(), fqn);
+            } else {
+                // Get last segment of namespace
+                let name = text.rsplit('\\').next().unwrap_or(text).trim();
+                if !name.is_empty() {
+                    self.use_fqn_map.insert(name.to_lowercase(), text.to_string());
+                }
+            }
+        }
+    }
+
+    /// Resolve a class name to its fully qualified name
+    fn resolve_class_name(&self, name: &str) -> String {
+        // Already fully qualified
+        if name.starts_with('\\') {
+            return name[1..].to_string();
+        }
+
+        // Contains namespace separator - could be partially qualified
+        if name.contains('\\') {
+            // Check if first part is an alias
+            let first_part = name.split('\\').next().unwrap_or(name);
+            if let Some(fqn) = self.use_fqn_map.get(&first_part.to_lowercase()) {
+                let rest = &name[first_part.len()..];
+                return format!("{}{}", fqn, rest);
+            }
+            // Try with current namespace
+            if !self.current_namespace.is_empty() {
+                return format!("{}\\{}", self.current_namespace, name);
+            }
+            return name.to_string();
+        }
+
+        // Check use imports (case-insensitive)
+        let lower_name = name.to_lowercase();
+        if let Some(fqn) = self.use_fqn_map.get(&lower_name) {
+            return fqn.clone();
+        }
+
+        // Prepend current namespace if not found in imports
+        if !self.current_namespace.is_empty() {
+            format!("{}\\{}", self.current_namespace, name)
+        } else {
+            name.to_string()
         }
     }
 
@@ -199,22 +310,39 @@ impl<'s> MethodCallVisitor<'s> {
         let class_lower = class_name.to_lowercase();
         let method_lower = method_name.to_lowercase();
 
-        // First check local file definitions
+        // First check local file definitions (by short name)
         if let Some(methods) = self.class_methods.get(&class_lower) {
             if methods.contains_key(&method_lower) {
+                return true;
+            }
+            // Check for __call magic method in local file
+            if methods.contains_key("__call") {
                 return true;
             }
         }
 
         // Then check symbol table for cross-file resolution
         if let Some(symbol_table) = self.symbol_table {
-            // Check direct class
+            // Resolve to fully qualified name
+            let fqn = self.resolve_class_name(class_name);
+
+            // Check direct class by FQN
+            if symbol_table.class_has_method(&fqn, method_name) {
+                return true;
+            }
+
+            // Also try with short name (for classes in global namespace)
             if symbol_table.class_has_method(class_name, method_name) {
                 return true;
             }
 
+            // Check for __call magic method (handles dynamic method dispatch)
+            if self.has_magic_call_in_hierarchy(&fqn, symbol_table) {
+                return true;
+            }
+
             // Check parent classes and traits recursively
-            if let Some(class_info) = symbol_table.get_class(class_name) {
+            if let Some(class_info) = symbol_table.get_class(&fqn).or_else(|| symbol_table.get_class(class_name)) {
                 // Check parent class
                 if let Some(parent) = &class_info.parent {
                     if self.method_exists_in_hierarchy(parent, method_name, symbol_table) {
@@ -234,6 +362,33 @@ impl<'s> MethodCallVisitor<'s> {
                     if self.method_exists_in_hierarchy(interface, method_name, symbol_table) {
                         return true;
                     }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a class or its parents/traits have __call magic method
+    fn has_magic_call_in_hierarchy(&self, class_name: &str, symbol_table: &SymbolTable) -> bool {
+        // Check this class directly
+        if symbol_table.class_has_method(class_name, "__call") {
+            return true;
+        }
+
+        // Check parent hierarchy
+        if let Some(class_info) = symbol_table.get_class(class_name) {
+            // Check parent class
+            if let Some(parent) = &class_info.parent {
+                if self.has_magic_call_in_hierarchy(parent, symbol_table) {
+                    return true;
+                }
+            }
+
+            // Check traits (traits can define __call)
+            for trait_name in &class_info.traits {
+                if self.has_magic_call_in_hierarchy(trait_name, symbol_table) {
+                    return true;
                 }
             }
         }

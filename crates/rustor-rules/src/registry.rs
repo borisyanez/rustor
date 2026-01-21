@@ -476,6 +476,16 @@ impl RuleRegistry {
         registry.register(Box::new(super::scalar_value_to_const_fetch::ScalarValueToConstFetchRule::with_config(&get_config("scalar_value_to_const_fetch"))));
         registry.register(Box::new(super::attribute_key_to_class_const_fetch::AttributeKeyToClassConstFetchRule::with_config(&get_config("attribute_key_to_class_const_fetch"))));
 
+        // DeadCode rules
+        registry.register(Box::new(super::simplify_mirror_assign::SimplifyMirrorAssignRule::new()));
+        registry.register(Box::new(super::remove_and_true::RemoveAndTrueRule::new()));
+        registry.register(Box::new(super::simplify_if_else_with_same_content::SimplifyIfElseWithSameContentRule::new()));
+        registry.register(Box::new(super::remove_duplicated_array_key::RemoveDuplicatedArrayKeyRule::new()));
+        registry.register(Box::new(super::remove_or_false::RemoveOrFalseRule::new()));
+        registry.register(Box::new(super::simplify_useless_concat::SimplifyUselessConcatRule::new()));
+        registry.register(Box::new(super::simplify_bool_identity::SimplifyBoolIdentityRule::new()));
+        registry.register(Box::new(super::remove_or_true::RemoveOrTrueRule::new()));
+
         // Register imported rules from Rector
         for rule in super::imported::imported_rules() {
             registry.register(rule);

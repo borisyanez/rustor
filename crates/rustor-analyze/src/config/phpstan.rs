@@ -3,6 +3,7 @@
 use super::level::Level;
 use super::neon::{parse, Value};
 use crate::logging;
+use regex::Regex;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,9 @@ pub enum ConfigError {
 pub struct IgnoreError {
     /// Message pattern (regex or exact match)
     pub message: String,
+    /// Compiled regex for message matching (if is_regex)
+    #[allow(dead_code)]
+    compiled_regex: Option<Regex>,
     /// Optional path pattern
     pub path: Option<String>,
     /// Whether this is a regex pattern
@@ -31,6 +35,37 @@ pub struct IgnoreError {
     pub count: Option<usize>,
     /// Identifier pattern
     pub identifier: Option<String>,
+}
+
+impl IgnoreError {
+    pub fn new(message: String, path: Option<String>, is_regex: bool, count: Option<usize>, identifier: Option<String>) -> Self {
+        let compiled_regex = if is_regex {
+            Regex::new(&message).ok()
+        } else {
+            None
+        };
+        Self {
+            message,
+            compiled_regex,
+            path,
+            is_regex,
+            count,
+            identifier,
+        }
+    }
+
+    /// Check if a message matches this pattern
+    pub fn message_matches(&self, msg: &str) -> bool {
+        if let Some(ref re) = self.compiled_regex {
+            re.is_match(msg)
+        } else if self.is_regex {
+            // Regex failed to compile - no match
+            false
+        } else {
+            // Exact match
+            self.message == msg
+        }
+    }
 }
 
 /// PHPStan configuration
@@ -381,12 +416,9 @@ impl PhpStanConfig {
 
         for (i, item) in arr.iter().enumerate() {
             let error = match item {
-                Value::String(s) => IgnoreError {
-                    message: s.clone(),
-                    path: None,
-                    is_regex: s.starts_with('#') || s.starts_with('/'),
-                    count: None,
-                    identifier: None,
+                Value::String(s) => {
+                    let is_regex = s.starts_with('#') || s.starts_with('/');
+                    IgnoreError::new(s.clone(), None, is_regex, None, None)
                 },
                 Value::Object(obj) => {
                     let message = obj
@@ -400,14 +432,9 @@ impl PhpStanConfig {
                         .get("identifier")
                         .and_then(|v| v.as_str())
                         .map(String::from);
+                    let is_regex = message.starts_with('#') || message.starts_with('/');
 
-                    IgnoreError {
-                        is_regex: message.starts_with('#') || message.starts_with('/'),
-                        message,
-                        path,
-                        count,
-                        identifier,
-                    }
+                    IgnoreError::new(message, path, is_regex, count, identifier)
                 }
                 _ => continue,
             };
@@ -503,63 +530,35 @@ impl PhpStanConfig {
             }
         }
 
+        // Normalize error path for comparison
+        let error_path_str = path.to_string_lossy();
+
         for ignore in &self.ignore_errors {
-            // Check identifier first if specified
+            // Check identifier match first (fast)
             if let Some(ignore_id) = &ignore.identifier {
                 if let Some(error_id) = identifier {
-                    if ignore_id == error_id {
-                        logging::log_error_filter(
-                            path,
-                            0, // Line not available at this level
-                            message,
-                            identifier,
-                            true,
-                            Some(&format!("identifier match: {}", ignore_id)),
-                        );
-                        return true;
+                    if ignore_id != error_id {
+                        continue; // Identifier doesn't match
                     }
+                } else {
+                    continue; // Error has no identifier but pattern requires one
                 }
             }
 
-            // Check path pattern
-            if let Some(path_pattern) = &ignore.path {
-                let path_str = path.to_string_lossy();
-                if !path_str.contains(path_pattern) {
+            // Check path match if specified
+            if let Some(ignore_path) = &ignore.path {
+                if !error_path_str.ends_with(ignore_path) {
                     continue;
                 }
             }
 
-            // Check message pattern
-            if ignore.is_regex {
-                // Simple regex check (strip leading/trailing delimiters)
-                let pattern = ignore
-                    .message
-                    .trim_start_matches(|c| c == '#' || c == '/')
-                    .trim_end_matches(|c| c == '#' || c == '/');
-                if let Ok(re) = fnmatch_regex::glob_to_regex(pattern) {
-                    if re.is_match(message) {
-                        logging::log_error_filter(
-                            path,
-                            0,
-                            message,
-                            identifier,
-                            true,
-                            Some(&format!("regex pattern: {}", ignore.message)),
-                        );
-                        return true;
-                    }
-                }
-            } else if message.contains(&ignore.message) {
-                logging::log_error_filter(
-                    path,
-                    0,
-                    message,
-                    identifier,
-                    true,
-                    Some(&format!("message contains: {}", ignore.message)),
-                );
-                return true;
+            // Check message pattern match (uses pre-compiled regex)
+            if !ignore.message_matches(message) {
+                continue;
             }
+
+            // All specified conditions matched
+            return true;
         }
         false
     }

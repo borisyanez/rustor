@@ -105,6 +105,11 @@ impl SymbolTable {
         self.classes.values().map(|c| c.full_name.as_str())
     }
 
+    /// Get all class infos
+    pub fn all_class_infos(&self) -> impl Iterator<Item = &ClassInfo> {
+        self.classes.values()
+    }
+
     /// Get all function names
     pub fn all_functions(&self) -> impl Iterator<Item = &str> {
         self.functions.values().map(|f| f.full_name.as_str())

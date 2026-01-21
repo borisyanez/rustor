@@ -8,5 +8,5 @@ pub mod class_info;
 pub mod function_info;
 
 pub use symbol_table::SymbolTable;
-pub use class_info::ClassInfo;
+pub use class_info::{ClassInfo, ClassKind};
 pub use function_info::FunctionInfo;

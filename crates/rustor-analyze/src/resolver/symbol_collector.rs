@@ -4,8 +4,9 @@
 //! This is a simplified version that extracts basic symbol information.
 
 use crate::symbols::{ClassInfo, FunctionInfo, SymbolTable};
-use crate::symbols::class_info::ClassKind;
+use crate::symbols::class_info::{ClassKind, ClassMethodInfo, MethodParameterInfo};
 use crate::types::Type;
+use crate::types::php_type::Visibility;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -115,6 +116,69 @@ impl<'s> SymbolCollector<'s> {
             }
         }
         line
+    }
+
+    /// Extract visibility from method modifiers
+    fn extract_visibility(&self, modifiers: &mago_syntax::ast::Sequence<'_, mago_syntax::ast::Modifier<'_>>) -> Visibility {
+        if modifiers.contains_private() {
+            Visibility::Private
+        } else if modifiers.contains_protected() {
+            Visibility::Protected
+        } else {
+            Visibility::Public  // Default is public
+        }
+    }
+
+    /// Check if modifiers contain static
+    fn has_static_modifier(&self, modifiers: &mago_syntax::ast::Sequence<'_, mago_syntax::ast::Modifier<'_>>) -> bool {
+        modifiers.contains_static()
+    }
+
+    /// Check if modifiers contain abstract
+    fn has_abstract_modifier(&self, modifiers: &mago_syntax::ast::Sequence<'_, mago_syntax::ast::Modifier<'_>>) -> bool {
+        modifiers.contains_abstract()
+    }
+
+    /// Check if modifiers contain final
+    fn has_final_modifier(&self, modifiers: &mago_syntax::ast::Sequence<'_, mago_syntax::ast::Modifier<'_>>) -> bool {
+        modifiers.contains_final()
+    }
+
+    /// Collect methods from class members
+    fn collect_methods_from_members(&self, members: &mago_syntax::ast::Sequence<'_, ClassLikeMember<'_>>, info: &mut ClassInfo) {
+        for member in members.iter() {
+            match member {
+                ClassLikeMember::Method(method) => {
+                    let method_name = self.get_span_text(&method.name.span).to_string();
+                    let mut method_info = ClassMethodInfo::new(&method_name);
+
+                    // Extract visibility and modifiers
+                    method_info.visibility = self.extract_visibility(&method.modifiers);
+                    method_info.is_static = self.has_static_modifier(&method.modifiers);
+                    method_info.is_abstract = matches!(method.body, MethodBody::Abstract(_));
+                    method_info.is_final = self.has_final_modifier(&method.modifiers);
+
+                    // Extract parameters
+                    for param in method.parameter_list.parameters.iter() {
+                        let param_name = self.get_span_text(&param.variable.span).to_string();
+                        let mut param_info = MethodParameterInfo::new(&param_name);
+                        param_info.is_optional = param.default_value.is_some();
+                        param_info.is_variadic = param.ellipsis.is_some();
+                        param_info.is_reference = param.ampersand.is_some();
+                        method_info.parameters.push(param_info);
+                    }
+
+                    info.add_method(method_info);
+                }
+                ClassLikeMember::TraitUse(trait_use) => {
+                    for trait_name in trait_use.trait_names.iter() {
+                        let trait_text = self.get_span_text(&trait_name.span());
+                        info.traits.push(self.qualify_name(trait_text));
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Extract type imports from use statement text
@@ -292,6 +356,9 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                     }
                 }
 
+                // Collect methods and trait usage from class members
+                self.collect_methods_from_members(&class.members, &mut info);
+
                 self.symbols.classes.push(info);
                 true
             }
@@ -313,6 +380,9 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                     }
                 }
 
+                // Collect method signatures from interface members
+                self.collect_methods_from_members(&interface.members, &mut info);
+
                 self.symbols.classes.push(info);
                 true
             }
@@ -326,6 +396,9 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
 
+                // Collect methods and trait usage from trait members
+                self.collect_methods_from_members(&trait_def.members, &mut info);
+
                 self.symbols.classes.push(info);
                 true
             }
@@ -338,6 +411,9 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.kind = ClassKind::Enum;
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
+
+                // Collect methods and trait usage from enum members
+                self.collect_methods_from_members(&enum_def.members, &mut info);
 
                 self.symbols.classes.push(info);
                 true

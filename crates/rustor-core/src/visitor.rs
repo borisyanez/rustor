@@ -267,10 +267,47 @@ pub trait Visitor<'a> {
 
         match expr {
             Expression::Call(call) => {
-                if let Call::Function(func_call) = call {
-                    for arg in func_call.argument_list.arguments.iter() {
+                match call {
+                    Call::Function(func_call) => {
+                        self.traverse_expression(&func_call.function, source);
+                        for arg in func_call.argument_list.arguments.iter() {
+                            self.traverse_expression(arg.value(), source);
+                        }
+                    }
+                    Call::Method(method_call) => {
+                        self.traverse_expression(&method_call.object, source);
+                        for arg in method_call.argument_list.arguments.iter() {
+                            self.traverse_expression(arg.value(), source);
+                        }
+                    }
+                    Call::StaticMethod(static_call) => {
+                        self.traverse_expression(&static_call.class, source);
+                        for arg in static_call.argument_list.arguments.iter() {
+                            self.traverse_expression(arg.value(), source);
+                        }
+                    }
+                    Call::NullSafeMethod(ns_call) => {
+                        self.traverse_expression(&ns_call.object, source);
+                        for arg in ns_call.argument_list.arguments.iter() {
+                            self.traverse_expression(arg.value(), source);
+                        }
+                    }
+                }
+            }
+            Expression::Instantiation(instantiate) => {
+                self.traverse_expression(&instantiate.class, source);
+                if let Some(args) = &instantiate.argument_list {
+                    for arg in args.arguments.iter() {
                         self.traverse_expression(arg.value(), source);
                     }
+                }
+            }
+            Expression::Access(access) => {
+                match access {
+                    Access::Property(p) => self.traverse_expression(&p.object, source),
+                    Access::NullSafeProperty(p) => self.traverse_expression(&p.object, source),
+                    Access::StaticProperty(p) => self.traverse_expression(&p.class, source),
+                    Access::ClassConstant(p) => self.traverse_expression(&p.class, source),
                 }
             }
             Expression::UnaryPrefix(unary) => {
