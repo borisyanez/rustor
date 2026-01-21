@@ -28,6 +28,7 @@
 //! println!("{}", output);
 //! ```
 
+pub mod autoload;
 pub mod baseline;
 pub mod checks;
 pub mod config;
@@ -39,7 +40,9 @@ pub mod scope;
 pub mod symbols;
 pub mod types;
 
+use autoload::AutoloadScanner;
 use checks::{CheckContext, CheckRegistry, PHP_BUILTIN_CLASSES, PHP_BUILTIN_FUNCTIONS};
+use config::composer::ComposerJson;
 use config::PhpStanConfig;
 use issue::IssueCollection;
 use mago_database::file::FileId;
@@ -162,6 +165,9 @@ impl Analyzer {
             }
         }
 
+        // Load autoload symbols from composer.json if available
+        let mut symbol_table = self.load_autoload_symbols(paths);
+
         // First pass: collect symbols from all files to build symbol table
         let collected_symbols: Vec<_> = files
             .par_iter()
@@ -176,8 +182,13 @@ impl Analyzer {
             })
             .collect();
 
-        // Build symbol table
-        let symbol_table = SymbolCollector::build_symbol_table_from_symbols(collected_symbols);
+        // Merge target file symbols into autoload symbol table
+        let target_symbols = SymbolCollector::build_symbol_table_from_symbols(collected_symbols);
+        symbol_table.merge(target_symbols);
+
+        // Collect symbols from files included via require/include statements
+        let include_symbols = self.collect_include_symbols(&files);
+        symbol_table.merge(include_symbols);
 
         // Second pass: analyze files with symbol table
         let results: Vec<_> = files
@@ -265,6 +276,173 @@ impl Analyzer {
             return Err(AnalyzeError::NoPathsConfigured);
         }
         self.analyze_paths(&paths)
+    }
+
+    /// Collect symbols from files included via require/include statements
+    fn collect_include_symbols(&self, files: &[std::path::PathBuf]) -> SymbolTable {
+        use autoload::include_scanner::IncludeScanner;
+        use std::collections::HashSet;
+
+        let mut all_includes: HashSet<std::path::PathBuf> = HashSet::new();
+        let mut to_process: Vec<std::path::PathBuf> = Vec::new();
+
+        // First, find all includes from the target files
+        for file in files {
+            if let Ok(source) = fs::read_to_string(file) {
+                let arena = bumpalo::Bump::new();
+                let file_id = FileId::new(file.to_string_lossy().as_ref());
+                let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                let scanner = IncludeScanner::new(&source, file);
+                for include_path in scanner.scan(program) {
+                    if !all_includes.contains(&include_path) {
+                        all_includes.insert(include_path.clone());
+                        to_process.push(include_path);
+                    }
+                }
+            }
+        }
+
+        // Recursively process includes (up to 3 levels deep to avoid infinite loops)
+        for _ in 0..3 {
+            let current_batch: Vec<_> = to_process.drain(..).collect();
+            if current_batch.is_empty() {
+                break;
+            }
+
+            for file in current_batch {
+                if let Ok(source) = fs::read_to_string(&file) {
+                    let arena = bumpalo::Bump::new();
+                    let file_id = FileId::new(file.to_string_lossy().as_ref());
+                    let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                    let scanner = IncludeScanner::new(&source, &file);
+                    for include_path in scanner.scan(program) {
+                        if !all_includes.contains(&include_path) {
+                            all_includes.insert(include_path.clone());
+                            to_process.push(include_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now collect symbols from all discovered include files
+        let collected: Vec<_> = all_includes
+            .par_iter()
+            .filter_map(|file| {
+                let source = fs::read_to_string(file).ok()?;
+                let arena = bumpalo::Bump::new();
+                let file_id = FileId::new(file.to_string_lossy().as_ref());
+                let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                let collector = SymbolCollector::new(&source, file);
+                Some(collector.collect(&program))
+            })
+            .collect();
+
+        SymbolCollector::build_symbol_table_from_symbols(collected)
+    }
+
+    /// Load symbols from Composer autoload (classmap + PSR-4 + vendor PSR-4)
+    fn load_autoload_symbols(&self, paths: &[&Path]) -> SymbolTable {
+        let search_dir = paths.first()
+            .map(|p| if p.is_file() { p.parent().unwrap_or(*p) } else { *p })
+            .unwrap_or(Path::new("."));
+
+        let mut symbol_table = SymbolTable::new();
+
+        // Try to find vendor and classmap paths
+        let classmap_scanner = autoload::ClassmapScanner::find_from_directory(search_dir);
+        let vendor_psr4_scanner = autoload::VendorPsr4Scanner::find_from_directory(search_dir);
+
+        // Check if we can use cached vendor symbols
+        if let (Some(ref cm_scanner), Some(ref vp_scanner)) = (&classmap_scanner, &vendor_psr4_scanner) {
+            let cache = autoload::cache::AutoloadCache::for_project(search_dir);
+            if let Some(cached) = cache.load(&vp_scanner.vendor_dir(), &cm_scanner.classmap_path()) {
+                eprintln!("Autoload: using cached vendor symbols ({} classes)", cached.all_classes().count());
+                symbol_table.merge(cached);
+
+                // Still load project PSR-4 (fast)
+                let composer_path = ComposerJson::find_in_directory(search_dir);
+                if let Some(path) = composer_path {
+                    if let Ok(composer) = ComposerJson::load(&path) {
+                        if composer.has_autoload() {
+                            let base_dir = path.parent().unwrap_or(Path::new("."));
+                            let scanner = AutoloadScanner::from_composer(&composer, base_dir, true);
+                            let stats = scanner.stats();
+                            if stats.file_count > 0 {
+                                eprintln!(
+                                    "Autoload: scanning {} files from {} PSR-4 mappings",
+                                    stats.file_count, stats.mapping_count
+                                );
+                                symbol_table.merge(scanner.build_symbol_table());
+                            }
+                        }
+                    }
+                }
+
+                return symbol_table;
+            }
+        }
+
+        // No cache - build from scratch
+        // First, load from Composer's classmap (vendor classes)
+        if let Some(ref classmap_scanner) = classmap_scanner {
+            let stats = classmap_scanner.stats();
+            eprintln!(
+                "Autoload: loading {} classes from {}",
+                stats.class_count,
+                stats.classmap_path.display()
+            );
+            symbol_table.merge(classmap_scanner.build_symbol_table());
+        }
+
+        // Load vendor PSR-4 symbols (interfaces, abstract classes not in classmap)
+        if let Some(ref vp_scanner) = vendor_psr4_scanner {
+            let stats = vp_scanner.stats();
+            eprintln!(
+                "Autoload: scanning {} vendor PSR-4 mappings (this may take a moment...)",
+                stats.mapping_count
+            );
+            let vendor_table = vp_scanner.build_symbol_table();
+            eprintln!(
+                "Autoload: found {} classes in vendor PSR-4 directories",
+                vendor_table.all_classes().count()
+            );
+            symbol_table.merge(vendor_table);
+        }
+
+        // Save to cache for next time
+        if let (Some(ref cm_scanner), Some(ref vp_scanner)) = (&classmap_scanner, &vendor_psr4_scanner) {
+            let cache = autoload::cache::AutoloadCache::for_project(search_dir);
+            if let Err(e) = cache.save(&symbol_table, &vp_scanner.vendor_dir(), &cm_scanner.classmap_path()) {
+                eprintln!("Autoload: failed to save cache: {}", e);
+            } else {
+                eprintln!("Autoload: saved symbol cache for faster future runs");
+            }
+        }
+
+        // Then, project PSR-4 autoload from composer.json
+        let composer_path = ComposerJson::find_in_directory(search_dir);
+        if let Some(path) = composer_path {
+            if let Ok(composer) = ComposerJson::load(&path) {
+                if composer.has_autoload() {
+                    let base_dir = path.parent().unwrap_or(Path::new("."));
+                    let scanner = AutoloadScanner::from_composer(&composer, base_dir, true);
+                    let stats = scanner.stats();
+                    if stats.file_count > 0 {
+                        eprintln!(
+                            "Autoload: scanning {} files from {} PSR-4 mappings",
+                            stats.file_count, stats.mapping_count
+                        );
+                        symbol_table.merge(scanner.build_symbol_table());
+                    }
+                }
+            }
+        }
+
+        symbol_table
     }
 }
 
