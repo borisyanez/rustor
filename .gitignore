@@ -5,3 +5,8 @@ Cargo.lock
 .DS_Store
 .rustor-cache
 .php-cs-fixer.cache
+
+# Local settings and planning docs
+.claude/settings.local.json
+NEXT_PHASE.md
+NEXT_STEPS.md
