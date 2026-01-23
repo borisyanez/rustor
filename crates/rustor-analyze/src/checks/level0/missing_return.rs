@@ -222,8 +222,12 @@ impl ReturnFinder {
                 self.found = true;
             }
             Statement::Expression(expr_stmt) => {
+                // Check if this is a throw expression (terminates function)
+                if matches!(expr_stmt.expression, Expression::Throw(_)) {
+                    self.found = true;
+                }
                 // Check if this is a yield expression (generator function)
-                if self.expression_contains_yield(&expr_stmt.expression) {
+                else if self.expression_contains_yield(&expr_stmt.expression) {
                     self.found = true;
                 }
             }
