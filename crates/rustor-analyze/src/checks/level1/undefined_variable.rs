@@ -174,7 +174,18 @@ impl<'s> VariableAnalyzer<'s> {
         false
     }
 
+    /// PHP superglobals that are always available in any scope
+    const SUPERGLOBALS: &'static [&'static str] = &[
+        "$_GET", "$_POST", "$_REQUEST", "$_SERVER", "$_SESSION", "$_COOKIE",
+        "$_FILES", "$_ENV", "$GLOBALS", "$argc", "$argv",
+    ];
+
     fn is_defined(&self, name: &str) -> bool {
+        // Superglobals are always defined in PHP (including inside closures)
+        if Self::SUPERGLOBALS.contains(&name) {
+            return true;
+        }
+
         // For closure scopes, only check the closure scope itself
         if self.current_scope().is_closure {
             return self.current_scope().is_defined(name);
