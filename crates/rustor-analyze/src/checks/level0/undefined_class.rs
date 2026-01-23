@@ -295,23 +295,33 @@ impl<'s> UndefinedClassVisitor<'s> {
         let has_namespace = name.contains('\\');
 
         if is_absolute_fqn {
-            // Absolute FQN - look up directly in symbol table
+            // Absolute FQN - check built-in classes first, then symbol table
+            let normalized = name.trim_start_matches('\\');
+
+            // Check built-in classes
+            if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(normalized)) {
+                return;
+            }
+
+            // Check symbol table
             if let Some(symbol_table) = self.symbol_table {
-                let normalized = name.trim_start_matches('\\');
-                if symbol_table.get_class(normalized).is_none() {
-                    let (line, col) = self.get_line_col(offset);
-                    self.issues.push(
-                        Issue::error(
-                            "class.notFound",
-                            format!("Class {} not found.", name),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("class.notFound"),
-                    );
+                if symbol_table.get_class(normalized).is_some() {
+                    return;
                 }
             }
+
+            // Not found - report error
+            let (line, col) = self.get_line_col(offset);
+            self.issues.push(
+                Issue::error(
+                    "class.notFound",
+                    format!("Class {} not found.", name),
+                    self.file_path.clone(),
+                    line,
+                    col,
+                )
+                .with_identifier("class.notFound"),
+            );
             return;
         }
 
@@ -326,6 +336,12 @@ impl<'s> UndefinedClassVisitor<'s> {
                 let rest = &name[first_part.len()..]; // "\Join"
                 let resolved_fqn = format!("{}{}", fqn_prefix, rest);
 
+                // Check if resolved name is a built-in class
+                let last_part = resolved_fqn.rsplit('\\').next().unwrap_or(&resolved_fqn);
+                if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(last_part)) {
+                    return;
+                }
+
                 if let Some(symbol_table) = self.symbol_table {
                     if symbol_table.get_class(&resolved_fqn).is_some() {
                         return; // Found via alias resolution
@@ -334,6 +350,12 @@ impl<'s> UndefinedClassVisitor<'s> {
                     // No symbol table - trust the import
                     return;
                 }
+            }
+
+            // Check if the last part of the namespace is a built-in class
+            let last_part = name.rsplit('\\').next().unwrap_or(name);
+            if self.builtin_classes.iter().any(|c| c.eq_ignore_ascii_case(last_part)) {
+                return;
             }
 
             // Try looking up as-is in symbol table (might be a valid FQN)
@@ -382,6 +404,55 @@ impl<'s> UndefinedClassVisitor<'s> {
     }
 }
 
+impl<'s> UndefinedClassVisitor<'s> {
+    /// Check a type hint for undefined classes
+    fn check_type_hint(&mut self, hint: &Hint) {
+        match hint {
+            Hint::Identifier(ident) => {
+                let span = ident.span();
+                let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                self.check_class_name(name, span.start.offset as usize);
+            }
+            Hint::Nullable(nullable) => {
+                self.check_type_hint(&nullable.hint);
+            }
+            Hint::Union(union) => {
+                self.check_type_hint(&union.left);
+                self.check_type_hint(&union.right);
+            }
+            Hint::Intersection(intersection) => {
+                self.check_type_hint(&intersection.left);
+                self.check_type_hint(&intersection.right);
+            }
+            Hint::Parenthesized(paren) => {
+                self.check_type_hint(&paren.hint);
+            }
+            // Skip built-in types like void, int, string, array, etc.
+            Hint::Void(_) | Hint::Never(_) | Hint::Float(_) | Hint::Bool(_)
+            | Hint::Integer(_) | Hint::String(_) | Hint::Array(_) | Hint::Object(_)
+            | Hint::Mixed(_) | Hint::Iterable(_) | Hint::Null(_) | Hint::True(_)
+            | Hint::False(_) | Hint::Callable(_) | Hint::Static(_) | Hint::Self_(_)
+            | Hint::Parent(_) => {}
+        }
+    }
+
+    /// Check function/method parameters for type hints
+    fn check_parameters(&mut self, params: &FunctionLikeParameterList) {
+        for param in params.parameters.iter() {
+            if let Some(ref hint) = param.hint {
+                self.check_type_hint(hint);
+            }
+        }
+    }
+
+    /// Check function/method return type
+    fn check_return_type(&mut self, return_type: &Option<FunctionLikeReturnTypeHint>) {
+        if let Some(ref ret) = return_type {
+            self.check_type_hint(&ret.hint);
+        }
+    }
+}
+
 impl<'a, 's> Visitor<'a> for UndefinedClassVisitor<'s> {
     fn visit_expression(&mut self, expr: &Expression<'a>, _source: &str) -> bool {
         match expr {
@@ -418,30 +489,116 @@ impl<'a, 's> Visitor<'a> for UndefinedClassVisitor<'s> {
                     self.check_class_name(name, span.start.offset as usize);
                 }
             }
+            // Check instanceof expressions: $x instanceof ClassName
+            Expression::Binary(binary) if matches!(binary.operator, BinaryOperator::Instanceof(_)) => {
+                if let Expression::Identifier(ident) = &*binary.rhs {
+                    let span = ident.span();
+                    let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                    self.check_class_name(name, span.start.offset as usize);
+                }
+            }
             _ => {}
         }
         true
     }
 
     fn visit_statement(&mut self, stmt: &Statement<'a>, _source: &str) -> bool {
-        // Check extends/implements
-        if let Statement::Class(class) = stmt {
-            // Check extends
-            if let Some(extends) = &class.extends {
-                for parent in extends.types.iter() {
-                    let span = parent.span();
-                    let name = &self.source[span.start.offset as usize..span.end.offset as usize];
-                    self.check_class_name(name, span.start.offset as usize);
+        match stmt {
+            // Check extends/implements
+            Statement::Class(class) => {
+                // Check extends
+                if let Some(extends) = &class.extends {
+                    for parent in extends.types.iter() {
+                        let span = parent.span();
+                        let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                        self.check_class_name(name, span.start.offset as usize);
+                    }
+                }
+                // Check implements
+                if let Some(implements) = &class.implements {
+                    for iface in implements.types.iter() {
+                        let span = iface.span();
+                        let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                        self.check_class_name(name, span.start.offset as usize);
+                    }
+                }
+                // Check class members for property types and method signatures
+                for member in class.members.iter() {
+                    match member {
+                        ClassLikeMember::Property(prop) => {
+                            if let Some(ref hint) = prop.hint() {
+                                self.check_type_hint(hint);
+                            }
+                        }
+                        ClassLikeMember::Method(method) => {
+                            self.check_parameters(&method.parameter_list);
+                            self.check_return_type(&method.return_type_hint);
+                        }
+                        ClassLikeMember::TraitUse(trait_use) => {
+                            for trait_ref in trait_use.trait_names.iter() {
+                                let span = trait_ref.span();
+                                let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                                self.check_class_name(name, span.start.offset as usize);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
-            // Check implements
-            if let Some(implements) = &class.implements {
-                for iface in implements.types.iter() {
-                    let span = iface.span();
-                    let name = &self.source[span.start.offset as usize..span.end.offset as usize];
-                    self.check_class_name(name, span.start.offset as usize);
+            // Check interface method signatures
+            Statement::Interface(iface) => {
+                // Check extends
+                if let Some(extends) = &iface.extends {
+                    for parent in extends.types.iter() {
+                        let span = parent.span();
+                        let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                        self.check_class_name(name, span.start.offset as usize);
+                    }
+                }
+                for member in iface.members.iter() {
+                    if let ClassLikeMember::Method(method) = member {
+                        self.check_parameters(&method.parameter_list);
+                        self.check_return_type(&method.return_type_hint);
+                    }
                 }
             }
+            // Check trait method signatures
+            Statement::Trait(tr) => {
+                for member in tr.members.iter() {
+                    match member {
+                        ClassLikeMember::Property(prop) => {
+                            if let Some(ref hint) = prop.hint() {
+                                self.check_type_hint(hint);
+                            }
+                        }
+                        ClassLikeMember::Method(method) => {
+                            self.check_parameters(&method.parameter_list);
+                            self.check_return_type(&method.return_type_hint);
+                        }
+                        ClassLikeMember::TraitUse(trait_use) => {
+                            for trait_ref in trait_use.trait_names.iter() {
+                                let span = trait_ref.span();
+                                let name = &self.source[span.start.offset as usize..span.end.offset as usize];
+                                self.check_class_name(name, span.start.offset as usize);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // Check function parameter and return types
+            Statement::Function(func) => {
+                self.check_parameters(&func.parameter_list);
+                self.check_return_type(&func.return_type_hint);
+            }
+            // Check catch blocks for exception types
+            Statement::Try(try_stmt) => {
+                for catch in try_stmt.catch_clauses.iter() {
+                    // Check the exception type hint (can be a union like Exception|Error)
+                    self.check_type_hint(&catch.hint);
+                }
+            }
+            _ => {}
         }
         true
     }

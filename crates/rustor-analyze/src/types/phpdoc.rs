@@ -4,6 +4,15 @@
 
 use super::php_type::Type;
 
+/// Template parameter with optional bound
+#[derive(Debug, Clone)]
+pub struct TemplateParam {
+    /// Template parameter name (e.g., "T")
+    pub name: String,
+    /// Optional bound (e.g., "Entity" from `@template T of Entity`)
+    pub bound: Option<Type>,
+}
+
 /// Parsed PHPDoc information
 #[derive(Debug, Clone, Default)]
 pub struct PhpDoc {
@@ -17,8 +26,8 @@ pub struct PhpDoc {
     pub properties: Vec<(String, Type, PropertyAccess)>,
     /// Method signatures (@method)
     pub methods: Vec<MethodSignature>,
-    /// Template/generic parameters (@template)
-    pub templates: Vec<String>,
+    /// Template/generic parameters (@template) with bounds
+    pub templates: Vec<TemplateParam>,
     /// @throws annotations
     pub throws: Vec<Type>,
 }
@@ -71,9 +80,8 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
                 doc.throws.push(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@template") {
-            let name = rest.trim().split_whitespace().next().unwrap_or("");
-            if !name.is_empty() {
-                doc.templates.push(name.to_string());
+            if let Some(template) = parse_template_annotation(rest.trim()) {
+                doc.templates.push(template);
             }
         } else if let Some(rest) = line.strip_prefix("@property-read") {
             if let Some((type_str, name)) = parse_param_line(rest.trim()) {
@@ -97,6 +105,40 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
     }
 
     doc
+}
+
+/// Parse a @template annotation like "T", "T of Entity", or "T extends Entity"
+fn parse_template_annotation(rest: &str) -> Option<TemplateParam> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
+
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let name = parts[0].to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    // Check for "of" or "extends" keyword
+    let bound = if parts.len() >= 3 {
+        let keyword = parts[1].to_lowercase();
+        if keyword == "of" || keyword == "extends" {
+            // The bound is everything after the keyword
+            let bound_str = parts[2..].join(" ");
+            parse_type_string(&bound_str)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Some(TemplateParam { name, bound })
 }
 
 /// Parse a @param line: "Type $name" or "$name Type"
@@ -327,9 +369,11 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
                     }
                 }
                 _ => {
-                    // Generic object type - just use the base name
-                    return Some(Type::Object {
-                        class_name: Some(base.to_string()),
+                    // Generic object type - parse type arguments
+                    let type_args = parse_type_arg_list(params);
+                    return Some(Type::GenericObject {
+                        class_name: base.to_string(),
+                        type_args,
                     });
                 }
             }
@@ -401,6 +445,16 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
             }
         }
     }
+}
+
+/// Parse a comma-separated list of type arguments
+/// Handles nested generics like "Foo, Bar<Baz>"
+fn parse_type_arg_list(params: &str) -> Vec<Type> {
+    let parts = split_type_at_delimiter(params, ',');
+    parts
+        .iter()
+        .filter_map(|p| parse_type_string(p.trim()))
+        .collect()
 }
 
 /// Parse generic parameters like "int, string" or just "string"
@@ -495,5 +549,87 @@ mod tests {
             parse_type_string("positive-int"),
             Some(Type::IntRange { min: Some(1), max: None })
         ));
+    }
+
+    #[test]
+    fn test_parse_template_without_bound() {
+        let doc = parse_phpdoc("/** @template T */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(doc.templates[0].bound.is_none());
+    }
+
+    #[test]
+    fn test_parse_template_with_of_bound() {
+        let doc = parse_phpdoc("/** @template T of Entity */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(matches!(
+            doc.templates[0].bound,
+            Some(Type::Object { class_name: Some(ref name) }) if name == "Entity"
+        ));
+    }
+
+    #[test]
+    fn test_parse_template_with_extends_bound() {
+        let doc = parse_phpdoc("/** @template T extends Iterator */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(matches!(
+            doc.templates[0].bound,
+            Some(Type::Object { class_name: Some(ref name) }) if name == "Iterator"
+        ));
+    }
+
+    #[test]
+    fn test_parse_multiple_templates() {
+        let doc = parse_phpdoc(r#"/**
+         * @template K of int|string
+         * @template V of object
+         */"#);
+        assert_eq!(doc.templates.len(), 2);
+        assert_eq!(doc.templates[0].name, "K");
+        assert!(doc.templates[0].bound.is_some());
+        assert_eq!(doc.templates[1].name, "V");
+        assert!(matches!(
+            doc.templates[1].bound,
+            Some(Type::Object { class_name: None })
+        ));
+    }
+
+    #[test]
+    fn test_parse_generic_object_type() {
+        let result = parse_type_string("Repository<Entity>");
+        assert!(matches!(
+            result,
+            Some(Type::GenericObject { ref class_name, ref type_args })
+            if class_name == "Repository" && type_args.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_generic_object_multiple_args() {
+        let result = parse_type_string("Collection<string, Entity>");
+        match result {
+            Some(Type::GenericObject { class_name, type_args }) => {
+                assert_eq!(class_name, "Collection");
+                assert_eq!(type_args.len(), 2);
+                assert!(matches!(type_args[0], Type::String));
+            }
+            _ => panic!("Expected GenericObject"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_object_nested() {
+        let result = parse_type_string("Repository<Collection<Entity>>");
+        match result {
+            Some(Type::GenericObject { class_name, type_args }) => {
+                assert_eq!(class_name, "Repository");
+                assert_eq!(type_args.len(), 1);
+                assert!(matches!(type_args[0], Type::GenericObject { .. }));
+            }
+            _ => panic!("Expected nested GenericObject"),
+        }
     }
 }

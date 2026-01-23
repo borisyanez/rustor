@@ -26,7 +26,7 @@ impl Check for PhpDocTypesCheck {
     }
 
     fn level(&self) -> u8 {
-        6
+        0  // PHPStan reports PHPDoc class.notFound at level 0
     }
 
     fn check<'a>(&self, program: &Program<'a>, ctx: &CheckContext<'_>) -> Vec<Issue> {
@@ -219,7 +219,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
                 let phpdoc = self.extract_phpdoc(func.span().start.offset as usize);
                 if let Some(ref doc) = phpdoc {
                     for template in &doc.templates {
-                        self.template_params.insert(template.to_lowercase());
+                        self.template_params.insert(template.name.to_lowercase());
                     }
                     self.validate_phpdoc(doc, func.span().start.offset as usize);
                 }
@@ -230,7 +230,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
                 let class_phpdoc = self.extract_phpdoc(class.span().start.offset as usize);
                 if let Some(ref doc) = class_phpdoc {
                     for template in &doc.templates {
-                        self.template_params.insert(template.to_lowercase());
+                        self.template_params.insert(template.name.to_lowercase());
                     }
                     self.validate_phpdoc(doc, class.span().start.offset as usize);
                 }
@@ -250,7 +250,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
 
                             if let Some(ref doc) = method_phpdoc {
                                 for template in &doc.templates {
-                                    self.template_params.insert(template.to_lowercase());
+                                    self.template_params.insert(template.name.to_lowercase());
                                 }
                                 self.validate_phpdoc(doc, method.span().start.offset as usize);
                             }
@@ -273,7 +273,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
                 let iface_phpdoc = self.extract_phpdoc(iface.span().start.offset as usize);
                 if let Some(ref doc) = iface_phpdoc {
                     for template in &doc.templates {
-                        self.template_params.insert(template.to_lowercase());
+                        self.template_params.insert(template.name.to_lowercase());
                     }
                     self.validate_phpdoc(doc, iface.span().start.offset as usize);
                 }
@@ -285,7 +285,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
 
                         if let Some(ref doc) = method_phpdoc {
                             for template in &doc.templates {
-                                self.template_params.insert(template.to_lowercase());
+                                self.template_params.insert(template.name.to_lowercase());
                             }
                             self.validate_phpdoc(doc, method.span().start.offset as usize);
                         }
@@ -300,7 +300,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
                 let trait_phpdoc = self.extract_phpdoc(tr.span().start.offset as usize);
                 if let Some(ref doc) = trait_phpdoc {
                     for template in &doc.templates {
-                        self.template_params.insert(template.to_lowercase());
+                        self.template_params.insert(template.name.to_lowercase());
                     }
                     self.validate_phpdoc(doc, tr.span().start.offset as usize);
                 }
@@ -319,7 +319,7 @@ impl<'s> PhpDocTypesVisitor<'s> {
 
                             if let Some(ref doc) = method_phpdoc {
                                 for template in &doc.templates {
-                                    self.template_params.insert(template.to_lowercase());
+                                    self.template_params.insert(template.name.to_lowercase());
                                 }
                                 self.validate_phpdoc(doc, method.span().start.offset as usize);
                             }
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn test_phpdoc_types_check_level() {
         let check = PhpDocTypesCheck;
-        assert_eq!(check.level(), 6);
+        assert_eq!(check.level(), 0);  // PHPStan reports PHPDoc class.notFound at level 0
     }
 
     #[test]

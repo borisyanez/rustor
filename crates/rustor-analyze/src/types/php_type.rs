@@ -97,6 +97,12 @@ pub enum Type {
         class_name: Option<String>,
     },
 
+    /// Generic object type with type arguments (e.g., Repository<Entity>)
+    GenericObject {
+        class_name: String,
+        type_args: Vec<Type>,
+    },
+
     /// Callable type
     Callable,
 
@@ -264,6 +270,15 @@ impl Type {
     pub fn get_class_name(&self) -> Option<&str> {
         match self {
             Type::Object { class_name } => class_name.as_deref(),
+            Type::GenericObject { class_name, .. } => Some(class_name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Get the type arguments if this is a generic object type
+    pub fn get_type_args(&self) -> Option<&[Type]> {
+        match self {
+            Type::GenericObject { type_args, .. } => Some(type_args),
             _ => None,
         }
     }
@@ -283,6 +298,47 @@ impl Type {
                 "traversable" | "iterator" | "iteratoraggregate" | "generator"
             )
         })
+    }
+
+    /// Collect all class names referenced in this type (recursively)
+    pub fn collect_class_names(&self, names: &mut Vec<String>) {
+        match self {
+            Type::Object { class_name: Some(name) } => {
+                names.push(name.clone());
+            }
+            Type::GenericObject { class_name, type_args } => {
+                names.push(class_name.clone());
+                for arg in type_args {
+                    arg.collect_class_names(names);
+                }
+            }
+            Type::ClassString { class_name: Some(name) } => {
+                names.push(name.clone());
+            }
+            Type::Union(types) | Type::Intersection(types) => {
+                for ty in types {
+                    ty.collect_class_names(names);
+                }
+            }
+            Type::Nullable(inner) => {
+                inner.collect_class_names(names);
+            }
+            Type::Array { key, value } | Type::NonEmptyArray { key, value } => {
+                key.collect_class_names(names);
+                value.collect_class_names(names);
+            }
+            Type::List { value } => {
+                value.collect_class_names(names);
+            }
+            Type::Iterable { key, value } => {
+                key.collect_class_names(names);
+                value.collect_class_names(names);
+            }
+            Type::Template { bound: Some(bound), .. } => {
+                bound.collect_class_names(names);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -322,6 +378,10 @@ impl fmt::Display for Type {
             Type::NonEmptyArray { key, value } => write!(f, "non-empty-array<{}, {}>", key, value),
             Type::Object { class_name: Some(name) } => write!(f, "{}", name),
             Type::Object { class_name: None } => write!(f, "object"),
+            Type::GenericObject { class_name, type_args } => {
+                let args: Vec<_> = type_args.iter().map(|t| t.to_string()).collect();
+                write!(f, "{}<{}>", class_name, args.join(", "))
+            }
             Type::Callable => write!(f, "callable"),
             Type::Closure => write!(f, "Closure"),
             Type::Resource => write!(f, "resource"),

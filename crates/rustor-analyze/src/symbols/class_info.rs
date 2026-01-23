@@ -4,6 +4,7 @@
 
 use crate::types::Type;
 use crate::types::php_type::Visibility;
+use crate::types::phpdoc::TemplateParam;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -49,6 +50,8 @@ pub struct ClassInfo {
     pub file: Option<PathBuf>,
     /// Line number where defined
     pub line: Option<usize>,
+    /// Template parameters from @template annotations
+    pub template_params: Vec<TemplateParam>,
 }
 
 impl ClassInfo {
@@ -78,6 +81,7 @@ impl ClassInfo {
             is_readonly: false,
             file: None,
             line: None,
+            template_params: Vec::new(),
         }
     }
 

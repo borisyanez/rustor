@@ -109,6 +109,7 @@ impl CheckRegistry {
         registry.register(Box::new(level6::MissingTypehintCheck));
         registry.register(Box::new(level6::AlreadyNarrowedTypeCheck));
         registry.register(Box::new(level6::PhpDocTypesCheck));
+        registry.register(Box::new(level6::GenericsCheck));
 
         // Level 7 checks
         registry.register(Box::new(level7::UnionTypeCheck));

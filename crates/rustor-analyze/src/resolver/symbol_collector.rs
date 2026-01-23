@@ -7,6 +7,7 @@ use crate::symbols::{ClassInfo, FunctionInfo, SymbolTable};
 use crate::symbols::class_info::{ClassKind, ClassMethodInfo, MethodParameterInfo};
 use crate::types::Type;
 use crate::types::php_type::Visibility;
+use crate::types::phpdoc::parse_phpdoc;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -142,6 +143,64 @@ impl<'s> SymbolCollector<'s> {
     /// Check if modifiers contain final
     fn has_final_modifier(&self, modifiers: &mago_syntax::ast::Sequence<'_, mago_syntax::ast::Modifier<'_>>) -> bool {
         modifiers.contains_final()
+    }
+
+    /// Resolve a type's class names to FQNs
+    fn resolve_type(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Object { class_name: Some(name) } => {
+                Type::Object {
+                    class_name: Some(self.qualify_name(name)),
+                }
+            }
+            Type::GenericObject { class_name, type_args } => {
+                Type::GenericObject {
+                    class_name: self.qualify_name(class_name),
+                    type_args: type_args.iter().map(|t| self.resolve_type(t)).collect(),
+                }
+            }
+            Type::Nullable(inner) => Type::Nullable(Box::new(self.resolve_type(inner))),
+            Type::Union(types) => Type::Union(types.iter().map(|t| self.resolve_type(t)).collect()),
+            Type::Intersection(types) => Type::Intersection(types.iter().map(|t| self.resolve_type(t)).collect()),
+            Type::Array { key, value } => Type::Array {
+                key: Box::new(self.resolve_type(key)),
+                value: Box::new(self.resolve_type(value)),
+            },
+            Type::List { value } => Type::List {
+                value: Box::new(self.resolve_type(value)),
+            },
+            _ => ty.clone(),
+        }
+    }
+
+    /// Extract PHPDoc comment before a given offset
+    fn extract_phpdoc(&self, offset: usize) -> Option<crate::types::phpdoc::PhpDoc> {
+        let before = &self.source[..offset];
+
+        if let Some(doc_end) = before.rfind("*/") {
+            if let Some(doc_start) = before[..doc_end].rfind("/**") {
+                let between = &before[doc_end + 2..];
+                let between_trimmed = between.trim();
+
+                // Check that the PHPDoc is directly before the element
+                let is_valid = between_trimmed.is_empty()
+                    || between_trimmed.chars().all(|c| c.is_whitespace())
+                    || between_trimmed.starts_with('#')
+                    || between_trimmed.starts_with("public")
+                    || between_trimmed.starts_with("private")
+                    || between_trimmed.starts_with("protected")
+                    || between_trimmed.starts_with("static")
+                    || between_trimmed.starts_with("final")
+                    || between_trimmed.starts_with("abstract")
+                    || between_trimmed.starts_with("readonly");
+
+                if is_valid {
+                    let doc_comment = &self.source[doc_start..doc_end + 2];
+                    return Some(parse_phpdoc(doc_comment));
+                }
+            }
+        }
+        None
     }
 
     /// Collect methods from class members
@@ -340,6 +399,16 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
 
+                // Extract template params from PHPDoc with resolved bound types
+                if let Some(doc) = self.extract_phpdoc(class.span().start.offset as usize) {
+                    info.template_params = doc.templates.into_iter().map(|mut t| {
+                        if let Some(bound) = t.bound {
+                            t.bound = Some(self.resolve_type(&bound));
+                        }
+                        t
+                    }).collect();
+                }
+
                 // Extract extends (parent class) - classes extend only one parent
                 if let Some(extends) = &class.extends {
                     if let Some(parent) = extends.types.first() {
@@ -371,6 +440,16 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.kind = ClassKind::Interface;
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
+
+                // Extract template params from PHPDoc with resolved bound types
+                if let Some(doc) = self.extract_phpdoc(interface.span().start.offset as usize) {
+                    info.template_params = doc.templates.into_iter().map(|mut t| {
+                        if let Some(bound) = t.bound {
+                            t.bound = Some(self.resolve_type(&bound));
+                        }
+                        t
+                    }).collect();
+                }
 
                 // Extract extends (interfaces can extend other interfaces)
                 if let Some(extends) = &interface.extends {
