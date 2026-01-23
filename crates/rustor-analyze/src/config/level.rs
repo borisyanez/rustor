@@ -103,7 +103,7 @@ mod tests {
     fn test_level_from_str() {
         assert_eq!(Level::from_str("0"), Some(Level::Level0));
         assert_eq!(Level::from_str("5"), Some(Level::Level5));
-        assert_eq!(Level::from_str("max"), Some(Level::Level9));
+        assert_eq!(Level::from_str("max"), Some(Level::Level10));
         assert_eq!(Level::from_str("invalid"), None);
     }
 

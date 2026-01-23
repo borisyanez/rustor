@@ -320,68 +320,131 @@ impl Baseline {
     /// Filter issues against the baseline with options
     /// If ignore_counts is true, baseline entries match unlimited times (not just `count` times)
     pub fn filter_with_options(&self, issues: IssueCollection, ignore_counts: bool) -> IssueCollection {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
         let debug = std::env::var("RUSTOR_DEBUG").is_ok();
         if debug {
             eprintln!(">>> BASELINE FILTER START: {} baseline entries, {} issues to filter (ignore_counts={})",
                 self.entries.len(), issues.len(), ignore_counts);
         }
 
-        // Track remaining counts for each entry (only used if !ignore_counts)
-        let mut remaining_counts: Vec<usize> = self.entries.iter().map(|e| e.count).collect();
+        // Build multiple indices for fast lookup:
+        // 1. exact_path_index: normalized full path -> entry indices (most common)
+        // 2. suffix_index: last path component (filename) -> entry indices (for fallback)
+        // 3. global_entries: entries with empty path that match all files
+        let mut exact_path_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut suffix_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut global_entries: Vec<usize> = Vec::new();
+
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.path.is_empty() {
+                global_entries.push(i);
+            } else {
+                // Normalize path: remove ../, convert backslashes
+                let mut norm_path = entry.path.replace('\\', "/");
+                while norm_path.starts_with("../") {
+                    norm_path = norm_path[3..].to_string();
+                }
+
+                // Index by full normalized path
+                exact_path_index.entry(norm_path.clone()).or_default().push(i);
+
+                // Also index by filename for partial matching
+                if let Some(filename) = norm_path.rsplit('/').next() {
+                    suffix_index.entry(filename.to_string()).or_default().push(i);
+                }
+            }
+        }
+
+        // Track remaining counts atomically for thread safety
+        let remaining_counts: Vec<AtomicUsize> = self.entries
+            .iter()
+            .map(|e| AtomicUsize::new(e.count))
+            .collect();
+
         let mut filtered = IssueCollection::new();
 
         for issue in issues.into_issues() {
             let file_path = issue.file.display().to_string();
+            let normalized_path = file_path.replace('\\', "/");
             let mut matched = false;
             let mut match_reason = "";
 
-            // Try to match against baseline entries
-            for (i, entry) in self.entries.iter().enumerate() {
-                if !ignore_counts && remaining_counts[i] == 0 {
+            // Collect candidate entry indices efficiently
+            let mut candidate_indices: Vec<usize> = Vec::with_capacity(global_entries.len() + 10);
+
+            // Add global entries first
+            candidate_indices.extend(&global_entries);
+
+            // Try exact path match first (most common case)
+            if let Some(indices) = exact_path_index.get(&normalized_path) {
+                candidate_indices.extend(indices);
+            }
+
+            // Try suffix matching: check if any entry path is a suffix of issue path
+            // Generate all possible suffixes of the issue path and check index
+            let path_parts: Vec<&str> = normalized_path.split('/').collect();
+            for start in 0..path_parts.len() {
+                let suffix = path_parts[start..].join("/");
+                if let Some(indices) = exact_path_index.get(&suffix) {
+                    candidate_indices.extend(indices);
+                }
+            }
+
+            // Two-pass matching: prefer exact message match over identifier-only match
+            // This ensures counts are used for the correct entries
+
+            // First pass: Try message+identifier match
+            for &i in &candidate_indices {
+                let entry = &self.entries[i];
+
+                if !ignore_counts && remaining_counts[i].load(Ordering::Relaxed) == 0 {
                     continue;
                 }
 
-                // Check path match
-                let path_matches = entry.matches_path(&file_path);
-                if !path_matches {
-                    continue;
-                }
-
-                // Strategy 1: Exact message match (with optional identifier)
                 let message_matches = entry.matches_message(&issue.message);
                 let id_matches = entry.matches_identifier(issue.identifier.as_deref());
 
                 // Debug: log when checking entries that might match apiDownPayment
                 if debug && entry.message.contains("apiDownPayment") && issue.message.contains("apiDownPayment") {
                     eprintln!("[baseline] APIDOWNPAYMENT entry {} for {}:{} (remaining_count={})",
-                        i, file_path, issue.line, remaining_counts[i]);
+                        i, file_path, issue.line, remaining_counts[i].load(Ordering::Relaxed));
                     eprintln!("  Entry: message=\"{}\"", entry.message);
                     eprintln!("  Issue: message=\"{}\"", issue.message);
                     eprintln!("  Entry id={:?}, Issue id={:?}", entry.identifier, issue.identifier);
-                    eprintln!("  path_matches={}, message_matches={}, id_matches={}",
-                        path_matches, message_matches, id_matches);
-                    eprintln!("  WILL FILTER: {}", message_matches && id_matches && remaining_counts[i] > 0);
+                    eprintln!("  message_matches={}, id_matches={}",
+                        message_matches, id_matches);
+                    eprintln!("  WILL FILTER: {}", message_matches && id_matches && remaining_counts[i].load(Ordering::Relaxed) > 0);
                 }
 
                 if message_matches && id_matches {
                     if !ignore_counts {
-                        remaining_counts[i] -= 1;
+                        remaining_counts[i].fetch_sub(1, Ordering::Relaxed);
                     }
                     matched = true;
                     match_reason = "message+identifier";
                     break;
                 }
+            }
 
-                // Strategy 2: Identifier-only match (for cross-tool compatibility)
-                // PHPStan and rustor may have different message wording but same identifiers
-                if let (Some(entry_id), Some(issue_id)) = (&entry.identifier, &issue.identifier) {
-                    if entry_id == issue_id {
-                        if !ignore_counts {
-                            remaining_counts[i] -= 1;
+            // Second pass: Try identifier-only match (only if first pass found nothing)
+            // This allows cross-tool compatibility when message wording differs
+            // IMPORTANT: Identifier-only matching doesn't decrement counts because the counts
+            // are specific to each message pattern, and identifier-only matching is too broad.
+            // This prevents identifier-only matches from depleting counts meant for exact matches.
+            if !matched {
+                for &i in &candidate_indices {
+                    let entry = &self.entries[i];
+
+                    // For identifier-only matching, we don't check or decrement counts
+                    // because the baseline counts are specific to each message pattern.
+                    // We just check if there's ANY entry with the same identifier for this file.
+                    if let (Some(entry_id), Some(issue_id)) = (&entry.identifier, &issue.identifier) {
+                        if entry_id == issue_id {
+                            matched = true;
+                            match_reason = "identifier-only";
+                            break;
                         }
-                        matched = true;
-                        match_reason = "identifier-only";
-                        break;
                     }
                 }
             }

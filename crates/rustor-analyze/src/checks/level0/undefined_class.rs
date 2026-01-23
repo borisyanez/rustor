@@ -289,22 +289,21 @@ impl<'s> UndefinedClassVisitor<'s> {
             return;
         }
 
-        // Handle fully qualified names (with backslash)
-        let is_fqn = name.starts_with('\\') || name.contains('\\');
+        // Handle absolute fully qualified names (starts with backslash)
+        let is_absolute_fqn = name.starts_with('\\');
+        // Has namespace separator but may need alias resolution (like Expr\Join)
+        let has_namespace = name.contains('\\');
 
-        if is_fqn {
-            // For FQN, only check if we have a symbol table (from autoloader)
+        if is_absolute_fqn {
+            // Absolute FQN - look up directly in symbol table
             if let Some(symbol_table) = self.symbol_table {
-                // Normalize: remove leading backslash for lookup
                 let normalized = name.trim_start_matches('\\');
-
-                // Check if class exists in symbol table
                 if symbol_table.get_class(normalized).is_none() {
                     let (line, col) = self.get_line_col(offset);
                     self.issues.push(
                         Issue::error(
                             "class.notFound",
-                            format!("Class {} not found", name),
+                            format!("Class {} not found.", name),
                             self.file_path.clone(),
                             line,
                             col,
@@ -313,17 +312,66 @@ impl<'s> UndefinedClassVisitor<'s> {
                     );
                 }
             }
-            // If no symbol table, skip FQN checks (can't verify without autoloader)
             return;
         }
 
-        // For non-FQN, use existing resolution logic
+        if has_namespace {
+            // Relative namespace (like Expr\Join) - resolve alias first
+            let first_part = name.split('\\').next().unwrap_or(name);
+            let first_part_lower = first_part.to_lowercase();
+
+            // Check if first part is an imported alias
+            if let Some(fqn_prefix) = self.use_fqn_map.get(&first_part_lower) {
+                // Replace alias with full namespace: Expr\Join -> Doctrine\ORM\Query\Expr\Join
+                let rest = &name[first_part.len()..]; // "\Join"
+                let resolved_fqn = format!("{}{}", fqn_prefix, rest);
+
+                if let Some(symbol_table) = self.symbol_table {
+                    if symbol_table.get_class(&resolved_fqn).is_some() {
+                        return; // Found via alias resolution
+                    }
+                } else {
+                    // No symbol table - trust the import
+                    return;
+                }
+            }
+
+            // Try looking up as-is in symbol table (might be a valid FQN)
+            if let Some(symbol_table) = self.symbol_table {
+                if symbol_table.get_class(name).is_some() {
+                    return;
+                }
+                // Also try with current namespace prefix
+                if !self.current_namespace.is_empty() {
+                    let fqn = format!("{}\\{}", self.current_namespace, name);
+                    if symbol_table.get_class(&fqn).is_some() {
+                        return;
+                    }
+                }
+            }
+
+            // Not found - report error
+            let (line, col) = self.get_line_col(offset);
+            self.issues.push(
+                Issue::error(
+                    "class.notFound",
+                    format!("Class {} not found.", name),
+                    self.file_path.clone(),
+                    line,
+                    col,
+                )
+                .with_identifier("class.notFound"),
+            );
+            return;
+        }
+
+        // For simple names (no namespace), use existing resolution logic
         if !self.is_defined(name) {
             let (line, col) = self.get_line_col(offset);
             self.issues.push(
                 Issue::error(
                     "class.notFound",
-                    format!("Class {} not found", name),
+                    format!("Class {} not found.", name),
                     self.file_path.clone(),
                     line,
                     col,

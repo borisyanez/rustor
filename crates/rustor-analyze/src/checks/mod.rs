@@ -108,6 +108,7 @@ impl CheckRegistry {
         // Level 6 checks
         registry.register(Box::new(level6::MissingTypehintCheck));
         registry.register(Box::new(level6::AlreadyNarrowedTypeCheck));
+        registry.register(Box::new(level6::PhpDocTypesCheck));
 
         // Level 7 checks
         registry.register(Box::new(level7::UnionTypeCheck));
@@ -161,6 +162,7 @@ pub const PHP_BUILTIN_FUNCTIONS: &[&str] = &[
     "str_word_count", "strcasecmp", "strcmp", "strcoll", "strcspn", "strspn",
     "stristr", "strstr", "strrchr", "strrev", "strtok", "strtr", "substr_compare",
     "substr_count", "substr_replace", "levenshtein", "similar_text", "soundex", "metaphone",
+    "strncmp", "strncasecmp", "strnatcmp", "strnatcasecmp", "strpbrk",
     "quoted_printable_encode", "quoted_printable_decode", "convert_uuencode", "convert_uudecode",
     "wordwrap", "fprintf", "vfprintf", "setlocale", "localeconv",
 
@@ -429,6 +431,11 @@ pub const PHP_BUILTIN_FUNCTIONS: &[&str] = &[
 
     // Internationalization (intl) functions
     "intl_error_name", "intl_get_error_code", "intl_get_error_message", "intl_is_failure",
+    "normalizer_normalize", "normalizer_is_normalized", "grapheme_strlen", "grapheme_strpos",
+    "grapheme_stripos", "grapheme_strrpos", "grapheme_strripos", "grapheme_substr",
+    "grapheme_extract", "idn_to_ascii", "idn_to_utf8", "transliterator_create",
+    "transliterator_create_from_rules", "transliterator_create_inverse", "transliterator_list_ids",
+    "transliterator_transliterate", "transliterator_get_error_code", "transliterator_get_error_message",
 
     // FTP functions
     "ftp_connect", "ftp_ssl_connect", "ftp_login", "ftp_pwd", "ftp_cdup", "ftp_chdir",

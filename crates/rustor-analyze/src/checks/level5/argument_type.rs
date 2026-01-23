@@ -491,7 +491,15 @@ impl<'s> ArgumentTypeVisitor<'s> {
                 self.variable_types.get(var_name).cloned()
             }
             Expression::Array(_) => Some("array".to_string()),
-            Expression::Instantiation(_) => Some("object".to_string()),
+            Expression::Instantiation(inst) => {
+                // Extract class name from instantiation (new ClassName())
+                if let Expression::Identifier(ident) = &*inst.class {
+                    let class_name = self.get_span_text(&ident.span());
+                    Some(class_name.to_string())
+                } else {
+                    Some("object".to_string())
+                }
+            }
             Expression::Closure(_) => Some("callable".to_string()),
             Expression::ArrowFunction(_) => Some("callable".to_string()),
             _ => None,

@@ -32,11 +32,12 @@ impl Check for UndefinedConstantCheck {
             source: ctx.source,
             file_path: ctx.file_path.to_path_buf(),
             defined_constants: HashSet::new(),
+            imported_constants: HashSet::new(),
             symbol_table: ctx.symbol_table,
             issues: Vec::new(),
         };
 
-        // First pass: collect constant definitions
+        // First pass: collect constant definitions and imports
         visitor.collect_definitions(program);
 
         // Second pass: check constant usage
@@ -50,6 +51,7 @@ struct UndefinedConstantVisitor<'s> {
     source: &'s str,
     file_path: PathBuf,
     defined_constants: HashSet<String>,
+    imported_constants: HashSet<String>,
     symbol_table: Option<&'s SymbolTable>,
     issues: Vec<Issue>,
 }
@@ -452,6 +454,12 @@ impl<'s> UndefinedConstantVisitor<'s> {
 
     fn collect_from_stmt<'a>(&mut self, stmt: &Statement<'a>) {
         match stmt {
+            // Collect use const imports
+            Statement::Use(use_stmt) => {
+                let use_span = use_stmt.span();
+                let use_text = self.get_span_text(&use_span).to_string();
+                self.collect_const_imports(&use_text);
+            }
             // Recurse into namespaces and blocks
             Statement::Namespace(ns) => match &ns.body {
                 NamespaceBody::Implicit(body) => {
@@ -482,6 +490,56 @@ impl<'s> UndefinedConstantVisitor<'s> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Collect constant imports from "use const" statements
+    fn collect_const_imports(&mut self, use_text: &str) {
+        // Only process "use const" statements
+        let trimmed = use_text.trim_start_matches("use").trim_start();
+        if !trimmed.starts_with("const") {
+            return;
+        }
+
+        // Remove 'use const' and semicolon
+        let text = trimmed
+            .trim_start_matches("const")
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+
+        // Handle grouped imports: Namespace\{CONST1, CONST2}
+        if let Some(brace_start) = text.find('{') {
+            let prefix = text[..brace_start].trim().trim_end_matches('\\');
+            if let Some(brace_end) = text.find('}') {
+                let group_content = &text[brace_start + 1..brace_end];
+                for item in group_content.split(',') {
+                    let item = item.trim();
+                    // Handle "CONST as ALIAS"
+                    if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                        let alias = item[as_pos + 4..].trim();
+                        self.imported_constants.insert(alias.to_string());
+                    } else {
+                        // Just "CONST" - use the constant name itself
+                        let name = item.rsplit('\\').next().unwrap_or(item).trim();
+                        if !name.is_empty() {
+                            self.imported_constants.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        } else {
+            // Simple import: Namespace\CONST or Namespace\CONST as ALIAS
+            if let Some(as_pos) = text.to_lowercase().find(" as ") {
+                let alias = text[as_pos + 4..].trim();
+                self.imported_constants.insert(alias.to_string());
+            } else {
+                // Get last segment (the constant name)
+                let name = text.rsplit('\\').next().unwrap_or(text).trim();
+                if !name.is_empty() {
+                    self.imported_constants.insert(name.to_string());
+                }
+            }
         }
     }
 
@@ -650,6 +708,8 @@ impl<'s> UndefinedConstantVisitor<'s> {
                 // Check if constant is defined (case-insensitive for PHP constants)
                 let is_defined = self.defined_constants.contains(name) ||
                     self.defined_constants.contains(&name.to_lowercase()) ||
+                    // Check if imported via "use const"
+                    self.imported_constants.contains(name) ||
                     // Also check the symbol table from autoload scanning
                     self.symbol_table.map_or(false, |st| st.get_constant(name).is_some());
 

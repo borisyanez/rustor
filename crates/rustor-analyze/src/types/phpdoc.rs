@@ -56,15 +56,18 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
                 }
             }
         } else if let Some(rest) = line.strip_prefix("@return") {
-            if let Some(ty) = parse_type_string(rest.trim()) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.return_type = Some(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@var") {
-            if let Some(ty) = parse_type_string(rest.trim().split_whitespace().next().unwrap_or("")) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.var_type = Some(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@throws") {
-            if let Some(ty) = parse_type_string(rest.trim()) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.throws.push(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@template") {
@@ -97,25 +100,114 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
 }
 
 /// Parse a @param line: "Type $name" or "$name Type"
+/// Handles types with spaces inside generics like "array<string, string>"
 fn parse_param_line(line: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
 
-    if parts.len() >= 2 {
-        // Check if first part is $name
-        if parts[0].starts_with('$') {
-            // $name Type
-            let name = parts[0].trim_start_matches('$').to_string();
-            let type_str = parts[1].to_string();
-            Some((type_str, name))
+    // Find the variable name (starts with $)
+    if let Some(dollar_pos) = line.find('$') {
+        // Find the end of the variable name (next whitespace or end of string)
+        let var_end = line[dollar_pos..]
+            .find(|c: char| c.is_whitespace())
+            .map(|pos| dollar_pos + pos)
+            .unwrap_or(line.len());
+
+        let name = line[dollar_pos + 1..var_end].to_string();
+
+        // Type is everything before the $ (if $ is not at start) or after the var name
+        let type_str = if dollar_pos > 0 {
+            // Type $name format - extract type properly handling generics
+            extract_type_from_annotation(&line[..dollar_pos])
         } else {
-            // Type $name
-            let type_str = parts[0].to_string();
-            let name = parts[1].trim_start_matches('$').to_string();
-            Some((type_str, name))
+            // $name Type format (rare but supported)
+            // Use extract_type_from_annotation to properly handle description after type
+            let after_var = line[var_end..].trim();
+            let extracted = extract_type_from_annotation(after_var);
+            // Skip if what follows doesn't look like a valid type
+            // (descriptions that start with lowercase words like "Associated familyId")
+            if extracted.is_empty() || is_description_text(&extracted) {
+                return None;
+            }
+            extracted
+        };
+
+        if name.is_empty() || type_str.is_empty() {
+            return None;
         }
+
+        Some((type_str, name))
     } else {
         None
     }
+}
+
+/// Check if text looks like description rather than a type
+/// Returns true for words that are unlikely to be PHP type names
+fn is_description_text(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Common description words that are not types
+    let description_words = [
+        "a", "an", "the", "this", "that", "some", "any", "all", "of", "for", "to", "from",
+        "with", "by", "in", "on", "at", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "can",
+        "may", "might", "must", "shall", "if", "when", "where", "why", "how", "what", "which",
+        "who", "associated", "optional", "required", "default", "used", "using", "contains",
+        "representing", "description", "value", "values", "data", "info", "information",
+    ];
+    description_words.contains(&lower.as_str())
+}
+
+/// Extract the type part from an annotation line that may have description text
+/// Handles types with spaces inside generics like "array<string, mixed> description"
+fn extract_type_from_annotation(line: &str) -> String {
+    let line = line.trim();
+    if line.is_empty() {
+        return String::new();
+    }
+
+    // Track bracket depth to handle generics with spaces like array<string, mixed>
+    let mut depth: i32 = 0;
+    let mut end_pos = line.len();
+
+    for (i, ch) in line.char_indices() {
+        match ch {
+            '<' | '{' | '(' => depth += 1,
+            '>' | '}' | ')' => depth = depth.saturating_sub(1),
+            ' ' | '\t' if depth == 0 => {
+                // Found end of type (whitespace outside of brackets)
+                end_pos = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    line[..end_pos].to_string()
+}
+
+/// Split a type string by a delimiter, respecting bracket depth
+/// Only splits at top level (not inside < > { } ( ))
+fn split_type_at_delimiter(s: &str, delimiter: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0;
+
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' | '{' | '(' => depth += 1,
+            '>' | '}' | ')' => depth = depth.saturating_sub(1),
+            c if c == delimiter && depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
 }
 
 /// Parse a type string into a Type
@@ -130,28 +222,34 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
         return parse_type_string(inner).map(|t| Type::Nullable(Box::new(t)));
     }
 
-    // Handle union types (|)
-    if s.contains('|') && !s.contains('<') {
-        let parts: Vec<_> = s.split('|').filter_map(|p| parse_type_string(p.trim())).collect();
-        if parts.is_empty() {
-            return None;
+    // Handle union types (|) - split at top level only
+    if s.contains('|') {
+        let parts = split_type_at_delimiter(s, '|');
+        if parts.len() > 1 {
+            let parsed: Vec<_> = parts.iter().filter_map(|p| parse_type_string(p.trim())).collect();
+            if parsed.is_empty() {
+                return None;
+            }
+            if parsed.len() == 1 {
+                return Some(parsed.into_iter().next().unwrap());
+            }
+            return Some(Type::Union(parsed));
         }
-        if parts.len() == 1 {
-            return Some(parts.into_iter().next().unwrap());
-        }
-        return Some(Type::Union(parts));
     }
 
-    // Handle intersection types (&)
-    if s.contains('&') && !s.contains('<') {
-        let parts: Vec<_> = s.split('&').filter_map(|p| parse_type_string(p.trim())).collect();
-        if parts.is_empty() {
-            return None;
+    // Handle intersection types (&) - split at top level only
+    if s.contains('&') {
+        let parts = split_type_at_delimiter(s, '&');
+        if parts.len() > 1 {
+            let parsed: Vec<_> = parts.iter().filter_map(|p| parse_type_string(p.trim())).collect();
+            if parsed.is_empty() {
+                return None;
+            }
+            if parsed.len() == 1 {
+                return Some(parsed.into_iter().next().unwrap());
+            }
+            return Some(Type::Intersection(parsed));
         }
-        if parts.len() == 1 {
-            return Some(parts.into_iter().next().unwrap());
-        }
-        return Some(Type::Intersection(parts));
     }
 
     // Handle array syntax: Type[] or array<Key, Value>
@@ -159,6 +257,16 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
         let inner_type = parse_type_string(inner).unwrap_or(Type::Mixed);
         return Some(Type::List {
             value: Box::new(inner_type),
+        });
+    }
+
+    // Handle array shape syntax: array{key: type, key: type}
+    // Treat as a typed array (the shape specifies structure but we simplify to mixed array)
+    if s.starts_with("array{") || s.starts_with("non-empty-array{") {
+        // This is an array shape - we can't fully represent it, so return as array
+        return Some(Type::Array {
+            key: Box::new(Type::String),
+            value: Box::new(Type::Mixed),
         });
     }
 
@@ -296,13 +404,16 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
 }
 
 /// Parse generic parameters like "int, string" or just "string"
+/// Handles nested generics like "int, array<string, mixed>"
 fn parse_generic_params(params: &str) -> (Type, Type) {
-    // Simple split by comma (doesn't handle nested generics properly)
-    let parts: Vec<&str> = params.splitn(2, ',').collect();
+    // Split by comma at top level only (respecting bracket depth)
+    let parts = split_type_at_delimiter(params, ',');
 
-    if parts.len() == 2 {
+    if parts.len() >= 2 {
         let key = parse_type_string(parts[0].trim()).unwrap_or(Type::Mixed);
-        let value = parse_type_string(parts[1].trim()).unwrap_or(Type::Mixed);
+        // Join remaining parts back together for the value type
+        let value_str = parts[1..].join(",");
+        let value = parse_type_string(value_str.trim()).unwrap_or(Type::Mixed);
         (key, value)
     } else {
         // Single param = value type, key is int (for list-like)

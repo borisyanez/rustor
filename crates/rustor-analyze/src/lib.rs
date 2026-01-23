@@ -283,18 +283,66 @@ impl Analyzer {
         use autoload::include_scanner::IncludeScanner;
         use std::collections::HashSet;
 
-        let mut all_includes: HashSet<std::path::PathBuf> = HashSet::new();
-        let mut to_process: Vec<std::path::PathBuf> = Vec::new();
-
-        // First, find all includes from the target files
-        for file in files {
-            if let Ok(source) = fs::read_to_string(file) {
+        // First pass: parallel scan to find all includes from target files
+        let initial_includes: Vec<Vec<std::path::PathBuf>> = files
+            .par_iter()
+            .filter_map(|file| {
+                let source = fs::read_to_string(file).ok()?;
                 let arena = bumpalo::Bump::new();
                 let file_id = FileId::new(file.to_string_lossy().as_ref());
                 let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
 
                 let scanner = IncludeScanner::new(&source, file);
-                for include_path in scanner.scan(program) {
+                let includes = scanner.scan(&program);
+                if includes.is_empty() {
+                    None
+                } else {
+                    Some(includes)
+                }
+            })
+            .collect();
+
+        // Flatten and dedupe
+        let mut all_includes: HashSet<std::path::PathBuf> = HashSet::new();
+        let mut to_process: Vec<std::path::PathBuf> = Vec::new();
+        for includes in initial_includes {
+            for include_path in includes {
+                if !all_includes.contains(&include_path) {
+                    all_includes.insert(include_path.clone());
+                    to_process.push(include_path);
+                }
+            }
+        }
+
+        // Recursively process includes (up to 3 levels deep to avoid infinite loops)
+        // Use parallel processing for each batch
+        for _ in 0..3 {
+            let current_batch: Vec<_> = to_process.drain(..).collect();
+            if current_batch.is_empty() {
+                break;
+            }
+
+            let new_includes: Vec<Vec<std::path::PathBuf>> = current_batch
+                .par_iter()
+                .filter_map(|file| {
+                    let source = fs::read_to_string(file).ok()?;
+                    let arena = bumpalo::Bump::new();
+                    let file_id = FileId::new(file.to_string_lossy().as_ref());
+                    let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                    let scanner = IncludeScanner::new(&source, file);
+                    let includes = scanner.scan(&program);
+                    if includes.is_empty() {
+                        None
+                    } else {
+                        Some(includes)
+                    }
+                })
+                .collect();
+
+            // Merge results
+            for includes in new_includes {
+                for include_path in includes {
                     if !all_includes.contains(&include_path) {
                         all_includes.insert(include_path.clone());
                         to_process.push(include_path);
@@ -303,31 +351,7 @@ impl Analyzer {
             }
         }
 
-        // Recursively process includes (up to 3 levels deep to avoid infinite loops)
-        for _ in 0..3 {
-            let current_batch: Vec<_> = to_process.drain(..).collect();
-            if current_batch.is_empty() {
-                break;
-            }
-
-            for file in current_batch {
-                if let Ok(source) = fs::read_to_string(&file) {
-                    let arena = bumpalo::Bump::new();
-                    let file_id = FileId::new(file.to_string_lossy().as_ref());
-                    let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
-
-                    let scanner = IncludeScanner::new(&source, &file);
-                    for include_path in scanner.scan(program) {
-                        if !all_includes.contains(&include_path) {
-                            all_includes.insert(include_path.clone());
-                            to_process.push(include_path);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Now collect symbols from all discovered include files
+        // Now collect symbols from all discovered include files (already parallel)
         let collected: Vec<_> = all_includes
             .par_iter()
             .filter_map(|file| {
@@ -483,7 +507,7 @@ mod tests {
         let analyzer = Analyzer::with_defaults();
         let source = "<?php\nmy_undefined_function();\n";
         let issues = analyzer.analyze_source(Path::new("test.php"), source).unwrap();
-        // Should find undefined function
-        assert!(issues.issues().iter().any(|i| i.message.contains("undefined function")));
+        // Should find undefined function (message: "Function X not found.")
+        assert!(issues.issues().iter().any(|i| i.message.contains("not found")));
     }
 }

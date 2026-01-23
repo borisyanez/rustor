@@ -4,9 +4,13 @@
 //! - Properties without type declarations
 //! - Function/method parameters without type hints
 //! - Functions/methods without return type hints
+//!
+//! This check respects PHPDoc annotations - if a type is specified via @param or @return,
+//! it won't report a missing typehint error.
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
+use crate::types::phpdoc::{parse_phpdoc, PhpDoc};
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use std::path::PathBuf;
@@ -48,6 +52,102 @@ struct MissingTypehintVisitor<'s> {
 impl<'s> MissingTypehintVisitor<'s> {
     fn get_span_text(&self, span: &mago_span::Span) -> &str {
         &self.source[span.start.offset as usize..span.end.offset as usize]
+    }
+
+    /// Extract PHPDoc comment that precedes the given offset
+    fn extract_phpdoc(&self, offset: usize) -> Option<PhpDoc> {
+        // Look backwards from offset to find a doc comment
+        let before = &self.source[..offset];
+
+        // Find the last occurrence of /** (start of PHPDoc)
+        if let Some(doc_end) = before.rfind("*/") {
+            if let Some(doc_start) = before[..doc_end].rfind("/**") {
+                // Make sure there's no code between the doc and the function
+                let between = &before[doc_end + 2..];
+                let between_trimmed = between.trim();
+
+                // Only allow whitespace, attributes (#[...]), and modifiers between doc and function
+                let is_valid = between_trimmed.is_empty()
+                    || between_trimmed.chars().all(|c| c.is_whitespace())
+                    || between_trimmed.starts_with('#')  // PHP attributes
+                    || between_trimmed.starts_with("public")
+                    || between_trimmed.starts_with("private")
+                    || between_trimmed.starts_with("protected")
+                    || between_trimmed.starts_with("static")
+                    || between_trimmed.starts_with("final")
+                    || between_trimmed.starts_with("abstract")
+                    || between_trimmed.starts_with("readonly");
+
+                if is_valid {
+                    let doc_comment = &self.source[doc_start..doc_end + 2];
+                    return Some(parse_phpdoc(doc_comment));
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a parameter has its type specified in PHPDoc
+    fn has_phpdoc_param_type(&self, phpdoc: &PhpDoc, param_name: &str) -> bool {
+        // Remove $ prefix for comparison
+        let name = param_name.trim_start_matches('$');
+        phpdoc.params.iter().any(|(n, ty)| {
+            n == name && !matches!(ty, crate::types::php_type::Type::Mixed)
+        })
+    }
+
+    /// Check if a parameter has a specific array value type in PHPDoc (for iterableValue check)
+    /// Note: explicit `mixed` IS a valid value type specification at level 6
+    fn has_phpdoc_iterable_value_type(&self, phpdoc: &PhpDoc, param_name: &str) -> bool {
+        let name = param_name.trim_start_matches('$');
+        phpdoc.params.iter().any(|(n, ty)| {
+            if n != name {
+                return false;
+            }
+            // Check if the type specifies array value types
+            // Note: explicit `mixed` counts as a valid type specification
+            matches!(
+                ty,
+                crate::types::php_type::Type::Array { .. }
+                    | crate::types::php_type::Type::List { .. }
+                    | crate::types::php_type::Type::Iterable { .. }
+            )
+        })
+    }
+
+    /// Check if return type is specified in PHPDoc
+    fn has_phpdoc_return_type(&self, phpdoc: &PhpDoc) -> bool {
+        phpdoc.return_type.is_some()
+    }
+
+    /// Check if return type has iterable value type in PHPDoc
+    /// Note: explicit `mixed` IS a valid value type specification at level 6
+    fn has_phpdoc_return_iterable_value_type(&self, phpdoc: &PhpDoc) -> bool {
+        if let Some(ty) = &phpdoc.return_type {
+            // Note: explicit `mixed` counts as a valid type specification
+            matches!(
+                ty,
+                crate::types::php_type::Type::Array { .. }
+                    | crate::types::php_type::Type::List { .. }
+                    | crate::types::php_type::Type::Iterable { .. }
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Check if @var has iterable value type in PHPDoc (for properties)
+    fn has_phpdoc_var_iterable_value_type(&self, phpdoc: &PhpDoc) -> bool {
+        if let Some(ty) = &phpdoc.var_type {
+            matches!(
+                ty,
+                crate::types::php_type::Type::Array { .. }
+                    | crate::types::php_type::Type::List { .. }
+                    | crate::types::php_type::Type::Iterable { .. }
+            )
+        } else {
+            false
+        }
     }
 
     fn get_line_col(&self, offset: usize) -> (usize, usize) {
@@ -125,10 +225,21 @@ impl<'s> MissingTypehintVisitor<'s> {
         return_type: &Option<FunctionLikeReturnTypeHint<'a>>,
         span: mago_span::Span,
     ) {
+        // Extract PHPDoc for this function
+        let phpdoc = self.extract_phpdoc(span.start.offset as usize);
+
         // Check parameters
         for param in params.parameters.iter() {
+            let param_name = self.get_span_text(&param.variable.span).to_string();
+
             if param.hint.is_none() {
-                let param_name = self.get_span_text(&param.variable.span);
+                // Skip if PHPDoc has type for this param
+                if let Some(ref doc) = phpdoc {
+                    if self.has_phpdoc_param_type(doc, &param_name) {
+                        continue;
+                    }
+                }
+
                 let (line, col) = self.get_line_col(span.start.offset as usize);
                 self.issues.push(
                     Issue::error(
@@ -146,7 +257,13 @@ impl<'s> MissingTypehintVisitor<'s> {
             } else if let Some(hint) = &param.hint {
                 // Check for plain array type without value type (missingType.iterableValue)
                 if self.is_plain_iterable_type(hint) {
-                    let param_name = self.get_span_text(&param.variable.span);
+                    // Skip if PHPDoc has iterable value type for this param
+                    if let Some(ref doc) = phpdoc {
+                        if self.has_phpdoc_iterable_value_type(doc, &param_name) {
+                            continue;
+                        }
+                    }
+
                     let (line, col) = self.get_line_col(hint.span().start.offset as usize);
                     self.issues.push(
                         Issue::error(
@@ -165,7 +282,6 @@ impl<'s> MissingTypehintVisitor<'s> {
 
                 // Check for generic class without type parameters (missingType.generics)
                 if let Some((class_name, template_params)) = self.is_generic_without_params(hint) {
-                    let param_name = self.get_span_text(&param.variable.span);
                     let (line, col) = self.get_line_col(hint.span().start.offset as usize);
                     self.issues.push(
                         Issue::error(
@@ -186,6 +302,13 @@ impl<'s> MissingTypehintVisitor<'s> {
 
         // Check return type
         if return_type.is_none() {
+            // Skip if PHPDoc has return type
+            if let Some(ref doc) = phpdoc {
+                if self.has_phpdoc_return_type(doc) {
+                    return;
+                }
+            }
+
             let (line, col) = self.get_line_col(span.start.offset as usize);
             self.issues.push(
                 Issue::error(
@@ -200,6 +323,12 @@ impl<'s> MissingTypehintVisitor<'s> {
         } else if let Some(ret_type) = return_type {
             // Check if return type is a plain iterable without value type
             if self.is_plain_iterable_type(&ret_type.hint) {
+                // Skip if PHPDoc has iterable value type for return
+                if let Some(ref doc) = phpdoc {
+                    if self.has_phpdoc_return_iterable_value_type(doc) {
+                        return;
+                    }
+                }
                 let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
                 self.issues.push(
                     Issue::error(
@@ -243,10 +372,21 @@ impl<'s> MissingTypehintVisitor<'s> {
         return_type: &Option<FunctionLikeReturnTypeHint<'a>>,
         span: mago_span::Span,
     ) {
+        // Extract PHPDoc for this method
+        let phpdoc = self.extract_phpdoc(span.start.offset as usize);
+
         // Check parameters
         for param in params.parameters.iter() {
+            let param_name = self.get_span_text(&param.variable.span).to_string();
+
             if param.hint.is_none() {
-                let param_name = self.get_span_text(&param.variable.span);
+                // Skip if PHPDoc has type for this param
+                if let Some(ref doc) = phpdoc {
+                    if self.has_phpdoc_param_type(doc, &param_name) {
+                        continue;
+                    }
+                }
+
                 let (line, col) = self.get_line_col(span.start.offset as usize);
                 self.issues.push(
                     Issue::error(
@@ -264,7 +404,13 @@ impl<'s> MissingTypehintVisitor<'s> {
             } else if let Some(hint) = &param.hint {
                 // Check for plain array type without value type (missingType.iterableValue)
                 if self.is_plain_iterable_type(hint) {
-                    let param_name = self.get_span_text(&param.variable.span);
+                    // Skip if PHPDoc has iterable value type for this param
+                    if let Some(ref doc) = phpdoc {
+                        if self.has_phpdoc_iterable_value_type(doc, &param_name) {
+                            continue;
+                        }
+                    }
+
                     let (line, col) = self.get_line_col(hint.span().start.offset as usize);
                     self.issues.push(
                         Issue::error(
@@ -283,7 +429,6 @@ impl<'s> MissingTypehintVisitor<'s> {
 
                 // Check for generic class without type parameters (missingType.generics)
                 if let Some((class_name, template_params)) = self.is_generic_without_params(hint) {
-                    let param_name = self.get_span_text(&param.variable.span);
                     let (line, col) = self.get_line_col(hint.span().start.offset as usize);
                     self.issues.push(
                         Issue::error(
@@ -304,6 +449,13 @@ impl<'s> MissingTypehintVisitor<'s> {
 
         // Check return type
         if return_type.is_none() {
+            // Skip if PHPDoc has return type
+            if let Some(ref doc) = phpdoc {
+                if self.has_phpdoc_return_type(doc) {
+                    return;
+                }
+            }
+
             let (line, col) = self.get_line_col(span.start.offset as usize);
             self.issues.push(
                 Issue::error(
@@ -318,6 +470,13 @@ impl<'s> MissingTypehintVisitor<'s> {
         } else if let Some(ret_type) = return_type {
             // Check if return type is a plain iterable without value type
             if self.is_plain_iterable_type(&ret_type.hint) {
+                // Skip if PHPDoc has iterable value type for return
+                if let Some(ref doc) = phpdoc {
+                    if self.has_phpdoc_return_iterable_value_type(doc) {
+                        return;
+                    }
+                }
+
                 let (line, col) = self.get_line_col(ret_type.hint.span().start.offset as usize);
                 self.issues.push(
                     Issue::error(
@@ -414,6 +573,9 @@ impl<'s> MissingTypehintVisitor<'s> {
     }
 
     fn check_property<'a>(&mut self, class_name: &str, prop: &Property<'a>) {
+        // Extract PHPDoc for this property
+        let phpdoc = self.extract_phpdoc(prop.span().start.offset as usize);
+
         // Check if property has a type
         if prop.hint().is_none() {
             for var in prop.variables() {
@@ -436,6 +598,13 @@ impl<'s> MissingTypehintVisitor<'s> {
         } else if let Some(hint) = prop.hint() {
             // Check if property type is a plain iterable without value type
             if self.is_plain_iterable_type(hint) {
+                // Skip if PHPDoc @var has iterable value type
+                if let Some(ref doc) = phpdoc {
+                    if self.has_phpdoc_var_iterable_value_type(doc) {
+                        return;
+                    }
+                }
+
                 for var in prop.variables() {
                     let prop_name = self.get_span_text(&var.span);
                     let (line, col) = self.get_line_col(hint.span().start.offset as usize);
