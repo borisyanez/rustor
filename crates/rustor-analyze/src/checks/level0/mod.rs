@@ -13,6 +13,7 @@
 mod undefined_function;
 mod undefined_class;
 mod call_static_methods;
+mod static_property;
 mod class_constant;
 mod undefined_constant;
 mod argument_count;
@@ -23,6 +24,7 @@ mod class_name_case;
 pub use undefined_function::UndefinedFunctionCheck;
 pub use undefined_class::UndefinedClassCheck;
 pub use call_static_methods::CallStaticMethodsCheck;
+pub use static_property::StaticPropertyCheck;
 pub use class_constant::ClassConstantCheck;
 pub use undefined_constant::UndefinedConstantCheck;
 pub use argument_count::ArgumentCountCheck;

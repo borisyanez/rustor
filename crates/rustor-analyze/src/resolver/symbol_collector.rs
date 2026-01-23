@@ -4,7 +4,7 @@
 //! This is a simplified version that extracts basic symbol information.
 
 use crate::symbols::{ClassInfo, FunctionInfo, SymbolTable};
-use crate::symbols::class_info::{ClassKind, ClassMethodInfo, MethodParameterInfo};
+use crate::symbols::class_info::{ClassKind, ClassMethodInfo, ClassPropertyInfo, MethodParameterInfo};
 use crate::types::Type;
 use crate::types::php_type::Visibility;
 use crate::types::phpdoc::parse_phpdoc;
@@ -233,6 +233,37 @@ impl<'s> SymbolCollector<'s> {
                     for trait_name in trait_use.trait_names.iter() {
                         let trait_text = self.get_span_text(&trait_name.span());
                         info.traits.push(self.qualify_name(trait_text));
+                    }
+                }
+                ClassLikeMember::Property(Property::Plain(prop)) => {
+                    // Check if property is static
+                    let is_static = prop.modifiers.iter().any(|m| matches!(m, Modifier::Static(_)));
+                    let is_readonly = prop.modifiers.iter().any(|m| matches!(m, Modifier::Readonly(_)));
+
+                    // Extract visibility
+                    let visibility = if prop.modifiers.iter().any(|m| matches!(m, Modifier::Private(_))) {
+                        Visibility::Private
+                    } else if prop.modifiers.iter().any(|m| matches!(m, Modifier::Protected(_))) {
+                        Visibility::Protected
+                    } else {
+                        Visibility::Public
+                    };
+
+                    // Get property names from items
+                    for item in prop.items.nodes.iter() {
+                        let (var_name, has_default) = match item {
+                            PropertyItem::Abstract(abs) => (&abs.variable.name, false),
+                            PropertyItem::Concrete(conc) => (&conc.variable.name, true),
+                        };
+                        let prop_name = var_name.trim_start_matches('$').to_string();
+
+                        let mut prop_info = ClassPropertyInfo::new(&prop_name);
+                        prop_info.is_static = is_static;
+                        prop_info.is_readonly = is_readonly;
+                        prop_info.visibility = visibility;
+                        prop_info.has_default = has_default;
+
+                        info.add_property(prop_info);
                     }
                 }
                 _ => {}
