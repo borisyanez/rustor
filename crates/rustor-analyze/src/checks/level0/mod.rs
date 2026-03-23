@@ -9,23 +9,36 @@
 //! - Missing return statements
 //! - Invalid uses of new static()
 //! - Class name case mismatches
+//! - Throwing non-Throwable values
 
 mod undefined_function;
 mod undefined_class;
 mod call_static_methods;
+mod static_property;
 mod class_constant;
 mod undefined_constant;
 mod argument_count;
 mod missing_return;
 mod invalid_static_new;
 mod class_name_case;
+mod required_after_optional;
+mod whitespace;
+mod return_statements;
+mod throws_not_throwable;
+mod duplicate_array_key;
 
 pub use undefined_function::UndefinedFunctionCheck;
 pub use undefined_class::UndefinedClassCheck;
 pub use call_static_methods::CallStaticMethodsCheck;
+pub use static_property::StaticPropertyCheck;
 pub use class_constant::ClassConstantCheck;
 pub use undefined_constant::UndefinedConstantCheck;
 pub use argument_count::ArgumentCountCheck;
 pub use missing_return::MissingReturnCheck;
 pub use invalid_static_new::InvalidStaticNewCheck;
 pub use class_name_case::ClassNameCaseCheck;
+pub use required_after_optional::RequiredAfterOptionalCheck;
+pub use whitespace::WhitespaceFileEndCheck;
+pub use return_statements::{ReturnEmptyCheck, ReturnVoidCheck, MethodVoidCheck};
+pub use throws_not_throwable::ThrowsNotThrowableCheck;
+pub use duplicate_array_key::DuplicateArrayKeyCheck;

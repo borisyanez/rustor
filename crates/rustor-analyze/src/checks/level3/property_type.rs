@@ -472,6 +472,41 @@ impl<'s> PropertyTypeAnalyzer<'s> {
     }
 
     fn types_compatible(&self, expected: &str, actual: &str, is_nullable: bool) -> bool {
+        // Handle intersection types in expected (e.g. "Collection & Selectable")
+        // Actual must be compatible with ALL members of the intersection
+        if expected.contains('&') {
+            // Can't verify that actual implements all intersection members without deep analysis
+            // Be conservative: if actual is not a primitive, assume it might satisfy the intersection
+            let is_primitive = matches!(actual, "int" | "float" | "string" | "bool" | "array" |
+                "null" | "void" | "mixed" | "callable" | "iterable");
+            if !is_primitive {
+                return true;
+            }
+            return false;
+        }
+
+        // Handle union types in expected (e.g. "AllocationProvider|MockObject")
+        if expected.contains('|') {
+            let exp_members: Vec<&str> = expected.split('|').map(|s| s.trim()).collect();
+            if actual.contains('|') {
+                return actual.split('|').map(|s| s.trim()).all(|act| {
+                    exp_members.iter().any(|exp| self.types_compatible(exp, act, is_nullable))
+                });
+            }
+            return exp_members.iter().any(|member| self.types_compatible(member, actual, is_nullable));
+        }
+
+        // Handle union types in actual
+        if actual.contains('|') {
+            return actual.split('|').map(|s| s.trim()).all(|member| {
+                self.types_compatible(expected, member, is_nullable)
+            });
+        }
+
+        // Strip leading backslash from FQN (e.g. \Slim\Foo → Slim\Foo)
+        let expected = expected.trim_start_matches('\\');
+        let actual = actual.trim_start_matches('\\');
+
         if expected == actual {
             return true;
         }
@@ -512,6 +547,11 @@ impl<'s> PropertyTypeAnalyzer<'s> {
             let resolved_expected = self.resolve_type_name(expected);
             let resolved_actual = self.resolve_type_name(actual);
 
+            // After FQN resolution they might be the same class (compare case-insensitively)
+            if resolved_expected.to_lowercase() == resolved_actual.to_lowercase() {
+                return true;
+            }
+
             if self.is_subtype_of(&resolved_actual, &resolved_expected, symbol_table) {
                 return true;
             }
@@ -525,7 +565,8 @@ impl<'s> PropertyTypeAnalyzer<'s> {
     fn is_subtype_of(&self, subtype: &str, supertype: &str, symbol_table: &SymbolTable) -> bool {
         // Get the subtype class info
         let Some(class_info) = symbol_table.get_class(subtype) else {
-            return false;
+            // Class not found in symbol table — be conservative, assume compatible
+            return true;
         };
 
         // Check if subtype directly implements supertype

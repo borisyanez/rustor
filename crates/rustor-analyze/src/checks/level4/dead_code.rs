@@ -94,6 +94,11 @@ impl<'s> DeadCodeVisitor<'s> {
                 // Extract parameter types
                 self.param_types.clear();
                 for param in func.parameter_list.parameters.iter() {
+                    // Skip if default value is null (parameter is effectively nullable)
+                    let has_null_default = param.default_value.as_ref().map(|dv| {
+                        matches!(&dv.value, Expression::Literal(Literal::Null(_)))
+                    }).unwrap_or(false);
+                    if has_null_default { continue; }
                     if let Some(hint) = &param.hint {
                         if let Some(type_name) = self.extract_type_name(hint) {
                             let var_name = self.get_span_text(&param.variable.span).to_string();
@@ -119,6 +124,11 @@ impl<'s> DeadCodeVisitor<'s> {
                             // Extract parameter types
                             self.param_types.clear();
                             for param in method.parameter_list.parameters.iter() {
+                                // Skip if default value is null (parameter is effectively nullable)
+                                let has_null_default = param.default_value.as_ref().map(|dv| {
+                                    matches!(&dv.value, Expression::Literal(Literal::Null(_)))
+                                }).unwrap_or(false);
+                                if has_null_default { continue; }
                                 if let Some(hint) = &param.hint {
                                     if let Some(type_name) = self.extract_type_name(hint) {
                                         let var_name =
@@ -226,6 +236,11 @@ impl<'s> DeadCodeVisitor<'s> {
         let mut _terminator_span: Option<mago_span::Span> = None;
 
         for stmt in statements.iter() {
+            // Skip empty/noop statements (bare semicolons) - PHPStan ignores these
+            if matches!(stmt, Statement::Noop(_)) {
+                continue;
+            }
+
             if found_terminator {
                 // This statement is unreachable
                 let span = stmt.span();
@@ -610,7 +625,7 @@ impl<'s> DeadCodeVisitor<'s> {
         match hint {
             // Class/interface names
             Hint::Identifier(ident) => Some(self.get_span_text(&ident.span()).to_string()),
-            Hint::Nullable(nullable) => self.extract_type_name(&nullable.hint),
+            Hint::Nullable(_) => None,  // Nullable type is not a single type
             Hint::Parenthesized(p) => self.extract_type_name(&p.hint),
             // Built-in types
             Hint::Integer(_) => Some("int".to_string()),
@@ -627,8 +642,10 @@ impl<'s> DeadCodeVisitor<'s> {
             Hint::Null(_) => Some("null".to_string()),
             Hint::True(_) => Some("true".to_string()),
             Hint::False(_) => Some("false".to_string()),
-            Hint::Union(union) => self.extract_type_name(union.left),
-            Hint::Intersection(intersection) => self.extract_type_name(intersection.left),
+            // Union and nullable types can't be narrowed to a single type
+            Hint::Union(_) => None,
+            Hint::Nullable(_) => None,
+            Hint::Intersection(_) => None,
             _ => None,
         }
     }

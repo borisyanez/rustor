@@ -95,13 +95,27 @@ impl<'s> ClassCaseAnalyzer<'s> {
 
     /// Check if a class name has incorrect casing
     fn check_class_name(&mut self, used_name: &str, span: &mago_span::Span) {
-        // Skip built-in classes and keywords
+        // Skip built-in classes, keywords, and PHP classes with case-insensitive names
         let used_lower = used_name.to_lowercase();
         if matches!(used_lower.as_str(),
             "self" | "parent" | "static" |
             "true" | "false" | "null" |
-            "int" | "float" | "string" | "bool" | "array" | "object" | "mixed" | "void" | "callable"
+            "int" | "float" | "string" | "bool" | "array" | "object" | "mixed" | "void" | "callable" |
+            // PHP builtins where case doesn't matter or varies
+            "stdclass" | "datetime" | "datetimeimmutable" | "datetimezone" | "datetimeinterface" |
+            "iterator" | "iteratoraggregate" | "arrayaccess" | "countable" | "serializable" |
+            "stringable" | "throwable" | "generator" | "closure" |
+            // PHP extension classes
+            "soapclient" | "soapfault" | "soapheader" | "soapparam" | "soapserver" | "soapvar" |
+            "domnode" | "domdocument" | "domelement" | "domtext" |
+            "xmlreader" | "xmlwriter" | "simplexmlelement"
         ) {
+            return;
+        }
+
+        // Skip namespace-qualified names (e.g., Country\Ecuador\Eligibility)
+        // PHPStan only checks the short name, not the FQN
+        if used_name.contains('\\') {
             return;
         }
 

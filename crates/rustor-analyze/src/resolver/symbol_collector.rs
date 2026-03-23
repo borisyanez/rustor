@@ -4,9 +4,10 @@
 //! This is a simplified version that extracts basic symbol information.
 
 use crate::symbols::{ClassInfo, FunctionInfo, SymbolTable};
-use crate::symbols::class_info::{ClassKind, ClassMethodInfo, MethodParameterInfo};
+use crate::symbols::class_info::{ClassKind, ClassMethodInfo, ClassPropertyInfo, MethodParameterInfo};
 use crate::types::Type;
 use crate::types::php_type::Visibility;
+use crate::types::phpdoc::parse_phpdoc;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -144,6 +145,109 @@ impl<'s> SymbolCollector<'s> {
         modifiers.contains_final()
     }
 
+    /// Resolve a type's class names to FQNs
+    fn resolve_type(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Object { class_name: Some(name) } => {
+                Type::Object {
+                    class_name: Some(self.qualify_name(name)),
+                }
+            }
+            Type::GenericObject { class_name, type_args } => {
+                Type::GenericObject {
+                    class_name: self.qualify_name(class_name),
+                    type_args: type_args.iter().map(|t| self.resolve_type(t)).collect(),
+                }
+            }
+            Type::Nullable(inner) => Type::Nullable(Box::new(self.resolve_type(inner))),
+            Type::Union(types) => Type::Union(types.iter().map(|t| self.resolve_type(t)).collect()),
+            Type::Intersection(types) => Type::Intersection(types.iter().map(|t| self.resolve_type(t)).collect()),
+            Type::Array { key, value } => Type::Array {
+                key: Box::new(self.resolve_type(key)),
+                value: Box::new(self.resolve_type(value)),
+            },
+            Type::List { value } => Type::List {
+                value: Box::new(self.resolve_type(value)),
+            },
+            _ => ty.clone(),
+        }
+    }
+
+    /// Convert an AST type hint (Hint) to a Type, resolving class names to FQN
+    fn resolve_hint_to_type(&self, hint: &mago_syntax::ast::Hint) -> Type {
+        use mago_syntax::ast::Hint;
+        match hint {
+            Hint::Identifier(ident) => {
+                let name = self.get_span_text(&ident.span());
+                Type::Object { class_name: Some(self.qualify_name(name)) }
+            }
+            Hint::Nullable(nullable) => {
+                Type::Nullable(Box::new(self.resolve_hint_to_type(&nullable.hint)))
+            }
+            Hint::Union(union) => {
+                let left = self.resolve_hint_to_type(&union.left);
+                let right = self.resolve_hint_to_type(&union.right);
+                Type::Union(vec![left, right])
+            }
+            Hint::Intersection(inter) => {
+                let left = self.resolve_hint_to_type(&inter.left);
+                let right = self.resolve_hint_to_type(&inter.right);
+                Type::Intersection(vec![left, right])
+            }
+            Hint::Parenthesized(p) => self.resolve_hint_to_type(&p.hint),
+            Hint::Void(_) => Type::Void,
+            Hint::Never(_) => Type::Never,
+            Hint::Float(_) => Type::Float,
+            Hint::Bool(_) => Type::Bool,
+            Hint::Integer(_) => Type::Int,
+            Hint::String(_) => Type::String,
+            Hint::Array(_) => Type::mixed_array(),
+            Hint::Object(_) => Type::Object { class_name: None },
+            Hint::Mixed(_) => Type::Mixed,
+            Hint::Iterable(_) => Type::Iterable {
+                key: Box::new(Type::Mixed),
+                value: Box::new(Type::Mixed),
+            },
+            Hint::Null(_) => Type::Null,
+            Hint::True(_) => Type::ConstantBool(true),
+            Hint::False(_) => Type::ConstantBool(false),
+            Hint::Callable(_) => Type::Callable,
+            Hint::Static(_) => Type::Static,
+            Hint::Self_(_) => Type::SelfType,
+            Hint::Parent(_) => Type::Parent,
+        }
+    }
+
+    /// Extract PHPDoc comment before a given offset
+    fn extract_phpdoc(&self, offset: usize) -> Option<crate::types::phpdoc::PhpDoc> {
+        let before = &self.source[..offset];
+
+        if let Some(doc_end) = before.rfind("*/") {
+            if let Some(doc_start) = before[..doc_end].rfind("/**") {
+                let between = &before[doc_end + 2..];
+                let between_trimmed = between.trim();
+
+                // Check that the PHPDoc is directly before the element
+                let is_valid = between_trimmed.is_empty()
+                    || between_trimmed.chars().all(|c| c.is_whitespace())
+                    || between_trimmed.starts_with('#')
+                    || between_trimmed.starts_with("public")
+                    || between_trimmed.starts_with("private")
+                    || between_trimmed.starts_with("protected")
+                    || between_trimmed.starts_with("static")
+                    || between_trimmed.starts_with("final")
+                    || between_trimmed.starts_with("abstract")
+                    || between_trimmed.starts_with("readonly");
+
+                if is_valid {
+                    let doc_comment = &self.source[doc_start..doc_end + 2];
+                    return Some(parse_phpdoc(doc_comment));
+                }
+            }
+        }
+        None
+    }
+
     /// Collect methods from class members
     fn collect_methods_from_members(&self, members: &mago_syntax::ast::Sequence<'_, ClassLikeMember<'_>>, info: &mut ClassInfo) {
         for member in members.iter() {
@@ -158,14 +262,23 @@ impl<'s> SymbolCollector<'s> {
                     method_info.is_abstract = matches!(method.body, MethodBody::Abstract(_));
                     method_info.is_final = self.has_final_modifier(&method.modifiers);
 
-                    // Extract parameters
+                    // Extract parameters with type hints
                     for param in method.parameter_list.parameters.iter() {
-                        let param_name = self.get_span_text(&param.variable.span).to_string();
+                        let param_name = self.get_span_text(&param.variable.span)
+                            .trim_start_matches('$').to_string();
                         let mut param_info = MethodParameterInfo::new(&param_name);
                         param_info.is_optional = param.default_value.is_some();
                         param_info.is_variadic = param.ellipsis.is_some();
                         param_info.is_reference = param.ampersand.is_some();
+                        if let Some(hint) = &param.hint {
+                            param_info.type_ = Some(self.resolve_hint_to_type(hint));
+                        }
                         method_info.parameters.push(param_info);
+                    }
+
+                    // Extract return type
+                    if let Some(ret) = &method.return_type_hint {
+                        method_info.return_type = Some(self.resolve_hint_to_type(&ret.hint));
                     }
 
                     info.add_method(method_info);
@@ -174,6 +287,37 @@ impl<'s> SymbolCollector<'s> {
                     for trait_name in trait_use.trait_names.iter() {
                         let trait_text = self.get_span_text(&trait_name.span());
                         info.traits.push(self.qualify_name(trait_text));
+                    }
+                }
+                ClassLikeMember::Property(Property::Plain(prop)) => {
+                    // Check if property is static
+                    let is_static = prop.modifiers.iter().any(|m| matches!(m, Modifier::Static(_)));
+                    let is_readonly = prop.modifiers.iter().any(|m| matches!(m, Modifier::Readonly(_)));
+
+                    // Extract visibility
+                    let visibility = if prop.modifiers.iter().any(|m| matches!(m, Modifier::Private(_))) {
+                        Visibility::Private
+                    } else if prop.modifiers.iter().any(|m| matches!(m, Modifier::Protected(_))) {
+                        Visibility::Protected
+                    } else {
+                        Visibility::Public
+                    };
+
+                    // Get property names from items
+                    for item in prop.items.nodes.iter() {
+                        let (var_name, has_default) = match item {
+                            PropertyItem::Abstract(abs) => (&abs.variable.name, false),
+                            PropertyItem::Concrete(conc) => (&conc.variable.name, true),
+                        };
+                        let prop_name = var_name.trim_start_matches('$').to_string();
+
+                        let mut prop_info = ClassPropertyInfo::new(&prop_name);
+                        prop_info.is_static = is_static;
+                        prop_info.is_readonly = is_readonly;
+                        prop_info.visibility = visibility;
+                        prop_info.has_default = has_default;
+
+                        info.add_property(prop_info);
                     }
                 }
                 _ => {}
@@ -327,6 +471,24 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
 
+                // Collect function parameter types
+                for param in func.parameter_list.parameters.iter() {
+                    let param_name = self.get_span_text(&param.variable.span)
+                        .trim_start_matches('$').to_string();
+                    let mut param_info = crate::symbols::function_info::FunctionParameterInfo::new(&param_name);
+                    param_info.is_optional = param.default_value.is_some();
+                    param_info.is_variadic = param.ellipsis.is_some();
+                    if let Some(hint) = &param.hint {
+                        param_info.type_ = Some(self.resolve_hint_to_type(hint));
+                    }
+                    info.parameters.push(param_info);
+                }
+
+                // Collect return type
+                if let Some(ret) = &func.return_type_hint {
+                    info.return_type = Some(self.resolve_hint_to_type(&ret.hint));
+                }
+
                 self.symbols.functions.push(info);
                 true
             }
@@ -339,6 +501,16 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.kind = ClassKind::Class;
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
+
+                // Extract template params from PHPDoc with resolved bound types
+                if let Some(doc) = self.extract_phpdoc(class.span().start.offset as usize) {
+                    info.template_params = doc.templates.into_iter().map(|mut t| {
+                        if let Some(bound) = t.bound {
+                            t.bound = Some(self.resolve_type(&bound));
+                        }
+                        t
+                    }).collect();
+                }
 
                 // Extract extends (parent class) - classes extend only one parent
                 if let Some(extends) = &class.extends {
@@ -358,6 +530,7 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
 
                 // Collect methods and trait usage from class members
                 self.collect_methods_from_members(&class.members, &mut info);
+                info.methods_fully_collected = true;
 
                 self.symbols.classes.push(info);
                 true
@@ -372,6 +545,16 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
                 info.file = Some(self.file.clone());
                 info.line = Some(self.get_line(span.start.offset as usize));
 
+                // Extract template params from PHPDoc with resolved bound types
+                if let Some(doc) = self.extract_phpdoc(interface.span().start.offset as usize) {
+                    info.template_params = doc.templates.into_iter().map(|mut t| {
+                        if let Some(bound) = t.bound {
+                            t.bound = Some(self.resolve_type(&bound));
+                        }
+                        t
+                    }).collect();
+                }
+
                 // Extract extends (interfaces can extend other interfaces)
                 if let Some(extends) = &interface.extends {
                     for parent_iface in extends.types.iter() {
@@ -382,6 +565,7 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
 
                 // Collect method signatures from interface members
                 self.collect_methods_from_members(&interface.members, &mut info);
+                info.methods_fully_collected = true;
 
                 self.symbols.classes.push(info);
                 true
@@ -398,6 +582,7 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
 
                 // Collect methods and trait usage from trait members
                 self.collect_methods_from_members(&trait_def.members, &mut info);
+                info.methods_fully_collected = true;
 
                 self.symbols.classes.push(info);
                 true
@@ -414,6 +599,7 @@ impl<'a, 's> Visitor<'a> for SymbolCollector<'s> {
 
                 // Collect methods and trait usage from enum members
                 self.collect_methods_from_members(&enum_def.members, &mut info);
+                info.methods_fully_collected = true;
 
                 self.symbols.classes.push(info);
                 true

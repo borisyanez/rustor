@@ -5,6 +5,7 @@
 
 use super::php_type::Type;
 use super::trinary_logic::TrinaryLogic;
+use crate::symbols::SymbolTable;
 
 impl Type {
     /// Check if this type is a subtype of another type
@@ -149,6 +150,118 @@ impl Type {
 
         // Otherwise, use subtype relationship
         other.is_subtype_of(self)
+    }
+
+    /// Check subtype relationship using class hierarchy from SymbolTable
+    pub fn is_subtype_of_with_hierarchy(&self, other: &Type, symbol_table: &SymbolTable) -> TrinaryLogic {
+        // First try the basic check
+        let basic = self.is_subtype_of(other);
+        if basic.yes() {
+            return basic;
+        }
+        if basic.no() {
+            // For No on Object types, try hierarchy before returning
+            if let (Type::Object { class_name: Some(actual) }, Type::Object { class_name: Some(expected) }) = (self, other) {
+                return Self::check_class_hierarchy(actual, expected, symbol_table, 0);
+            }
+            return basic;
+        }
+
+        // For Maybe (which Object-Object returns), try hierarchy
+        match (self, other) {
+            (Type::Object { class_name: Some(actual) }, Type::Object { class_name: Some(expected) }) => {
+                Self::check_class_hierarchy(actual, expected, symbol_table, 0)
+            }
+            // For unions, check each member
+            (Type::Union(types), other) => {
+                TrinaryLogic::and_all(types.iter().map(|t| t.is_subtype_of_with_hierarchy(other, symbol_table)))
+            }
+            (t, Type::Union(types)) => {
+                TrinaryLogic::or_all(types.iter().map(|u| t.is_subtype_of_with_hierarchy(u, symbol_table)))
+            }
+            (Type::Nullable(inner), other) => {
+                if matches!(other, Type::Nullable(_)) {
+                    inner.is_subtype_of_with_hierarchy(other, symbol_table)
+                } else {
+                    inner.is_subtype_of_with_hierarchy(other, symbol_table)
+                }
+            }
+            _ => basic,
+        }
+    }
+
+    fn check_class_hierarchy(actual: &str, expected: &str, symbol_table: &SymbolTable, depth: u8) -> TrinaryLogic {
+        if depth > 10 { return TrinaryLogic::Maybe; } // prevent infinite loops
+
+        if actual.eq_ignore_ascii_case(expected) {
+            return TrinaryLogic::Yes;
+        }
+
+        if let Some(class_info) = symbol_table.get_class(actual) {
+            // Check parent class
+            if let Some(parent) = &class_info.parent {
+                if Self::check_class_hierarchy(parent, expected, symbol_table, depth + 1).yes() {
+                    return TrinaryLogic::Yes;
+                }
+            }
+            // Check interfaces
+            for iface in &class_info.interfaces {
+                if Self::check_class_hierarchy(iface, expected, symbol_table, depth + 1).yes() {
+                    return TrinaryLogic::Yes;
+                }
+            }
+            // Check traits
+            for trait_name in &class_info.traits {
+                if Self::check_class_hierarchy(trait_name, expected, symbol_table, depth + 1).yes() {
+                    return TrinaryLogic::Yes;
+                }
+            }
+        }
+
+        TrinaryLogic::Maybe // Can't determine — class not in symbol table
+    }
+
+    /// Check if this type accepts a value of another type using class hierarchy
+    pub fn accepts_with_hierarchy(&self, other: &Type, strict_types: bool, symbol_table: &SymbolTable) -> TrinaryLogic {
+        if matches!(self, Type::Mixed) || matches!(other, Type::Mixed) {
+            return TrinaryLogic::Yes;
+        }
+
+        // At level 5-6, accept nullable actual for non-nullable expected
+        // (PHPStan uses type narrowing to know value is non-null at call site)
+        if let Type::Nullable(inner) = other {
+            if self.accepts_with_hierarchy(inner, strict_types, symbol_table).yes() {
+                return TrinaryLogic::Yes;
+            }
+        }
+        // At L5-6: accept union actual if ANY member is compatible with expected
+        // (PHPStan only reports when types are completely incompatible)
+        if let Type::Union(types) = other {
+            let any_accepted = types.iter().any(|t| {
+                !matches!(t, Type::Null) && self.accepts_with_hierarchy(t, strict_types, symbol_table).yes()
+            });
+            if any_accepted {
+                return TrinaryLogic::Yes;
+            }
+        }
+        if !strict_types {
+            match (self, other) {
+                (Type::String, Type::Int | Type::Float | Type::ConstantInt(_) | Type::ConstantFloat(_)) => {
+                    return TrinaryLogic::Yes;
+                }
+                (Type::Int, Type::Float | Type::ConstantFloat(_)) => {
+                    return TrinaryLogic::Yes;
+                }
+                (Type::Float, Type::Int | Type::ConstantInt(_)) => {
+                    return TrinaryLogic::Yes;
+                }
+                (Type::Bool, t) if t.is_scalar() => {
+                    return TrinaryLogic::Yes;
+                }
+                _ => {}
+            }
+        }
+        other.is_subtype_of_with_hierarchy(self, symbol_table)
     }
 
     /// Create a union of two types, simplifying where possible

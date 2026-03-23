@@ -10,8 +10,10 @@ mod magic_methods;
 mod undefined_variable;
 mod unused_parameter;
 mod isset_variable;
+mod empty_nullcoalesce_variable;
 
 pub use magic_methods::MagicMethodsCheck;
 pub use undefined_variable::UndefinedVariableCheck;
 pub use unused_parameter::UnusedConstructorParameterCheck;
 pub use isset_variable::IssetVariableCheck;
+pub use empty_nullcoalesce_variable::EmptyNullCoalesceVariableCheck;

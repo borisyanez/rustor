@@ -30,10 +30,11 @@ impl Check for UndefinedFunctionCheck {
             builtin_functions: ctx.builtin_functions,
             symbol_table: ctx.symbol_table,
             defined_functions: HashSet::new(),
+            imported_functions: HashSet::new(),
             issues: Vec::new(),
         };
 
-        // First pass: collect function definitions
+        // First pass: collect function definitions and imports
         visitor.collect_definitions(program);
 
         // Second pass: check function calls
@@ -49,6 +50,7 @@ struct UndefinedFunctionVisitor<'s> {
     builtin_functions: &'s [&'static str],
     symbol_table: Option<&'s SymbolTable>,
     defined_functions: HashSet<String>,
+    imported_functions: HashSet<String>,
     issues: Vec<Issue>,
 }
 
@@ -64,6 +66,12 @@ impl<'s> UndefinedFunctionVisitor<'s> {
             Statement::Function(func) => {
                 let name = &self.source[func.name.span.start.offset as usize..func.name.span.end.offset as usize];
                 self.defined_functions.insert(name.to_lowercase());
+            }
+            // Collect use function imports
+            Statement::Use(use_stmt) => {
+                let use_span = use_stmt.span();
+                let use_text = self.source[use_span.start.offset as usize..use_span.end.offset as usize].to_string();
+                self.collect_function_imports(&use_text);
             }
             Statement::Namespace(ns) => {
                 match &ns.body {
@@ -88,6 +96,56 @@ impl<'s> UndefinedFunctionVisitor<'s> {
         }
     }
 
+    /// Collect function imports from "use function" statements
+    fn collect_function_imports(&mut self, use_text: &str) {
+        // Only process "use function" statements
+        let trimmed = use_text.trim_start_matches("use").trim_start();
+        if !trimmed.starts_with("function") {
+            return;
+        }
+
+        // Remove 'use function' and semicolon
+        let text = trimmed
+            .trim_start_matches("function")
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+
+        // Handle grouped imports: Namespace\{func1, func2}
+        if let Some(brace_start) = text.find('{') {
+            let prefix = text[..brace_start].trim().trim_end_matches('\\');
+            if let Some(brace_end) = text.find('}') {
+                let group_content = &text[brace_start + 1..brace_end];
+                for item in group_content.split(',') {
+                    let item = item.trim();
+                    // Handle "func as alias"
+                    if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                        let alias = item[as_pos + 4..].trim();
+                        self.imported_functions.insert(alias.to_lowercase());
+                    } else {
+                        // Just "func" - use the function name itself
+                        let name = item.rsplit('\\').next().unwrap_or(item).trim();
+                        if !name.is_empty() {
+                            self.imported_functions.insert(name.to_lowercase());
+                        }
+                    }
+                }
+            }
+        } else {
+            // Simple import: Namespace\func or Namespace\func as alias
+            if let Some(as_pos) = text.to_lowercase().find(" as ") {
+                let alias = text[as_pos + 4..].trim();
+                self.imported_functions.insert(alias.to_lowercase());
+            } else {
+                // Get last segment (the function name)
+                let name = text.rsplit('\\').next().unwrap_or(text).trim();
+                if !name.is_empty() {
+                    self.imported_functions.insert(name.to_lowercase());
+                }
+            }
+        }
+    }
+
     fn is_defined(&self, name: &str) -> bool {
         let lower_name = name.to_lowercase();
 
@@ -98,6 +156,11 @@ impl<'s> UndefinedFunctionVisitor<'s> {
 
         // Check user-defined functions in current file
         if self.defined_functions.contains(&lower_name) {
+            return true;
+        }
+
+        // Check if imported via "use function"
+        if self.imported_functions.contains(&lower_name) {
             return true;
         }
 
@@ -158,7 +221,7 @@ impl<'a, 's> Visitor<'a> for UndefinedFunctionVisitor<'s> {
                 self.issues.push(
                     Issue::error(
                         "function.notFound",
-                        format!("Call to undefined function {}()", name),
+                        format!("Function {} not found.", name),
                         self.file_path.clone(),
                         line,
                         col,

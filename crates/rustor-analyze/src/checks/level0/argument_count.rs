@@ -2,6 +2,7 @@
 
 use crate::checks::{Check, CheckContext};
 use crate::issue::Issue;
+use crate::symbols::SymbolTable;
 use mago_span::HasSpan;
 use mago_syntax::ast::*;
 use rustor_core::Visitor;
@@ -31,6 +32,9 @@ impl Check for ArgumentCountCheck {
             class_constructors: HashMap::new(),
             class_names: HashMap::new(), // lowercase -> original
             builtin_classes: ctx.builtin_classes,
+            symbol_table: ctx.symbol_table,
+            current_namespace: String::new(),
+            use_fqn_map: HashMap::new(),
             analysis_level: ctx.analysis_level,
             issues: Vec::new(),
         };
@@ -59,6 +63,9 @@ struct ArgumentCountVisitor<'s> {
     class_constructors: HashMap<String, FunctionSignature>, // class name (lowercase) -> constructor signature
     class_names: HashMap<String, String>,                    // class name (lowercase) -> original name
     builtin_classes: &'s [&'static str],
+    symbol_table: Option<&'s SymbolTable>,
+    current_namespace: String,
+    use_fqn_map: HashMap<String, String>, // short name -> FQN
     analysis_level: u8, // Analysis level - "too many args" only reported at level 2+
     issues: Vec<Issue>,
 }
@@ -99,24 +106,126 @@ impl<'s> ArgumentCountVisitor<'s> {
 
                 self.class_names.insert(class_lower, original_name);
             }
-            Statement::Namespace(ns) => match &ns.body {
-                NamespaceBody::Implicit(body) => {
-                    for inner in body.statements.iter() {
-                        self.collect_from_stmt(inner);
+            Statement::Namespace(ns) => {
+                let ns_name = if let Some(ref name) = ns.name {
+                    let span = name.span();
+                    self.source[span.start.offset as usize..span.end.offset as usize].to_string()
+                } else {
+                    String::new()
+                };
+
+                if self.current_namespace.is_empty() {
+                    self.current_namespace = ns_name.clone();
+                }
+
+                match &ns.body {
+                    NamespaceBody::Implicit(body) => {
+                        for inner in body.statements.iter() {
+                            self.collect_from_stmt(inner);
+                        }
+                    }
+                    NamespaceBody::BraceDelimited(body) => {
+                        for inner in body.statements.iter() {
+                            self.collect_from_stmt(inner);
+                        }
                     }
                 }
-                NamespaceBody::BraceDelimited(body) => {
-                    for inner in body.statements.iter() {
-                        self.collect_from_stmt(inner);
-                    }
-                }
-            },
+            }
+            Statement::Use(use_stmt) => {
+                self.collect_use_imports(use_stmt);
+            }
             Statement::Block(block) => {
                 for inner in block.statements.iter() {
                     self.collect_from_stmt(inner);
                 }
             }
             _ => {}
+        }
+    }
+
+    fn collect_use_imports<'a>(&mut self, use_stmt: &Use<'a>) {
+        let use_span = use_stmt.span();
+        let use_text = &self.source[use_span.start.offset as usize..use_span.end.offset as usize];
+
+        let text = use_text
+            .trim_start_matches("use")
+            .trim_start()
+            .trim_start_matches("function")
+            .trim_start_matches("const")
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+
+        if let Some(brace_start) = text.find('{') {
+            let prefix = text[..brace_start].trim().trim_end_matches('\\');
+            if let Some(brace_end) = text.find('}') {
+                let group_content = &text[brace_start + 1..brace_end];
+                for item in group_content.split(',') {
+                    let item = item.trim();
+                    if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                        let class_part = item[..as_pos].trim();
+                        let alias = item[as_pos + 4..].trim();
+                        let fqn = format!("{}\\{}", prefix, class_part);
+                        self.use_fqn_map.insert(alias.to_lowercase(), fqn);
+                    } else {
+                        let name = item.rsplit('\\').next().unwrap_or(item).trim();
+                        if !name.is_empty() {
+                            let fqn = format!("{}\\{}", prefix, item.trim());
+                            self.use_fqn_map.insert(name.to_lowercase(), fqn);
+                        }
+                    }
+                }
+            }
+        } else if let Some(as_pos) = text.to_lowercase().find(" as ") {
+            let fqn = text[..as_pos].trim().to_string();
+            let alias = text[as_pos + 4..].trim();
+            self.use_fqn_map.insert(alias.to_lowercase(), fqn);
+        } else {
+            let name = text.rsplit('\\').next().unwrap_or(text).trim();
+            if !name.is_empty() {
+                self.use_fqn_map.insert(name.to_lowercase(), text.to_string());
+            }
+        }
+    }
+
+    /// Resolve a short class name to its FQN using use-statements and current namespace
+    fn resolve_class_name(&self, name: &str) -> String {
+        if name.starts_with('\\') {
+            return name[1..].to_string();
+        }
+        let name_lower = name.to_lowercase();
+        if let Some(fqn) = self.use_fqn_map.get(&name_lower) {
+            return fqn.clone();
+        }
+        if !self.current_namespace.is_empty() {
+            format!("{}\\{}", self.current_namespace, name)
+        } else {
+            name.to_string()
+        }
+    }
+
+    fn check_arg_count_from_sig(
+        &mut self,
+        arg_count: usize,
+        required: usize,
+        max: Option<usize>,
+        message_too_few: String,
+        message_too_many: String,
+        line: usize,
+        col: usize,
+    ) {
+        if arg_count < required {
+            self.issues.push(
+                Issue::error("arguments.count", message_too_few, self.file_path.clone(), line, col)
+                    .with_identifier("arguments.count"),
+            );
+        } else if let Some(max_count) = max {
+            if arg_count > max_count && self.analysis_level >= 1 {
+                self.issues.push(
+                    Issue::error("arguments.count", message_too_many, self.file_path.clone(), line, col)
+                        .with_identifier("arguments.count"),
+                );
+            }
         }
     }
 
@@ -167,54 +276,124 @@ impl<'a, 's> Visitor<'a> for ArgumentCountVisitor<'s> {
                 let name_span = call.function.span();
                 let name = self.get_span_text(&name_span);
 
-                // Skip dynamic calls and namespaced calls
-                if name.starts_with('$') || name.contains('\\') {
+                // Skip dynamic calls
+                if name.starts_with('$') {
                     return true;
                 }
 
                 let name_lower = name.to_lowercase();
                 let arg_count = call.argument_list.arguments.len();
 
-                // Check if we have a signature for this function
-                if let Some(sig) = self.function_signatures.get(&name_lower) {
-                    if arg_count < sig.min_args {
-                        let (line, col) = self.get_line_col(name_span.start.offset as usize);
-                        self.issues.push(
-                            Issue::error(
-                                "arguments.count",
-                                format!(
-                                    "Function {} invoked with {} parameter{}, {} required.",
-                                    name,
-                                    arg_count,
-                                    if arg_count == 1 { "" } else { "s" },
-                                    sig.min_args
-                                ),
-                                self.file_path.clone(),
-                                line,
-                                col,
+                // Check if we have a local signature for this function
+                if let Some(sig) = self.function_signatures.get(&name_lower).cloned() {
+                    let (line, col) = self.get_line_col(name_span.start.offset as usize);
+                    let too_few = format!(
+                        "Function {} invoked with {} parameter{}, {} required.",
+                        name, arg_count, if arg_count == 1 { "" } else { "s" }, sig.min_args
+                    );
+                    let too_many = if let Some(max) = sig.max_args {
+                        if sig.min_args == max {
+                            format!(
+                                "Function {} invoked with {} parameter{}, {} required.",
+                                name, arg_count, if arg_count == 1 { "" } else { "s" }, max
                             )
-                            .with_identifier("arguments.count"),
-                        );
-                    } else if let Some(max) = sig.max_args {
-                        // PHPStan reports "too many arguments" at level 1+
-                        if arg_count > max && self.analysis_level >= 1 {
+                        } else {
+                            format!(
+                                "Function {} invoked with {} parameter{}, {}-{} required.",
+                                name, arg_count, if arg_count == 1 { "" } else { "s" }, sig.min_args, max
+                            )
+                        }
+                    } else {
+                        String::new()
+                    };
+                    self.check_arg_count_from_sig(arg_count, sig.min_args, sig.max_args, too_few, too_many, line, col);
+                } else if let Some(symbol_table) = self.symbol_table {
+                    // Try symbol table for cross-file functions
+                    // Try plain name first, then with current namespace prefix
+                    let fqn = self.resolve_class_name(name); // resolve uses use_fqn_map / namespace
+                    let func_info = symbol_table
+                        .get_function(&fqn)
+                        .or_else(|| symbol_table.get_function(&name_lower));
+                    if let Some(func_info) = func_info {
+                        let required = func_info.required_args();
+                        let max = func_info.max_args();
+                        // Only report if parameters are actually defined (non-empty)
+                        // to avoid false positives on built-in stubs with no param info
+                        if !func_info.parameters.is_empty() {
                             let (line, col) = self.get_line_col(name_span.start.offset as usize);
-                            self.issues.push(
-                                Issue::error(
-                                    "arguments.count",
-                                    format!(
-                                        "Function {} invoked with {} parameter{}, {} required.",
-                                        name,
-                                        arg_count,
-                                        if arg_count == 1 { "" } else { "s" },
-                                        max
-                                    ),
-                                    self.file_path.clone(),
-                                    line,
-                                    col,
-                                )
-                                .with_identifier("arguments.count"),
+                            let func_display = func_info.name.clone();
+                            let too_few = format!(
+                                "Function {} invoked with {} parameter{}, {} required.",
+                                func_display, arg_count, if arg_count == 1 { "" } else { "s" }, required
                             );
+                            let too_many = if let Some(max_count) = max {
+                                format!(
+                                    "Function {} invoked with {} parameter{}, {}-{} required.",
+                                    func_display, arg_count, if arg_count == 1 { "" } else { "s" }, required, max_count
+                                )
+                            } else {
+                                String::new()
+                            };
+                            self.check_arg_count_from_sig(arg_count, required, max, too_few, too_many, line, col);
+                        }
+                    }
+                }
+            }
+            Expression::Call(Call::StaticMethod(call)) => {
+                // Get class name and method name
+                let class_name = match &*call.class {
+                    Expression::Identifier(ident) => {
+                        Some(self.get_span_text(&ident.span()).to_string())
+                    }
+                    _ => None,
+                };
+                let method_name = match &call.method {
+                    ClassLikeMemberSelector::Identifier(ident) => {
+                        Some(self.get_span_text(&ident.span).to_string())
+                    }
+                    _ => None,
+                };
+
+                if let (Some(class_name), Some(method_name)) = (class_name, method_name) {
+                    // Skip dynamic/special calls
+                    if class_name == "self" || class_name == "static" || class_name == "parent" {
+                        return true;
+                    }
+
+                    let arg_count = call.argument_list.arguments.len();
+                    let call_span = call.class.span();
+
+                    if let Some(symbol_table) = self.symbol_table {
+                        let fqn = self.resolve_class_name(&class_name);
+                        let class_info = symbol_table
+                            .get_class(&fqn)
+                            .or_else(|| symbol_table.get_class(&class_name));
+                        if let Some(class_info) = class_info {
+                            if let Some(method_info) = class_info.get_method(&method_name) {
+                                // Skip if method has no parameter info (cache stub)
+                                if !(method_info.parameters.is_empty() && arg_count > 0) {
+                                let required = method_info.required_args();
+                                let max = method_info.max_args();
+                                let display_class = &class_info.full_name;
+                                let display_method = &method_info.name;
+                                let (line, col) = self.get_line_col(call_span.start.offset as usize);
+                                let too_few = format!(
+                                    "Static method {}::{}() invoked with {} parameter{}, {} required.",
+                                    display_class, display_method,
+                                    arg_count, if arg_count == 1 { "" } else { "s" }, required
+                                );
+                                let too_many = if let Some(max_count) = max {
+                                    format!(
+                                        "Static method {}::{}() invoked with {} parameter{}, {}-{} required.",
+                                        display_class, display_method,
+                                        arg_count, if arg_count == 1 { "" } else { "s" }, required, max_count
+                                    )
+                                } else {
+                                    String::new()
+                                };
+                                self.check_arg_count_from_sig(arg_count, required, max, too_few, too_many, line, col);
+                                }
+                            }
                         }
                     }
                 }

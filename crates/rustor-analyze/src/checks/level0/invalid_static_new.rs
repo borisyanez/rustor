@@ -29,6 +29,7 @@ impl Check for InvalidStaticNewCheck {
             source: ctx.source,
             file_path: ctx.file_path.to_path_buf(),
             in_class_context: false,
+            is_final_class: false,
             issues: Vec::new(),
         };
 
@@ -41,6 +42,7 @@ struct StaticNewAnalyzer<'s> {
     source: &'s str,
     file_path: PathBuf,
     in_class_context: bool,
+    is_final_class: bool,
     issues: Vec<Issue>,
 }
 
@@ -76,8 +78,13 @@ impl<'s> StaticNewAnalyzer<'s> {
         match stmt {
             Statement::Class(class) => {
                 let prev_in_class = self.in_class_context;
+                let prev_is_final = self.is_final_class;
 
                 self.in_class_context = true;
+                // Check if class has final or abstract modifier
+                // Both are safe for new static(): final can't be subclassed, abstract is the pattern
+                self.is_final_class = class.modifiers.contains_final()
+                    || class.modifiers.contains_abstract();
 
                 // Analyze class members
                 for member in class.members.iter() {
@@ -91,6 +98,7 @@ impl<'s> StaticNewAnalyzer<'s> {
                 }
 
                 self.in_class_context = prev_in_class;
+                self.is_final_class = prev_is_final;
             }
             Statement::Expression(expr_stmt) => {
                 self.analyze_expression(&expr_stmt.expression);
@@ -164,19 +172,34 @@ impl<'s> StaticNewAnalyzer<'s> {
                 let class_text = self.get_span_text(&class_span);
                 let class_lower = class_text.to_lowercase();
 
-                if class_lower == "static" && !self.in_class_context {
-                    // Using `new static()` outside a class context is invalid
-                    let (line, col) = self.get_line_col(class_span.start.offset as usize);
-                    self.issues.push(
-                        Issue::error(
-                            "new.static",
-                            "Cannot use \"static\" when no class scope is active.".to_string(),
-                            self.file_path.clone(),
-                            line,
-                            col,
-                        )
-                        .with_identifier("new.static"),
-                    );
+                if class_lower == "static" {
+                    if !self.in_class_context {
+                        // Using `new static()` outside a class context is invalid
+                        let (line, col) = self.get_line_col(class_span.start.offset as usize);
+                        self.issues.push(
+                            Issue::error(
+                                "new.static",
+                                "Cannot use \"static\" when no class scope is active.".to_string(),
+                                self.file_path.clone(),
+                                line,
+                                col,
+                            )
+                            .with_identifier("new.static"),
+                        );
+                    } else if !self.is_final_class {
+                        // Using `new static()` in a non-final class is unsafe
+                        let (line, col) = self.get_line_col(class_span.start.offset as usize);
+                        self.issues.push(
+                            Issue::error(
+                                "new.static",
+                                "Unsafe usage of new static().".to_string(),
+                                self.file_path.clone(),
+                                line,
+                                col,
+                            )
+                            .with_identifier("new.static"),
+                        );
+                    }
                 }
             }
             Expression::Binary(binary) => {

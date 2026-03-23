@@ -416,9 +416,62 @@ impl<'s> MethodCallVisitor<'s> {
                     return true;
                 }
             }
+
+            // Check interfaces (for interface inheritance chains)
+            for interface in &class_info.interfaces {
+                if self.method_exists_in_hierarchy(interface, method_name, symbol_table) {
+                    return true;
+                }
+            }
         }
 
         false
+    }
+
+    /// Check if any class in hierarchy has __call magic method
+    fn has_call_magic_in_hierarchy(&self, class_name: &str, symbol_table: &SymbolTable) -> bool {
+        if symbol_table.class_has_method(class_name, "__call") {
+            return true;
+        }
+        if let Some(class_info) = symbol_table.get_class(class_name) {
+            if let Some(parent) = &class_info.parent {
+                if self.has_call_magic_in_hierarchy(parent, symbol_table) {
+                    return true;
+                }
+            }
+            for trait_name in &class_info.traits {
+                if symbol_table.class_has_method(trait_name, "__call") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if entire class hierarchy has methods_fully_collected
+    fn hierarchy_fully_collected(&self, class_name: &str, symbol_table: &SymbolTable) -> bool {
+        if let Some(class_info) = symbol_table.get_class(class_name) {
+            if !class_info.methods_fully_collected {
+                return false;
+            }
+            // Check parent
+            if let Some(parent) = &class_info.parent {
+                if !self.hierarchy_fully_collected(parent, symbol_table) {
+                    return false;
+                }
+            }
+            // Check traits
+            for trait_name in &class_info.traits {
+                if let Some(trait_info) = symbol_table.get_class(trait_name) {
+                    if !trait_info.methods_fully_collected {
+                        return false;
+                    }
+                }
+            }
+            true
+        } else {
+            false // Class not in symbol table — can't verify
+        }
     }
 
     /// Extract typed parameters from a parameter list
@@ -426,10 +479,11 @@ impl<'s> MethodCallVisitor<'s> {
         let mut result = HashMap::new();
         for param in params.parameters.iter() {
             if let Some(hint) = &param.hint {
-                // Get the type name from the hint
+                // Get the type name from the hint and resolve to FQN
                 if let Some(type_name) = self.extract_type_name(hint) {
+                    let resolved = self.resolve_class_name(&type_name);
                     let var_name = self.get_span_text(&param.variable.span).to_string();
-                    result.insert(var_name, type_name);
+                    result.insert(var_name, resolved);
                 }
             }
         }
@@ -743,14 +797,58 @@ impl<'s> MethodCallVisitor<'s> {
 
         // Check if method exists (local or cross-file)
         if !self.method_exists(class_name, method) {
-            // Method not found anywhere
+            // Only report if we're confident the method truly doesn't exist
+            if let Some(symbol_table) = self.symbol_table {
+                let fqn = self.resolve_class_name(class_name);
+                let class_info = symbol_table.get_class(&fqn)
+                    .or_else(|| symbol_table.get_class(class_name));
+
+                // Skip if class not found or methods not fully collected
+                let fully_collected = class_info.map_or(false, |c| c.methods_fully_collected);
+                if !fully_collected {
+                    let has_local = self.class_methods.contains_key(&class_lower);
+                    if !has_local {
+                        return;
+                    }
+                }
+
+                // Skip if parent has __call magic (dynamic method dispatch)
+                if let Some(ci) = class_info {
+                    if self.has_call_magic_in_hierarchy(&fqn, symbol_table) {
+                        return;
+                    }
+                    // Also skip if the class has a parent that's NOT in the symbol table
+                    // (can't verify method existence without parent info)
+                    if let Some(parent) = &ci.parent {
+                        if symbol_table.get_class(parent).is_none() {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Skip test files — mock objects (PHPUnit) have dynamic method() calls
+            if self.file_path.to_string_lossy().contains("test/")
+                || self.file_path.to_string_lossy().contains("Test.")
+                || self.file_path.to_string_lossy().contains("Tests/")
+            {
+                return;
+            }
+
+            // Method not found and we're confident about it
+            let display_class = if let Some(st) = self.symbol_table {
+                let fqn = self.resolve_class_name(class_name);
+                if st.get_class(&fqn).is_some() { fqn } else { class_name.to_string() }
+            } else {
+                class_name.to_string()
+            };
             let (line, col) = self.get_line_col(method_span.start.offset as usize);
             self.issues.push(
                 Issue::error(
                     "method.notFound",
                     format!(
                         "Call to an undefined method {}::{}().",
-                        class_name, method
+                        display_class, method
                     ),
                     self.file_path.clone(),
                     line,

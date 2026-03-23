@@ -412,7 +412,8 @@ mod tests {
         let set = build_pure_function_set();
         assert!(set.contains("strlen"));
         assert!(set.contains("count"));
-        assert!(set.contains("array_map"));
+        assert!(set.contains("array_filter")); // array_filter is pure (returns new array)
+        assert!(!set.contains("array_map")); // array_map is not in set (often used for side effects)
         assert!(!set.contains("echo")); // echo is not pure
     }
 }

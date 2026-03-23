@@ -248,6 +248,13 @@ impl<'s> NarrowedTypeAnalyzer<'s> {
                 }
             }
             Statement::Expression(expr_stmt) => {
+                // When a variable is assigned, invalidate its type narrowing
+                if let Expression::Assignment(assign) = &expr_stmt.expression {
+                    if let Expression::Variable(Variable::Direct(var)) = assign.lhs {
+                        let var_name = self.get_span_text(&var.span).to_string();
+                        self.type_checks.retain(|tc| tc.var_name() != var_name);
+                    }
+                }
                 self.analyze_expression(&expr_stmt.expression);
             }
             Statement::While(while_stmt) => {

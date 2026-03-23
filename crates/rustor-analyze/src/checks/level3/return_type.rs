@@ -400,7 +400,8 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                 Literal::String(_) => Some("string".to_string()),
                 Literal::Integer(_) => Some("int".to_string()),
                 Literal::Float(_) => Some("float".to_string()),
-                Literal::True(_) | Literal::False(_) => Some("bool".to_string()),
+                Literal::True(_) => Some("true".to_string()),
+                Literal::False(_) => Some("false".to_string()),
                 Literal::Null(_) => Some("null".to_string()),
             },
             Expression::Array(_) | Expression::LegacyArray(_) => Some("array".to_string()),
@@ -420,10 +421,8 @@ impl<'s> ReturnTypeAnalyzer<'s> {
                 if let Expression::Identifier(ident) = &*inst.class {
                     Some(self.get_span_text(&ident.span()).to_string())
                 } else {
-                    // For other cases (like parent, variables, etc.), return the text as-is
-                    // but only if it looks like a class name (starts with uppercase or special keyword)
-                    let text = self.get_span_text(&inst.class.span());
-                    Some(text.to_string())
+                    // For dynamic instantiation (e.g. new $var()), we can't determine the type
+                    None
                 }
             }
             Expression::Closure(_) | Expression::ArrowFunction(_) => Some("Closure".to_string()),
@@ -434,6 +433,16 @@ impl<'s> ReturnTypeAnalyzer<'s> {
     /// Check if two types are compatible
     fn types_compatible(&self, expected: &str, actual: &str, current_class: Option<&str>) -> bool {
         if expected == actual {
+            return true;
+        }
+
+        // PHP literal types: true/false are subtypes of bool
+        // actual "true" or "false" is compatible with expected "bool"
+        if expected == "bool" && (actual == "true" || actual == "false") {
+            return true;
+        }
+        // expected "true" or "false" is compatible with actual "bool" (we can't narrow at this point)
+        if (expected == "true" || expected == "false") && actual == "bool" {
             return true;
         }
 
@@ -521,10 +530,10 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             return true;
         }
 
-        // Non-null value is compatible with nullable type (?string accepts string)
+        // Non-null value is compatible with nullable type (?string accepts string, ?bool accepts true/false)
         if expected.starts_with('?') {
             let base_type = &expected[1..];
-            if actual == base_type {
+            if self.types_compatible(base_type, actual, current_class) {
                 return true;
             }
         }
@@ -814,6 +823,24 @@ impl<'s> ReturnTypeAnalyzer<'s> {
             }
             Expression::Parenthesized(p) => self.expression_contains_yield(&p.expression),
             Expression::Assignment(assign) => self.expression_contains_yield(assign.rhs),
+            Expression::Array(arr) => arr.elements.iter().any(|elem| match elem {
+                ArrayElement::KeyValue(kv) => {
+                    self.expression_contains_yield(&kv.key) ||
+                    self.expression_contains_yield(&kv.value)
+                }
+                ArrayElement::Value(val) => self.expression_contains_yield(&val.value),
+                ArrayElement::Variadic(var) => self.expression_contains_yield(&var.value),
+                ArrayElement::Missing(_) => false,
+            }),
+            Expression::LegacyArray(arr) => arr.elements.iter().any(|elem| match elem {
+                ArrayElement::KeyValue(kv) => {
+                    self.expression_contains_yield(&kv.key) ||
+                    self.expression_contains_yield(&kv.value)
+                }
+                ArrayElement::Value(val) => self.expression_contains_yield(&val.value),
+                ArrayElement::Variadic(var) => self.expression_contains_yield(&var.value),
+                ArrayElement::Missing(_) => false,
+            }),
             _ => false,
         }
     }

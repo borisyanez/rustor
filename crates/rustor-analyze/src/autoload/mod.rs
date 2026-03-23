@@ -339,3 +339,156 @@ pub struct VendorPsr4Stats {
     pub mapping_count: usize,
     pub psr4_path: PathBuf,
 }
+
+/// Scanner for Composer's autoload_files.php
+/// These are files loaded on every request, may contain classes/functions/constants
+pub struct FilesScanner {
+    files: Vec<PathBuf>,
+}
+
+impl FilesScanner {
+    /// Find autoload_files.php by searching from a directory upward
+    pub fn find_from_directory(dir: &Path) -> Option<Self> {
+        let mut current = dir.to_path_buf();
+        loop {
+            let paths_to_check = [
+                current.join("vendor/composer/autoload_files.php"),
+                current.join("libs/vendor/composer/autoload_files.php"),
+            ];
+
+            for files_path in paths_to_check {
+                if files_path.exists() {
+                    if let Some(scanner) = Self::from_file(&files_path) {
+                        return Some(scanner);
+                    }
+                }
+            }
+
+            if !current.pop() {
+                break;
+            }
+        }
+        None
+    }
+
+    fn from_file(path: &Path) -> Option<Self> {
+        let bytes = fs::read(path).ok()?;
+        let content = String::from_utf8_lossy(&bytes);
+
+        // Parse file paths from autoload_files.php
+        // Format: 'hash' => $vendorDir . '/package/file.php',
+        // or:     'hash' => $baseDir . '/file.php',
+        let vendor_dir = path.parent()?.parent()?; // go up from composer/ to vendor/
+        let base_dir = vendor_dir.parent()?; // go up from vendor/ to project root
+
+        let mut files = Vec::new();
+        let re = Regex::new(r"\$vendorDir\s*\.\s*'([^']+)'|\$baseDir\s*\.\s*'([^']+)'").unwrap();
+
+        for cap in re.captures_iter(&content) {
+            if let Some(vendor_path) = cap.get(1) {
+                let rel = vendor_path.as_str().trim_start_matches('/');
+                let full = vendor_dir.join(rel);
+                if full.exists() {
+                    files.push(full);
+                }
+            } else if let Some(base_path) = cap.get(2) {
+                let rel = base_path.as_str().trim_start_matches('/');
+                let full = base_dir.join(rel);
+                if full.exists() {
+                    files.push(full);
+                }
+            }
+        }
+
+        if files.is_empty() {
+            None
+        } else {
+            Some(Self { files })
+        }
+    }
+
+    /// Build a symbol table by scanning all autoload files
+    pub fn build_symbol_table(&self) -> SymbolTable {
+        let collected: Vec<CollectedSymbols> = self.files
+            .par_iter()
+            .filter_map(|file| {
+                let source = fs::read_to_string(file).ok()?;
+                let arena = bumpalo::Bump::new();
+                let file_id = FileId::new(file.to_string_lossy().as_ref());
+                let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                let collector = SymbolCollector::new(&source, file);
+                Some(collector.collect(&program))
+            })
+            .collect();
+
+        SymbolCollector::build_symbol_table_from_symbols(collected)
+    }
+
+    /// Get statistics
+    pub fn stats(&self) -> FilesStats {
+        FilesStats {
+            file_count: self.files.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FilesStats {
+    pub file_count: usize,
+}
+
+/// Scan arbitrary directories for PHP symbols (classes, interfaces, traits, enums)
+/// Used for PHPStan's scanDirectories config option
+pub fn scan_directories_for_symbols(dirs: &[PathBuf]) -> SymbolTable {
+    let files: Vec<PathBuf> = dirs
+        .iter()
+        .filter(|dir| dir.exists())
+        .flat_map(|dir| {
+            WalkDir::new(dir)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path().is_file()
+                        && e.path().extension().map(|x| x == "php").unwrap_or(false)
+                })
+                .map(|e| e.path().to_path_buf())
+        })
+        .collect();
+
+    let collected: Vec<CollectedSymbols> = files
+        .par_iter()
+        .filter_map(|file| {
+            let source = fs::read_to_string(file).ok()?;
+            let arena = bumpalo::Bump::new();
+            let file_id = FileId::new(file.to_string_lossy().as_ref());
+            let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+            let collector = SymbolCollector::new(&source, file);
+            Some(collector.collect(&program))
+        })
+        .collect();
+
+    SymbolCollector::build_symbol_table_from_symbols(collected)
+}
+
+/// Scan specific files for PHP symbols
+/// Used for PHPStan's scanFiles config option
+pub fn scan_files_for_symbols(files: &[PathBuf]) -> SymbolTable {
+    let collected: Vec<CollectedSymbols> = files
+        .par_iter()
+        .filter(|f| f.exists())
+        .filter_map(|file| {
+            let source = fs::read_to_string(file).ok()?;
+            let arena = bumpalo::Bump::new();
+            let file_id = FileId::new(file.to_string_lossy().as_ref());
+            let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+            let collector = SymbolCollector::new(&source, file);
+            Some(collector.collect(&program))
+        })
+        .collect();
+
+    SymbolCollector::build_symbol_table_from_symbols(collected)
+}

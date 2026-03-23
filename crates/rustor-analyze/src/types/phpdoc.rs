@@ -4,6 +4,15 @@
 
 use super::php_type::Type;
 
+/// Template parameter with optional bound
+#[derive(Debug, Clone)]
+pub struct TemplateParam {
+    /// Template parameter name (e.g., "T")
+    pub name: String,
+    /// Optional bound (e.g., "Entity" from `@template T of Entity`)
+    pub bound: Option<Type>,
+}
+
 /// Parsed PHPDoc information
 #[derive(Debug, Clone, Default)]
 pub struct PhpDoc {
@@ -17,8 +26,8 @@ pub struct PhpDoc {
     pub properties: Vec<(String, Type, PropertyAccess)>,
     /// Method signatures (@method)
     pub methods: Vec<MethodSignature>,
-    /// Template/generic parameters (@template)
-    pub templates: Vec<String>,
+    /// Template/generic parameters (@template) with bounds
+    pub templates: Vec<TemplateParam>,
     /// @throws annotations
     pub throws: Vec<Type>,
 }
@@ -41,10 +50,76 @@ pub struct MethodSignature {
 }
 
 /// Parse a PHPDoc comment block
+/// Join multi-line PHPDoc annotations into single lines.
+/// Types with unbalanced brackets (array shapes, generics) span multiple lines.
+fn join_multiline_annotations(comment: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current: Option<String> = None;
+    let mut bracket_depth: i32 = 0;
+
+    for line in comment.lines() {
+        let trimmed = line.trim()
+            .trim_start_matches(['/', '*', ' '])
+            .trim_end_matches(['/', '*', ' ']);
+
+        if let Some(ref mut current_line) = current {
+            // We're continuing a multi-line annotation
+            current_line.push(' ');
+            current_line.push_str(trimmed);
+
+            // Count brackets
+            for ch in trimmed.chars() {
+                match ch {
+                    '<' | '{' | '(' => bracket_depth += 1,
+                    '>' | '}' | ')' => bracket_depth -= 1,
+                    _ => {}
+                }
+            }
+
+            if bracket_depth <= 0 {
+                // Brackets are balanced — annotation is complete
+                result.push(current_line.clone());
+                current = None;
+                bracket_depth = 0;
+            }
+        } else if trimmed.starts_with('@') {
+            // Start of a new annotation — check if brackets are balanced
+            bracket_depth = 0;
+            for ch in trimmed.chars() {
+                match ch {
+                    '<' | '{' | '(' => bracket_depth += 1,
+                    '>' | '}' | ')' => bracket_depth -= 1,
+                    _ => {}
+                }
+            }
+
+            if bracket_depth > 0 {
+                // Unbalanced — this is a multi-line annotation
+                current = Some(trimmed.to_string());
+            } else {
+                result.push(trimmed.to_string());
+                bracket_depth = 0;
+            }
+        } else {
+            result.push(trimmed.to_string());
+        }
+    }
+
+    // Push any remaining multi-line annotation
+    if let Some(line) = current {
+        result.push(line);
+    }
+
+    result
+}
+
 pub fn parse_phpdoc(comment: &str) -> PhpDoc {
     let mut doc = PhpDoc::default();
 
-    for line in comment.lines() {
+    // First, join multi-line annotations (types with unbalanced brackets span multiple lines)
+    let joined_lines = join_multiline_annotations(comment);
+
+    for line in joined_lines.iter() {
         let line = line.trim()
             .trim_start_matches(['/', '*', ' '])
             .trim_end_matches(['/', '*', ' ']);
@@ -56,21 +131,23 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
                 }
             }
         } else if let Some(rest) = line.strip_prefix("@return") {
-            if let Some(ty) = parse_type_string(rest.trim()) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.return_type = Some(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@var") {
-            if let Some(ty) = parse_type_string(rest.trim().split_whitespace().next().unwrap_or("")) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.var_type = Some(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@throws") {
-            if let Some(ty) = parse_type_string(rest.trim()) {
+            let type_str = extract_type_from_annotation(rest.trim());
+            if let Some(ty) = parse_type_string(&type_str) {
                 doc.throws.push(ty);
             }
         } else if let Some(rest) = line.strip_prefix("@template") {
-            let name = rest.trim().split_whitespace().next().unwrap_or("");
-            if !name.is_empty() {
-                doc.templates.push(name.to_string());
+            if let Some(template) = parse_template_annotation(rest.trim()) {
+                doc.templates.push(template);
             }
         } else if let Some(rest) = line.strip_prefix("@property-read") {
             if let Some((type_str, name)) = parse_param_line(rest.trim()) {
@@ -96,26 +173,149 @@ pub fn parse_phpdoc(comment: &str) -> PhpDoc {
     doc
 }
 
-/// Parse a @param line: "Type $name" or "$name Type"
-fn parse_param_line(line: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
+/// Parse a @template annotation like "T", "T of Entity", or "T extends Entity"
+fn parse_template_annotation(rest: &str) -> Option<TemplateParam> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
 
-    if parts.len() >= 2 {
-        // Check if first part is $name
-        if parts[0].starts_with('$') {
-            // $name Type
-            let name = parts[0].trim_start_matches('$').to_string();
-            let type_str = parts[1].to_string();
-            Some((type_str, name))
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let name = parts[0].to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    // Check for "of" or "extends" keyword
+    let bound = if parts.len() >= 3 {
+        let keyword = parts[1].to_lowercase();
+        if keyword == "of" || keyword == "extends" {
+            // The bound is everything after the keyword
+            let bound_str = parts[2..].join(" ");
+            parse_type_string(&bound_str)
         } else {
-            // Type $name
-            let type_str = parts[0].to_string();
-            let name = parts[1].trim_start_matches('$').to_string();
-            Some((type_str, name))
+            None
         }
     } else {
         None
+    };
+
+    Some(TemplateParam { name, bound })
+}
+
+/// Parse a @param line: "Type $name" or "$name Type"
+/// Handles types with spaces inside generics like "array<string, string>"
+fn parse_param_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
     }
+
+    // Find the variable name (starts with $)
+    if let Some(dollar_pos) = line.find('$') {
+        // Find the end of the variable name (next whitespace or end of string)
+        let var_end = line[dollar_pos..]
+            .find(|c: char| c.is_whitespace())
+            .map(|pos| dollar_pos + pos)
+            .unwrap_or(line.len());
+
+        let name = line[dollar_pos + 1..var_end].to_string();
+
+        // Type is everything before the $ (if $ is not at start) or after the var name
+        let type_str = if dollar_pos > 0 {
+            // Type $name format - extract type properly handling generics
+            extract_type_from_annotation(&line[..dollar_pos])
+        } else {
+            // $name Type format (rare but supported)
+            // Use extract_type_from_annotation to properly handle description after type
+            let after_var = line[var_end..].trim();
+            let extracted = extract_type_from_annotation(after_var);
+            // Skip if what follows doesn't look like a valid type
+            // (descriptions that start with lowercase words like "Associated familyId")
+            if extracted.is_empty() || is_description_text(&extracted) {
+                return None;
+            }
+            extracted
+        };
+
+        if name.is_empty() || type_str.is_empty() {
+            return None;
+        }
+
+        Some((type_str, name))
+    } else {
+        None
+    }
+}
+
+/// Check if text looks like description rather than a type
+/// Returns true for words that are unlikely to be PHP type names
+fn is_description_text(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Common description words that are not types
+    let description_words = [
+        "a", "an", "the", "this", "that", "some", "any", "all", "of", "for", "to", "from",
+        "with", "by", "in", "on", "at", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "can",
+        "may", "might", "must", "shall", "if", "when", "where", "why", "how", "what", "which",
+        "who", "associated", "optional", "required", "default", "used", "using", "contains",
+        "representing", "description", "value", "values", "data", "info", "information",
+    ];
+    description_words.contains(&lower.as_str())
+}
+
+/// Extract the type part from an annotation line that may have description text
+/// Handles types with spaces inside generics like "array<string, mixed> description"
+fn extract_type_from_annotation(line: &str) -> String {
+    let line = line.trim();
+    if line.is_empty() {
+        return String::new();
+    }
+
+    // Track bracket depth to handle generics with spaces like array<string, mixed>
+    let mut depth: i32 = 0;
+    let mut end_pos = line.len();
+
+    for (i, ch) in line.char_indices() {
+        match ch {
+            '<' | '{' | '(' => depth += 1,
+            '>' | '}' | ')' => depth = depth.saturating_sub(1),
+            ' ' | '\t' if depth == 0 => {
+                // Found end of type (whitespace outside of brackets)
+                end_pos = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    line[..end_pos].to_string()
+}
+
+/// Split a type string by a delimiter, respecting bracket depth
+/// Only splits at top level (not inside < > { } ( ))
+fn split_type_at_delimiter(s: &str, delimiter: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0;
+
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' | '{' | '(' => depth += 1,
+            '>' | '}' | ')' => depth = depth.saturating_sub(1),
+            c if c == delimiter && depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
 }
 
 /// Parse a type string into a Type
@@ -130,28 +330,34 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
         return parse_type_string(inner).map(|t| Type::Nullable(Box::new(t)));
     }
 
-    // Handle union types (|)
-    if s.contains('|') && !s.contains('<') {
-        let parts: Vec<_> = s.split('|').filter_map(|p| parse_type_string(p.trim())).collect();
-        if parts.is_empty() {
-            return None;
+    // Handle union types (|) - split at top level only
+    if s.contains('|') {
+        let parts = split_type_at_delimiter(s, '|');
+        if parts.len() > 1 {
+            let parsed: Vec<_> = parts.iter().filter_map(|p| parse_type_string(p.trim())).collect();
+            if parsed.is_empty() {
+                return None;
+            }
+            if parsed.len() == 1 {
+                return Some(parsed.into_iter().next().unwrap());
+            }
+            return Some(Type::Union(parsed));
         }
-        if parts.len() == 1 {
-            return Some(parts.into_iter().next().unwrap());
-        }
-        return Some(Type::Union(parts));
     }
 
-    // Handle intersection types (&)
-    if s.contains('&') && !s.contains('<') {
-        let parts: Vec<_> = s.split('&').filter_map(|p| parse_type_string(p.trim())).collect();
-        if parts.is_empty() {
-            return None;
+    // Handle intersection types (&) - split at top level only
+    if s.contains('&') {
+        let parts = split_type_at_delimiter(s, '&');
+        if parts.len() > 1 {
+            let parsed: Vec<_> = parts.iter().filter_map(|p| parse_type_string(p.trim())).collect();
+            if parsed.is_empty() {
+                return None;
+            }
+            if parsed.len() == 1 {
+                return Some(parsed.into_iter().next().unwrap());
+            }
+            return Some(Type::Intersection(parsed));
         }
-        if parts.len() == 1 {
-            return Some(parts.into_iter().next().unwrap());
-        }
-        return Some(Type::Intersection(parts));
     }
 
     // Handle array syntax: Type[] or array<Key, Value>
@@ -159,6 +365,16 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
         let inner_type = parse_type_string(inner).unwrap_or(Type::Mixed);
         return Some(Type::List {
             value: Box::new(inner_type),
+        });
+    }
+
+    // Handle array shape syntax: array{key: type, key: type}
+    // Treat as a typed array (the shape specifies structure but we simplify to mixed array)
+    if s.starts_with("array{") || s.starts_with("non-empty-array{") {
+        // This is an array shape - we can't fully represent it, so return as array
+        return Some(Type::Array {
+            key: Box::new(Type::String),
+            value: Box::new(Type::Mixed),
         });
     }
 
@@ -219,9 +435,11 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
                     }
                 }
                 _ => {
-                    // Generic object type - just use the base name
-                    return Some(Type::Object {
-                        class_name: Some(base.to_string()),
+                    // Generic object type - parse type arguments
+                    let type_args = parse_type_arg_list(params);
+                    return Some(Type::GenericObject {
+                        class_name: base.to_string(),
+                        type_args,
                     });
                 }
             }
@@ -295,14 +513,27 @@ pub fn parse_type_string(s: &str) -> Option<Type> {
     }
 }
 
-/// Parse generic parameters like "int, string" or just "string"
-fn parse_generic_params(params: &str) -> (Type, Type) {
-    // Simple split by comma (doesn't handle nested generics properly)
-    let parts: Vec<&str> = params.splitn(2, ',').collect();
+/// Parse a comma-separated list of type arguments
+/// Handles nested generics like "Foo, Bar<Baz>"
+fn parse_type_arg_list(params: &str) -> Vec<Type> {
+    let parts = split_type_at_delimiter(params, ',');
+    parts
+        .iter()
+        .filter_map(|p| parse_type_string(p.trim()))
+        .collect()
+}
 
-    if parts.len() == 2 {
+/// Parse generic parameters like "int, string" or just "string"
+/// Handles nested generics like "int, array<string, mixed>"
+fn parse_generic_params(params: &str) -> (Type, Type) {
+    // Split by comma at top level only (respecting bracket depth)
+    let parts = split_type_at_delimiter(params, ',');
+
+    if parts.len() >= 2 {
         let key = parse_type_string(parts[0].trim()).unwrap_or(Type::Mixed);
-        let value = parse_type_string(parts[1].trim()).unwrap_or(Type::Mixed);
+        // Join remaining parts back together for the value type
+        let value_str = parts[1..].join(",");
+        let value = parse_type_string(value_str.trim()).unwrap_or(Type::Mixed);
         (key, value)
     } else {
         // Single param = value type, key is int (for list-like)
@@ -384,5 +615,87 @@ mod tests {
             parse_type_string("positive-int"),
             Some(Type::IntRange { min: Some(1), max: None })
         ));
+    }
+
+    #[test]
+    fn test_parse_template_without_bound() {
+        let doc = parse_phpdoc("/** @template T */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(doc.templates[0].bound.is_none());
+    }
+
+    #[test]
+    fn test_parse_template_with_of_bound() {
+        let doc = parse_phpdoc("/** @template T of Entity */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(matches!(
+            doc.templates[0].bound,
+            Some(Type::Object { class_name: Some(ref name) }) if name == "Entity"
+        ));
+    }
+
+    #[test]
+    fn test_parse_template_with_extends_bound() {
+        let doc = parse_phpdoc("/** @template T extends Iterator */");
+        assert_eq!(doc.templates.len(), 1);
+        assert_eq!(doc.templates[0].name, "T");
+        assert!(matches!(
+            doc.templates[0].bound,
+            Some(Type::Object { class_name: Some(ref name) }) if name == "Iterator"
+        ));
+    }
+
+    #[test]
+    fn test_parse_multiple_templates() {
+        let doc = parse_phpdoc(r#"/**
+         * @template K of int|string
+         * @template V of object
+         */"#);
+        assert_eq!(doc.templates.len(), 2);
+        assert_eq!(doc.templates[0].name, "K");
+        assert!(doc.templates[0].bound.is_some());
+        assert_eq!(doc.templates[1].name, "V");
+        assert!(matches!(
+            doc.templates[1].bound,
+            Some(Type::Object { class_name: None })
+        ));
+    }
+
+    #[test]
+    fn test_parse_generic_object_type() {
+        let result = parse_type_string("Repository<Entity>");
+        assert!(matches!(
+            result,
+            Some(Type::GenericObject { ref class_name, ref type_args })
+            if class_name == "Repository" && type_args.len() == 1
+        ));
+    }
+
+    #[test]
+    fn test_parse_generic_object_multiple_args() {
+        let result = parse_type_string("Collection<string, Entity>");
+        match result {
+            Some(Type::GenericObject { class_name, type_args }) => {
+                assert_eq!(class_name, "Collection");
+                assert_eq!(type_args.len(), 2);
+                assert!(matches!(type_args[0], Type::String));
+            }
+            _ => panic!("Expected GenericObject"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_object_nested() {
+        let result = parse_type_string("Repository<Collection<Entity>>");
+        match result {
+            Some(Type::GenericObject { class_name, type_args }) => {
+                assert_eq!(class_name, "Repository");
+                assert_eq!(type_args.len(), 1);
+                assert!(matches!(type_args[0], Type::GenericObject { .. }));
+            }
+            _ => panic!("Expected nested GenericObject"),
+        }
     }
 }

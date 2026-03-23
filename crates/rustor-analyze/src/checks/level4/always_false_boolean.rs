@@ -104,6 +104,17 @@ impl<'s> BooleanAnalyzer<'s> {
                 self.is_always_truthy(&p.expression)
             }
 
+            // Non-empty arrays are always truthy
+            Expression::Array(arr) => !arr.elements.is_empty(),
+            Expression::LegacyArray(arr) => !arr.elements.is_empty(),
+
+            // Object instantiation is always truthy
+            Expression::Instantiation(_) => true,
+
+            // Closures are always truthy
+            Expression::Closure(_) => true,
+            Expression::ArrowFunction(_) => true,
+
             // Equality comparisons with same literals
             Expression::Binary(binary) => {
                 matches!(
@@ -263,14 +274,10 @@ impl<'s> BooleanAnalyzer<'s> {
                     // Check if negating an always-truthy value
                     if self.is_always_truthy(&unary.operand) {
                         let (line, col) = self.get_line_col(expr.span().start.offset as usize);
-                        let expr_text = self.get_span_text(&expr.span());
                         self.issues.push(
                             Issue::error(
                                 "booleanNot.alwaysFalse",
-                                format!(
-                                    "Negated boolean expression is always false: {}",
-                                    expr_text
-                                ),
+                                "Negated boolean expression is always false.".to_string(),
                                 self.file_path.clone(),
                                 line,
                                 col,

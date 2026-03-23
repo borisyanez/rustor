@@ -174,7 +174,18 @@ impl<'s> VariableAnalyzer<'s> {
         false
     }
 
+    /// PHP superglobals that are always available in any scope
+    const SUPERGLOBALS: &'static [&'static str] = &[
+        "$_GET", "$_POST", "$_REQUEST", "$_SERVER", "$_SESSION", "$_COOKIE",
+        "$_FILES", "$_ENV", "$GLOBALS", "$argc", "$argv",
+    ];
+
     fn is_defined(&self, name: &str) -> bool {
+        // Superglobals are always defined in PHP (including inside closures)
+        if Self::SUPERGLOBALS.contains(&name) {
+            return true;
+        }
+
         // For closure scopes, only check the closure scope itself
         if self.current_scope().is_closure {
             return self.current_scope().is_defined(name);
@@ -670,14 +681,36 @@ impl<'s> VariableAnalyzer<'s> {
                     if let Some(name) = key {
                         self.define(name);
                     }
-                    let value = self.get_var_name(&kv.value);
-                    if let Some(name) = value {
-                        self.define(name);
+                    match &kv.value {
+                        Expression::Array(arr) => {
+                            self.define_array_destructuring_variables(arr);
+                        }
+                        Expression::List(list) => {
+                            self.define_list_variables(list);
+                        }
+                        _ => {
+                            let value = self.get_var_name(&kv.value);
+                            if let Some(name) = value {
+                                self.define(name);
+                            }
+                        }
                     }
                 } else if let ForeachTarget::Value(value) = &foreach.target {
-                    let name = self.get_var_name(&value.value);
-                    if let Some(n) = name {
-                        self.define(n);
+                    match &value.value {
+                        Expression::Array(arr) => {
+                            // foreach ($list as [$a, $b, $c]) — array destructuring
+                            self.define_array_destructuring_variables(arr);
+                        }
+                        Expression::List(list) => {
+                            // foreach ($list as list($a, $b)) — list destructuring
+                            self.define_list_variables(list);
+                        }
+                        _ => {
+                            let name = self.get_var_name(&value.value);
+                            if let Some(n) = name {
+                                self.define(n);
+                            }
+                        }
                     }
                 }
 
@@ -1761,6 +1794,64 @@ impl<'s> VariableAnalyzer<'s> {
         &self.source[span.start.offset as usize..span.end.offset as usize]
     }
 
+    /// Define variables that are set by reference parameters in certain PHP functions
+    /// These functions write to variables passed by reference, defining them after the call
+    fn define_reference_param_vars<'a, I>(&mut self, func_name: &str, args: I)
+    where
+        I: IntoIterator<Item = &'a Argument<'a>>,
+    {
+        // Map of function names to parameter indices that define variables by reference
+        let ref_params: &[(&str, &[usize])] = &[
+            // preg_match($pattern, $subject, &$matches) - defines $matches at index 2
+            ("preg_match", &[2]),
+            ("preg_match_all", &[2]),
+            // exec($command, &$output, &$return_var) - defines $output and $return_var
+            ("exec", &[1, 2]),
+            ("passthru", &[1]),
+            // parse_str($str, &$result) - defines $result
+            ("parse_str", &[1]),
+            // sscanf, fscanf - variadic reference params
+            ("sscanf", &[2, 3, 4, 5, 6]),
+            ("fscanf", &[2, 3, 4, 5, 6]),
+            // openssl functions
+            ("openssl_sign", &[1]),
+            ("openssl_seal", &[1, 2]),
+            // socket functions
+            ("socket_getpeername", &[1, 2]),
+            ("socket_getsockname", &[1, 2]),
+            // curl functions
+            ("curl_multi_info_read", &[1]),
+        ];
+
+        // Collect args into a vec for indexed access
+        let args_vec: Vec<_> = args.into_iter().collect();
+
+        for (name, indices) in ref_params {
+            if func_name == *name {
+                for &idx in *indices {
+                    if let Some(arg) = args_vec.get(idx) {
+                        // Get the variable name from the argument
+                        if let Some(var_name) = self.get_var_name_from_arg(arg) {
+                            self.define(var_name);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    /// Extract variable name from a function argument (if it's a simple variable)
+    fn get_var_name_from_arg(&self, arg: &Argument<'_>) -> Option<String> {
+        match arg.value() {
+            Expression::Variable(var) => {
+                let span = var.span();
+                Some(self.source[span.start.offset as usize..span.end.offset as usize].to_string())
+            }
+            _ => None,
+        }
+    }
+
     fn analyze_expression<'a>(&mut self, expr: &Expression<'a>, is_assignment_lhs: bool) {
         match expr {
             Expression::Variable(var) => {
@@ -1799,7 +1890,7 @@ impl<'s> VariableAnalyzer<'s> {
                             self.issues.push(
                                 Issue::error(
                                     "undefined.variable",
-                                    format!("Undefined variable {}", name),
+                                    format!("Variable {} might not be defined.", name),
                                     self.file_path.clone(),
                                     line,
                                     col,
@@ -1877,6 +1968,20 @@ impl<'s> VariableAnalyzer<'s> {
                 self.analyze_expression(arrow.expression, false);
             }
             Expression::Call(Call::Function(call)) => {
+                // Get function name for reference parameter handling
+                let func_name = match &*call.function {
+                    Expression::Identifier(ident) => {
+                        Some(self.get_span_text(&ident.span()).to_lowercase())
+                    }
+                    _ => None,
+                };
+
+                // Handle functions that define variables via reference parameters
+                // These should be defined BEFORE analyzing arguments (to avoid false positives)
+                if let Some(ref name) = func_name {
+                    self.define_reference_param_vars(name, &call.argument_list.arguments);
+                }
+
                 for arg in call.argument_list.arguments.iter() {
                     self.analyze_expression(arg.value(), false);
                 }
@@ -2045,6 +2150,16 @@ impl<'s> VariableAnalyzer<'s> {
                 self.analyze_expression(&access.array, is_assignment_lhs);
                 self.analyze_expression(&access.index, false);
             }
+            Expression::ArrayAppend(append) => {
+                // $arr[] = value — defines $arr implicitly in PHP; treat as assignment target
+                if is_assignment_lhs {
+                    if let Some(name) = self.get_var_name(append.array) {
+                        self.define(name);
+                    }
+                } else {
+                    self.analyze_expression(append.array, false);
+                }
+            }
             Expression::Access(Access::Property(access)) => {
                 self.analyze_expression(&access.object, false);
             }
@@ -2089,6 +2204,25 @@ impl<'s> VariableAnalyzer<'s> {
                 if let Some(arg_list) = &instantiate.argument_list {
                     for arg in arg_list.arguments.iter() {
                         self.analyze_expression(arg.value(), false);
+                    }
+                }
+            }
+            // Check variables inside interpolated strings, heredocs, and shell exec
+            Expression::CompositeString(composite) => {
+                let parts = match composite {
+                    CompositeString::Interpolated(s) => &s.parts,
+                    CompositeString::ShellExecute(s) => &s.parts,
+                    CompositeString::Document(s) => &s.parts,
+                };
+                for part in parts.iter() {
+                    match part {
+                        StringPart::Expression(expr) => {
+                            self.analyze_expression(expr, false);
+                        }
+                        StringPart::BracedExpression(braced) => {
+                            self.analyze_expression(&braced.expression, false);
+                        }
+                        StringPart::Literal(_) => {}
                     }
                 }
             }

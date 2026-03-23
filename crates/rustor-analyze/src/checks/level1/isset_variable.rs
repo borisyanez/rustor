@@ -420,29 +420,41 @@ impl<'s> IssetAnalyzer<'s> {
     fn analyze_if_body<'a>(&mut self, body: &IfBody<'a>) {
         match body {
             IfBody::Statement(stmt_body) => {
+                self.push_scope();
                 self.analyze_statement(stmt_body.statement);
+                self.pop_scope();
                 for else_if in stmt_body.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition);
+                    self.push_scope();
                     self.analyze_statement(else_if.statement);
+                    self.pop_scope();
                 }
                 if let Some(else_clause) = &stmt_body.else_clause {
+                    self.push_scope();
                     self.analyze_statement(else_clause.statement);
+                    self.pop_scope();
                 }
             }
             IfBody::ColonDelimited(block) => {
+                self.push_scope();
                 for stmt in block.statements.iter() {
                     self.analyze_statement(stmt);
                 }
+                self.pop_scope();
                 for else_if in block.else_if_clauses.iter() {
                     self.analyze_expression(&else_if.condition);
+                    self.push_scope();
                     for stmt in else_if.statements.iter() {
                         self.analyze_statement(stmt);
                     }
+                    self.pop_scope();
                 }
                 if let Some(else_clause) = &block.else_clause {
+                    self.push_scope();
                     for stmt in else_clause.statements.iter() {
                         self.analyze_statement(stmt);
                     }
+                    self.pop_scope();
                 }
             }
         }
@@ -450,33 +462,51 @@ impl<'s> IssetAnalyzer<'s> {
 
     fn analyze_while_body<'a>(&mut self, body: &WhileBody<'a>) {
         match body {
-            WhileBody::Statement(stmt) => self.analyze_statement(stmt),
+            WhileBody::Statement(stmt) => {
+                self.push_scope();
+                self.analyze_statement(stmt);
+                self.pop_scope();
+            }
             WhileBody::ColonDelimited(block) => {
+                self.push_scope();
                 for stmt in block.statements.iter() {
                     self.analyze_statement(stmt);
                 }
+                self.pop_scope();
             }
         }
     }
 
     fn analyze_for_body<'a>(&mut self, body: &ForBody<'a>) {
         match body {
-            ForBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForBody::Statement(stmt) => {
+                self.push_scope();
+                self.analyze_statement(stmt);
+                self.pop_scope();
+            }
             ForBody::ColonDelimited(block) => {
+                self.push_scope();
                 for stmt in block.statements.iter() {
                     self.analyze_statement(stmt);
                 }
+                self.pop_scope();
             }
         }
     }
 
     fn analyze_foreach_body<'a>(&mut self, body: &ForeachBody<'a>) {
         match body {
-            ForeachBody::Statement(stmt) => self.analyze_statement(stmt),
+            ForeachBody::Statement(stmt) => {
+                self.push_scope();
+                self.analyze_statement(stmt);
+                self.pop_scope();
+            }
             ForeachBody::ColonDelimited(block) => {
+                self.push_scope();
                 for stmt in block.statements.iter() {
                     self.analyze_statement(stmt);
                 }
+                self.pop_scope();
             }
         }
     }

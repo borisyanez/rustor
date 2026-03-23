@@ -372,6 +372,25 @@ impl<'s> UnusedParamAnalyzer<'s> {
                     }
                 }
             }
+            Expression::CompositeString(composite) => {
+                // Handle string interpolation: "$var" or "{$var}" or heredoc
+                let parts = match composite {
+                    CompositeString::Interpolated(s) => &s.parts,
+                    CompositeString::ShellExecute(s) => &s.parts,
+                    CompositeString::Document(s) => &s.parts,
+                };
+                for part in parts.iter() {
+                    match part {
+                        StringPart::Expression(expr) => {
+                            self.collect_from_expression(expr, used);
+                        }
+                        StringPart::BracedExpression(braced) => {
+                            self.collect_from_expression(&braced.expression, used);
+                        }
+                        StringPart::Literal(_) => {}
+                    }
+                }
+            }
             _ => {}
         }
     }

@@ -238,7 +238,33 @@ impl Analyzer {
             ));
         }
 
-        // Create check context with symbol table
+        // Build initial scope for this file using text-based extraction
+        let mut file_scope = scope::Scope::new();
+        for stmt in program.statements.iter() {
+            match stmt {
+                mago_syntax::ast::Statement::Namespace(ns) => {
+                    let ns_span = mago_span::HasSpan::span(ns);
+                    let ns_text = &source[ns_span.start.offset as usize..ns_span.end.offset as usize];
+                    if let Some(name_start) = ns_text.find("namespace") {
+                        let after_keyword = &ns_text[name_start + 9..];
+                        let name_end = after_keyword.find(|c: char| c == '{' || c == ';')
+                            .unwrap_or(after_keyword.len());
+                        let name = after_keyword[..name_end].trim();
+                        if !name.is_empty() {
+                            file_scope.set_namespace(name.to_string());
+                        }
+                    }
+                }
+                mago_syntax::ast::Statement::Use(use_stmt) => {
+                    let use_span = mago_span::HasSpan::span(use_stmt);
+                    let use_text = &source[use_span.start.offset as usize..use_span.end.offset as usize];
+                    Self::extract_use_imports_to_scope(use_text, &mut file_scope);
+                }
+                _ => {}
+            }
+        }
+
+        // Create check context with symbol table and scope
         let ctx = CheckContext {
             file_path: path,
             source,
@@ -246,16 +272,33 @@ impl Analyzer {
             builtin_functions: PHP_BUILTIN_FUNCTIONS,
             builtin_classes: PHP_BUILTIN_CLASSES,
             symbol_table: Some(symbol_table),
-            scope: None,        // TODO: Pass scope for variable tracking
+            scope: Some(&file_scope),
             analysis_level: self.config.level.as_u8(),
         };
 
         // Run checks for the configured level
         let checks = self.registry.checks_for_level(self.config.level.as_u8());
-        for check in checks {
+        for check in &checks {
             let check_issues = check.check(&program, &ctx);
             for issue in check_issues {
                 // Filter ignored errors
+                if !self.config.should_ignore_error(
+                    &issue.message,
+                    &issue.file,
+                    issue.identifier.as_deref(),
+                ) {
+                    issues.add(issue);
+                }
+            }
+        }
+
+        // Run scope-aware analysis via NodeScopeResolver (for type-dependent checks)
+        if self.config.level.as_u8() >= 2 {
+            let node_resolver = resolver::node_scope_resolver::NodeScopeResolver::new(
+                symbol_table, &self.config, source, path,
+            );
+            let scope_issues = node_resolver.analyze(&program, &checks, &ctx);
+            for issue in scope_issues {
                 if !self.config.should_ignore_error(
                     &issue.message,
                     &issue.file,
@@ -283,18 +326,66 @@ impl Analyzer {
         use autoload::include_scanner::IncludeScanner;
         use std::collections::HashSet;
 
-        let mut all_includes: HashSet<std::path::PathBuf> = HashSet::new();
-        let mut to_process: Vec<std::path::PathBuf> = Vec::new();
-
-        // First, find all includes from the target files
-        for file in files {
-            if let Ok(source) = fs::read_to_string(file) {
+        // First pass: parallel scan to find all includes from target files
+        let initial_includes: Vec<Vec<std::path::PathBuf>> = files
+            .par_iter()
+            .filter_map(|file| {
+                let source = fs::read_to_string(file).ok()?;
                 let arena = bumpalo::Bump::new();
                 let file_id = FileId::new(file.to_string_lossy().as_ref());
                 let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
 
                 let scanner = IncludeScanner::new(&source, file);
-                for include_path in scanner.scan(program) {
+                let includes = scanner.scan(&program);
+                if includes.is_empty() {
+                    None
+                } else {
+                    Some(includes)
+                }
+            })
+            .collect();
+
+        // Flatten and dedupe
+        let mut all_includes: HashSet<std::path::PathBuf> = HashSet::new();
+        let mut to_process: Vec<std::path::PathBuf> = Vec::new();
+        for includes in initial_includes {
+            for include_path in includes {
+                if !all_includes.contains(&include_path) {
+                    all_includes.insert(include_path.clone());
+                    to_process.push(include_path);
+                }
+            }
+        }
+
+        // Recursively process includes (up to 3 levels deep to avoid infinite loops)
+        // Use parallel processing for each batch
+        for _ in 0..3 {
+            let current_batch: Vec<_> = to_process.drain(..).collect();
+            if current_batch.is_empty() {
+                break;
+            }
+
+            let new_includes: Vec<Vec<std::path::PathBuf>> = current_batch
+                .par_iter()
+                .filter_map(|file| {
+                    let source = fs::read_to_string(file).ok()?;
+                    let arena = bumpalo::Bump::new();
+                    let file_id = FileId::new(file.to_string_lossy().as_ref());
+                    let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
+
+                    let scanner = IncludeScanner::new(&source, file);
+                    let includes = scanner.scan(&program);
+                    if includes.is_empty() {
+                        None
+                    } else {
+                        Some(includes)
+                    }
+                })
+                .collect();
+
+            // Merge results
+            for includes in new_includes {
+                for include_path in includes {
                     if !all_includes.contains(&include_path) {
                         all_includes.insert(include_path.clone());
                         to_process.push(include_path);
@@ -303,31 +394,7 @@ impl Analyzer {
             }
         }
 
-        // Recursively process includes (up to 3 levels deep to avoid infinite loops)
-        for _ in 0..3 {
-            let current_batch: Vec<_> = to_process.drain(..).collect();
-            if current_batch.is_empty() {
-                break;
-            }
-
-            for file in current_batch {
-                if let Ok(source) = fs::read_to_string(&file) {
-                    let arena = bumpalo::Bump::new();
-                    let file_id = FileId::new(file.to_string_lossy().as_ref());
-                    let (program, _) = mago_syntax::parser::parse_file_content(&arena, file_id, &source);
-
-                    let scanner = IncludeScanner::new(&source, &file);
-                    for include_path in scanner.scan(program) {
-                        if !all_includes.contains(&include_path) {
-                            all_includes.insert(include_path.clone());
-                            to_process.push(include_path);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Now collect symbols from all discovered include files
+        // Now collect symbols from all discovered include files (already parallel)
         let collected: Vec<_> = all_includes
             .par_iter()
             .filter_map(|file| {
@@ -382,6 +449,47 @@ impl Analyzer {
                     }
                 }
 
+                // Scan directories from PHPStan config (scanDirectories)
+                if !self.config.scan_directories.is_empty() {
+                    eprintln!(
+                        "Autoload: scanning {} directories from scanDirectories config",
+                        self.config.scan_directories.len()
+                    );
+                    let scan_table = autoload::scan_directories_for_symbols(&self.config.scan_directories);
+                    eprintln!(
+                        "Autoload: found {} classes in scanDirectories",
+                        scan_table.all_classes().count()
+                    );
+                    symbol_table.merge(scan_table);
+                }
+
+                // Scan files from PHPStan config (scanFiles)
+                if !self.config.scan_files.is_empty() {
+                    eprintln!(
+                        "Autoload: scanning {} files from scanFiles config",
+                        self.config.scan_files.len()
+                    );
+                    let scan_table = autoload::scan_files_for_symbols(&self.config.scan_files);
+                    eprintln!(
+                        "Autoload: found {} classes in scanFiles",
+                        scan_table.all_classes().count()
+                    );
+                    symbol_table.merge(scan_table);
+                }
+
+                // Also load autoload_files even when using cache
+                let files_scanner = autoload::FilesScanner::find_from_directory(search_dir);
+                if let Some(ref f_scanner) = files_scanner {
+                    let files_table = f_scanner.build_symbol_table();
+                    if files_table.all_classes().count() > 0 {
+                        eprintln!(
+                            "Autoload: found {} classes in autoload_files",
+                            files_table.all_classes().count()
+                        );
+                        symbol_table.merge(files_table);
+                    }
+                }
+
                 return symbol_table;
             }
         }
@@ -413,6 +521,22 @@ impl Analyzer {
             symbol_table.merge(vendor_table);
         }
 
+        // Load symbols from autoload_files.php (classes/functions not in classmap or PSR-4)
+        let files_scanner = autoload::FilesScanner::find_from_directory(search_dir);
+        if let Some(ref f_scanner) = files_scanner {
+            let stats = f_scanner.stats();
+            eprintln!(
+                "Autoload: scanning {} files from autoload_files.php",
+                stats.file_count
+            );
+            let files_table = f_scanner.build_symbol_table();
+            eprintln!(
+                "Autoload: found {} classes in autoload_files",
+                files_table.all_classes().count()
+            );
+            symbol_table.merge(files_table);
+        }
+
         // Save to cache for next time
         if let (Some(ref cm_scanner), Some(ref vp_scanner)) = (&classmap_scanner, &vendor_psr4_scanner) {
             let cache = autoload::cache::AutoloadCache::for_project(search_dir);
@@ -442,7 +566,72 @@ impl Analyzer {
             }
         }
 
+        // Scan directories from PHPStan config (scanDirectories)
+        if !self.config.scan_directories.is_empty() {
+            eprintln!(
+                "Autoload: scanning {} directories from scanDirectories config",
+                self.config.scan_directories.len()
+            );
+            let scan_table = autoload::scan_directories_for_symbols(&self.config.scan_directories);
+            eprintln!(
+                "Autoload: found {} classes in scanDirectories",
+                scan_table.all_classes().count()
+            );
+            symbol_table.merge(scan_table);
+        }
+
+        // Scan files from PHPStan config (scanFiles)
+        if !self.config.scan_files.is_empty() {
+            eprintln!(
+                "Autoload: scanning {} files from scanFiles config",
+                self.config.scan_files.len()
+            );
+            let scan_table = autoload::scan_files_for_symbols(&self.config.scan_files);
+            eprintln!(
+                "Autoload: found {} classes in scanFiles",
+                scan_table.all_classes().count()
+            );
+            symbol_table.merge(scan_table);
+        }
+
         symbol_table
+    }
+
+    /// Extract use imports from a use statement text and add them to scope
+    fn extract_use_imports_to_scope(use_text: &str, scope: &mut scope::Scope) {
+        let text = use_text.trim()
+            .trim_start_matches("use").trim()
+            .trim_start_matches("function").trim()
+            .trim_start_matches("const").trim()
+            .trim_end_matches(';').trim();
+
+        if let Some(brace_start) = text.find('{') {
+            let prefix = text[..brace_start].trim().trim_end_matches('\\');
+            if let Some(brace_end) = text.find('}') {
+                let inner = &text[brace_start + 1..brace_end];
+                for item in inner.split(',') {
+                    let item = item.trim();
+                    if item.is_empty() { continue; }
+                    let (name, alias) = if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                        (&item[..as_pos], item[as_pos + 4..].trim().to_string())
+                    } else {
+                        (item, item.rsplit('\\').next().unwrap_or(item).to_string())
+                    };
+                    scope.add_use_import(alias, format!("{}\\{}", prefix, name));
+                }
+            }
+        } else {
+            for item in text.split(',') {
+                let item = item.trim();
+                if item.is_empty() { continue; }
+                let (name, alias) = if let Some(as_pos) = item.to_lowercase().find(" as ") {
+                    (&item[..as_pos], item[as_pos + 4..].trim().to_string())
+                } else {
+                    (item, item.rsplit('\\').next().unwrap_or(item).to_string())
+                };
+                scope.add_use_import(alias, name.to_string());
+            }
+        }
     }
 }
 
@@ -483,7 +672,7 @@ mod tests {
         let analyzer = Analyzer::with_defaults();
         let source = "<?php\nmy_undefined_function();\n";
         let issues = analyzer.analyze_source(Path::new("test.php"), source).unwrap();
-        // Should find undefined function
-        assert!(issues.issues().iter().any(|i| i.message.contains("undefined function")));
+        // Should find undefined function (message: "Function X not found.")
+        assert!(issues.issues().iter().any(|i| i.message.contains("not found")));
     }
 }
